@@ -5,7 +5,7 @@
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/awslabs/mcp-server-for-oscal.git
+git clone https://github.com/dfkunstler/mcp-server-for-oscal.git
 cd mcp-server-for-oscal
 ```
 

@@ -397,4 +397,4 @@ Expected response should list the 8 GA OSCAL models across the three layers.
 
 **Package:** `mcp-server-for-oscal`
 **MCP Server:** oscal
-**GitHub:** https://github.com/awslabs/mcp-server-for-oscal
+**GitHub:** https://github.com/dfkunstler/mcp-server-for-oscal

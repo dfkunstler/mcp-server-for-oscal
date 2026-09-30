@@ -1,13 +1,13 @@
 <!-- mcp-name: io.github.awslabs/mcp-server-for-oscal -->
 <div align="center">
 
-![Build Status](https://github.com/awslabs/mcp-server-for-oscal/workflows/CI/badge.svg)
-![Version](https://img.shields.io/github/v/release/awslabs/mcp-server-for-oscal)
+![Build Status](https://github.com/dfkunstler/mcp-server-for-oscal/workflows/CI/badge.svg)
+![Version](https://img.shields.io/github/v/release/dfkunstler/mcp-server-for-oscal)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/mcp-server-for-oscal)
 [![PyPI][pypi-badge]][pypi-url]
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/mcp-server-for-oscal)][pypi-url]
-[![OSCAL](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2Fawslabs%2Fmcp-server-for-oscal%2Frefs%2Fheads%2Fmain%2Fbin%2Fupdate-oscal-schemas.sh&search=CURRENT_RELEASE_VERSION%3D%22(%5Cd.%5Cd.%5Cd)%22&replace=%241&label=OSCAL)][nist-oscal-url]
-![GitHub License](https://img.shields.io/github/license/awslabs/mcp-server-for-oscal)
+[![OSCAL](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdfkunstler%2Fmcp-server-for-oscal%2Frefs%2Fheads%2Fmain%2Fbin%2Fupdate-oscal-schemas.sh&search=CURRENT_RELEASE_VERSION%3D%22(%5Cd.%5Cd.%5Cd)%22&replace=%241&label=OSCAL)][nist-oscal-url]
+![GitHub License](https://img.shields.io/github/license/dfkunstler/mcp-server-for-oscal)
 
 </div>
 
@@ -15,8 +15,8 @@
 [pypi-url]: https://pypi.org/project/mcp-server-for-oscal/
 [nist-oscal-url]: https://pages.nist.gov/OSCAL/
 [mcp-spec-url]: https://modelcontextprotocol.io/docs/getting-started/intro
-[issues-url]: https://github.com/awslabs/mcp-server-for-oscal/issues/
-[new-issue-url]: https://github.com/awslabs/mcp-server-for-oscal/issues/new
+[issues-url]: https://github.com/dfkunstler/mcp-server-for-oscal/issues/
+[new-issue-url]: https://github.com/dfkunstler/mcp-server-for-oscal/issues/new
 
 # MCP Server for OSCAL
 <strong>

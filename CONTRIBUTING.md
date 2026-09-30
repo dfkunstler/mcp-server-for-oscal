@@ -1,5 +1,5 @@
-[issues-url]: https://github.com/awslabs/mcp-server-for-oscal/issues/
-[new-issue-url]: https://github.com/awslabs/mcp-server-for-oscal/issues/new
+[issues-url]: https://github.com/dfkunstler/mcp-server-for-oscal/issues/
+[new-issue-url]: https://github.com/dfkunstler/mcp-server-for-oscal/issues/new
 
 # Contributing Guidelines
 

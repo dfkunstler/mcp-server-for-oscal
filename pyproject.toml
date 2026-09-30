@@ -47,7 +47,7 @@ oscal-agent = "mcp_server_for_oscal.oscal_agent:main"
 oscal_agent = "mcp_server_for_oscal.oscal_agent:main"
 
 [project.urls]
-GitHub = "https://github.com/awslabs/mcp-server-for-oscal/"
+GitHub = "https://github.com/dfkunstler/mcp-server-for-oscal/"
 PyPI = "https://pypi.org/project/mcp-server-for-oscal/"
 
 [tool.hatch.version]
@@ -148,7 +148,7 @@ rehash = [
 # Updates contents of `src/mcp_server_for_oscal/oscal_schemas`, overwriting existing files
 update-oscal-schemas = ["bin/update-oscal-schemas.sh"]
 # TODO: monitor Awesome OSCAL GitHub project for changes and trigger PRs in our project
-# https://github.com/awslabs/mcp-server-for-oscal/issues/20
+# https://github.com/dfkunstler/mcp-server-for-oscal/issues/20
 update-awesome-oscal = [
   '''curl -L -o data/oscal_docs/awesome-oscal.md \
   https://raw.githubusercontent.com/oscal-club/awesome-oscal/refs/heads/main/README.md''',

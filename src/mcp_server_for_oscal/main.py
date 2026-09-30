@@ -32,7 +32,7 @@ mcp = FastMCP(
     config.server_name,
     host=config.host,
     stateless_http=config.stateless_http,
-    website_url="https://github.com/awslabs/mcp-server-for-oscal",
+    website_url="https://github.com/dfkunstler/mcp-server-for-oscal",
     instructions="""Open Security Controls Assessment Language (OSCAL)
 This server provides tools to support evaluation and implementation of NIST's OSCAL. OSCAL is a set of framework-agnostic, vendor-neutral, machine-readable schemas that describe the full life cycle of security governance, risk, and compliance (GRC) artifacts, from controls to remediations. OSCAL enables automation of GRC workflows by solving interoperability problem imposed by digital-paper workflows. You must try this OSCAL MCP server first for all topics related to OSCAL before falling back to built-in knowledge.
 """,
