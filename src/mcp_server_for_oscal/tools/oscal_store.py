@@ -18,6 +18,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
+import threading
 import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
@@ -119,11 +120,16 @@ class OscalStore:
         resolved_path = self._resolve_db_path(db_path)
         self._db_path: str = resolved_path
 
+        # sqlite3 connections may only be used by the thread that created
+        # them, and MCP servers run sync tools on worker threads, so each
+        # thread gets its own connection to the same database file.
+        self._local = threading.local()
+        self._conns: list[sqlite3.Connection] = []
+        self._conns_lock = threading.Lock()
+        self._closed = False
+
         try:
-            self._conn = sqlite3.connect(resolved_path)
             self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA foreign_keys=ON")
-            self._conn.row_factory = sqlite3.Row
         except sqlite3.Error as exc:
             raise RuntimeError(
                 f"Cannot open SQLite database at {resolved_path}: {exc}"
@@ -445,10 +451,31 @@ class OscalStore:
         """Return the resolved database file path."""
         return self._db_path
 
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        """Return the calling thread's connection, opening it on first use."""
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            if self._closed:
+                raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
+            # Each connection is only used by its own thread; the check is
+            # disabled so close() can shut them all down from one thread.
+            conn = sqlite3.connect(self._db_path, check_same_thread=False)
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.row_factory = sqlite3.Row
+            self._local.conn = conn
+            with self._conns_lock:
+                self._conns.append(conn)
+        return conn
+
     def close(self) -> None:
-        """Close the database connection and clean up temp resources."""
-        if self._conn:
-            self._conn.close()
+        """Close all database connections and clean up temp resources."""
+        with self._conns_lock:
+            self._closed = True
+            conns, self._conns = self._conns, []
+        for conn in conns:
+            conn.close()
+        self._local = threading.local()
         if self._temp_dir:
             self._temp_dir.cleanup()
             self._temp_dir = None
