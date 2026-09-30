@@ -255,6 +255,8 @@ class TestMain:
         mock_config.aws_profile = "default"
         mock_config.log_level = "INFO"
         mock_config.transport = "streamable-http"
+        mock_config.host = "0.0.0.0"
+        mock_config.stateless_http = True
 
         # Execute test
         main()
@@ -270,8 +272,11 @@ class TestMain:
         # Verify transport validation was called
         mock_config.validate_transport.assert_called_once()
 
-        # Verify MCP server was started with streamable-http transport
-        mock_mcp.run.assert_called_once_with(transport="streamable-http")
+        # Verify MCP server was started with streamable-http transport and that
+        # transport settings are passed to run() (MCPServer v2 API)
+        mock_mcp.run.assert_called_once_with(
+            transport="streamable-http", host="0.0.0.0", stateless_http=True
+        )
 
     @patch("mcp_server_for_oscal.main.mcp")
     @patch("mcp_server_for_oscal.main.config")

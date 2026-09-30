@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
 
 import requests
-from mcp.server.fastmcp.server import Context
+from mcp.server.mcpserver import Context
 from strands import tool
 from trestle.oscal.component import Capability, ComponentDefinition, DefinedComponent
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple OSCAL MCP server using FastMCP.
+Simple OSCAL MCP server using MCPServer.
 
 """
 # Import configuration
@@ -9,7 +9,7 @@ import logging
 from importlib.metadata import metadata
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from mcp_server_for_oscal.config import config
 from mcp_server_for_oscal.tools.utils import verify_package_integrity
@@ -28,10 +28,9 @@ except ValueError:
 meta = metadata(__package__)
 
 # Create MCP server using configuration
-mcp = FastMCP(
+mcp = MCPServer(
     config.server_name,
-    host=config.host,
-    stateless_http=config.stateless_http,
+    version=meta.get("version") or "",
     website_url="https://github.com/dfkunstler/mcp-server-for-oscal",
     instructions="""Open Security Controls Assessment Language (OSCAL)
 This server provides tools to support evaluation and implementation of NIST's OSCAL. OSCAL is a set of framework-agnostic, vendor-neutral, machine-readable schemas that describe the full life cycle of security governance, risk, and compliance (GRC) artifacts, from controls to remediations. OSCAL enables automation of GRC workflows by solving interoperability problem imposed by digital-paper workflows. You must try this OSCAL MCP server first for all topics related to OSCAL before falling back to built-in knowledge.
@@ -189,7 +188,14 @@ def main():
     _setup_tools()
     # Run the MCP server with the configured transport
     try:
-        mcp.run(transport=config.transport)
+        if config.transport == "streamable-http":
+            mcp.run(
+                transport="streamable-http",
+                host=config.host,
+                stateless_http=config.stateless_http,
+            )
+        else:
+            mcp.run(transport="stdio")
     except KeyboardInterrupt:
         logger.info("Shutdown due to keyboard interrupt")
     except Exception:

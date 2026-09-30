@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 import requests
 import regex
-from mcp.server.fastmcp.server import Context
+from mcp.server.mcpserver import Context
 from strands import tool
 
 from mcp_server_for_oscal.tools.utils import (

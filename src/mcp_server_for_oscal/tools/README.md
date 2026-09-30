@@ -1,6 +1,6 @@
 # OSCAL MCP Server Tools
 
-This package contains all tool implementations for the OSCAL MCP server. Each tool is implemented as a Python module with the `@tool` decorator from the `strands` library, making them automatically discoverable by the FastMCP server.
+This package contains all tool implementations for the OSCAL MCP server. Each tool is implemented as a Python module with the `@tool` decorator from the `strands` library, making them automatically discoverable by the MCP server (`MCPServer`).
 
 ## Available Tools
 
@@ -346,11 +346,11 @@ Returns a dict with keys: `id`, `title`, `element_type`, `description`, `parentD
 ## Implementation Details
 
 ### Tool Registration
-Tools are registered in `main.py` using the FastMCP framework. Tool functions are collected by `get_tool_list()` in `tools/__init__.py`, which gathers the original tools, query/list tools from `query_oscal_models.py`, and `query_oscal_documentation` (always included). The `about` tool is registered separately in `main.py` as an MCP-server-only tool.
+Tools are registered in `main.py` using the MCP Python SDK's `MCPServer` (formerly `FastMCP`). Tool functions are collected by `get_tool_list()` in `tools/__init__.py`, which gathers the original tools, query/list tools from `query_oscal_models.py`, and `query_oscal_documentation` (always included). The `about` tool is registered separately in `main.py` as an MCP-server-only tool.
 
 ### Dependencies
 - **strands**: Provides the `@tool` decorator for tool definitions
-- **FastMCP**: MCP server framework
+- **MCPServer** (MCP Python SDK v2): MCP server framework
 - **compliance-trestle**: OSCAL Pydantic models and utilities
 - **OscalStore**: SQLite-backed content indexing and full-text search (`oscal_store.py`)
 - **boto3**: AWS SDK (for documentation queries)

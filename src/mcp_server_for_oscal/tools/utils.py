@@ -4,16 +4,27 @@ Shared utilities for OSCAL MCP tools.
 
 import asyncio
 import logging
+import warnings
 from enum import StrEnum
 import json
 from typing import Literal
 from pathlib import Path
 import hashlib
 
-from mcp.server.fastmcp.server import Context
+import anyio.from_thread
+from mcp import MCPDeprecationWarning
+from mcp.server.mcpserver import Context
 from mcp_server_for_oscal.config import config
 
 logger = logging.getLogger(__name__)
+
+# MCP client logging is deprecated as of protocol 2026-07-28 (SEP-2577) but is
+# still delivered to clients that opt in; server-side logging is done by callers.
+warnings.filterwarnings(
+    "ignore",
+    message="The logging capability is deprecated",
+    category=MCPDeprecationWarning,
+)
 
 
 class OSCALModelType(StrEnum):
@@ -78,10 +89,16 @@ def safe_log_mcp(
         loop = asyncio.get_running_loop()
         # Already in async context - can't use asyncio.run()
         loop.create_task(log_fn(msg))
+        return
+    except RuntimeError:
+        pass
+    try:
+        # Sync tool running on an MCPServer worker thread - hand the coroutine
+        # back to the server's event loop, which owns the session streams.
+        anyio.from_thread.run(log_fn, msg)
     except RuntimeError:
         # Not in async context - safe to use asyncio.run()
         asyncio.run(log_fn(msg))
-
 
 def verify_package_integrity(directory: Path) -> None:
     """Verify all files in a package directory match their expected SHA-256 hashes.

@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from mcp_server_for_oscal.main import mcp, _setup_tools
 from mcp_server_for_oscal.tools.get_schema import get_oscal_schema
@@ -48,8 +48,8 @@ class TestIntegration:
 
     def test_mcp_server_initialization(self):
         """Test that the MCP server is properly initialized."""
-        # Verify MCP server is a FastMCP instance
-        assert isinstance(mcp, FastMCP)
+        # Verify MCP server is an MCPServer instance
+        assert isinstance(mcp, MCPServer)
 
         # Verify server has the expected name
         assert mcp.name == "OSCAL"  # Default from config
@@ -196,9 +196,9 @@ class TestIntegration:
         mock_config.server_name = "Custom OSCAL Server"
 
         # Create new MCP instance with custom config
-        from mcp_server_for_oscal.main import FastMCP
+        from mcp_server_for_oscal.main import MCPServer
 
-        custom_mcp = FastMCP(mock_config.server_name, instructions="Test instructions")
+        custom_mcp = MCPServer(mock_config.server_name, instructions="Test instructions")
 
         # Verify custom name is used
         assert custom_mcp.name == "Custom OSCAL Server"

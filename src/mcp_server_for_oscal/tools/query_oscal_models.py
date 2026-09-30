@@ -11,7 +11,7 @@ These tools are NOT registered in ``__init__.py`` yet — see task 6.3.
 import logging
 from typing import Literal
 
-from mcp.server.fastmcp.server import Context
+from mcp.server.mcpserver import Context
 from strands import tool
 
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
