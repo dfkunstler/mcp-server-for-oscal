@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
 
 import requests
-from mcp.server.fastmcp.server import Context
+from mcp.server.mcpserver import Context
 from strands import tool
 from trestle.oscal.component import Capability, ComponentDefinition, DefinedComponent
 
@@ -313,7 +313,14 @@ class ComponentDefinitionStore:
         components: list[DefinedComponent], component_type: str,
     ) -> list[DefinedComponent]:
         """Filter components by their type field."""
-        return [c for c in components if c.type == component_type]
+
+        def _type_str(c: DefinedComponent) -> str:
+            # trestle wraps the type in a root model (``__root__`` on trestle<5,
+            # ``root`` on trestle>=5) or a valid-values enum; unwrap to compare.
+            value = getattr(c.type, "root", getattr(c.type, "__root__", c.type))
+            return str(getattr(value, "value", value))
+
+        return [c for c in components if _type_str(c) == component_type]
 
     # ------------------------------------------------------------------
     # Public query API

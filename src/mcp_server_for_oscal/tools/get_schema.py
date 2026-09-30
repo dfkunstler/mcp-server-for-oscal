@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp.server import Context
+from mcp.server.mcpserver import Context
 from strands import tool
 
 from mcp_server_for_oscal.tools.utils import (
