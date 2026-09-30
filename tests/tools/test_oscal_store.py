@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -1688,6 +1689,51 @@ class TestTextSearch:
 # ---------------------------------------------------------------------------
 # Tests for list_documents() and list_child_elements()
 # ---------------------------------------------------------------------------
+
+
+class TestThreadSafety:
+    """OscalStore must be usable from threads other than the one that built it.
+
+    MCP servers run sync tools on worker threads, so a store created during
+    startup is queried from a different thread than the one that opened it.
+    """
+
+    def test_search_from_worker_thread(self, store, tmp_path):
+        """A query from another thread sees the same data as the creator."""
+        TestTextSearch()._index_component_definition(store, tmp_path)
+        expected = store.text_search("Sample")["total"]
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            result = pool.submit(store.text_search, "Sample").result()
+
+        assert expected > 0
+        assert result["total"] == expected
+
+    def test_concurrent_queries_from_many_threads(self, store, tmp_path):
+        """Many threads can query at once without sharing a connection."""
+        TestTextSearch()._index_component_definition(store, tmp_path)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            totals = list(pool.map(
+                lambda _: store.list_documents()["total"], range(32)
+            ))
+
+        assert totals == [1] * 32
+
+    def test_close_closes_connections_from_all_threads(self, tmp_path):
+        """close() shuts down connections opened by other threads."""
+        s = OscalStore(
+            db_path=str(tmp_path / "t.db"), seed_from_bundled=False
+        )
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            worker_conn = pool.submit(lambda: s._conn).result()
+
+        s.close()
+
+        with pytest.raises(sqlite3.ProgrammingError):
+            worker_conn.execute("SELECT 1")
+        with pytest.raises(sqlite3.ProgrammingError):
+            s.list_documents()
 
 
 class TestListDocuments:
