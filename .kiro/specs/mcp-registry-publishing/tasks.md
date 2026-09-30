@@ -7,7 +7,7 @@
 - [x] 1.4 Add `environmentVariables` array inside the packages entry documenting `BEDROCK_MODEL_ID`, `OSCAL_KB_ID`, `AWS_PROFILE`, `AWS_REGION`, and `LOG_LEVEL` with `name`, `description`, and `required` fields
 
 ## Task 2: Add PyPI ownership verification tag to README
-- [x] 2.1 Add `<!-- mcp-name: io.github.awslabs/mcp-server-for-oscal -->` HTML comment near the top of `README.md`
+- [x] 2.1 Add `<!-- mcp-name: io.github.dfkunstler/mcp-server-for-oscal -->` HTML comment near the top of `README.md`
 
 ## Task 3: Update release workflow for MCP Registry publishing
 - [x] 3.1 Add `mcp-registry-publish` job to `.github/workflows/release.yml` that depends on `pypi-publish` job

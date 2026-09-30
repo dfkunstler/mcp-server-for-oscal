@@ -48,7 +48,7 @@ class TestServerJsonName:
     def test_name_field_value(self, server_data):
         assert (
             server_data["name"]
-            == "io.github.awslabs/mcp-server-for-oscal"
+            == "io.github.dfkunstler/mcp-server-for-oscal"
         )
 
 
@@ -73,7 +73,7 @@ class TestServerJsonRepository:
 
     def test_repository_url(self, server_data):
         repo = server_data["repository"]
-        assert repo["url"] == "https://github.com/awslabs/mcp-server-for-oscal"
+        assert repo["url"] == "https://github.com/dfkunstler/mcp-server-for-oscal"
 
     def test_repository_source(self, server_data):
         repo = server_data["repository"]

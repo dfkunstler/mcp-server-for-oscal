@@ -77,7 +77,7 @@ A JSON file in the project root conforming to `https://static.modelcontextprotoc
 
 Add an HTML comment near the top of the file:
 ```html
-<!-- mcp-name: io.github.awslabs/mcp-server-for-oscal -->
+<!-- mcp-name: io.github.dfkunstler/mcp-server-for-oscal -->
 ```
 This comment is invisible to rendered markdown but present in the PyPI package description, allowing the MCP Registry to verify ownership.
 
@@ -112,12 +112,12 @@ A shell snippet in the release workflow that:
 ```json
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.awslabs/mcp-server-for-oscal",
+  "name": "io.github.dfkunstler/mcp-server-for-oscal",
   "title": "MCP Server for OSCAL",
   "description": "AI agent tools for Open Security Controls Assessment Language (OSCAL)",
   "version": "0.0.0",
   "repository": {
-    "url": "https://github.com/awslabs/mcp-server-for-oscal",
+    "url": "https://github.com/dfkunstler/mcp-server-for-oscal",
     "source": "github"
   },
   "packages": [

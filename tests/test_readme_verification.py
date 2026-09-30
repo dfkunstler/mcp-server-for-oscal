@@ -12,7 +12,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 README_PATH = PROJECT_ROOT / "README.md"
 
-EXPECTED_MCP_NAME = "io.github.awslabs/mcp-server-for-oscal"
+EXPECTED_MCP_NAME = "io.github.dfkunstler/mcp-server-for-oscal"
 MCP_NAME_PATTERN = re.compile(r"<!--\s*mcp-name:\s*(.+?)\s*-->")
 
 

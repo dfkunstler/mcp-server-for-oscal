@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This feature enables publishing the `mcp-server-for-oscal` MCP server to the official MCP Registry at https://modelcontextprotocol.io/registry/. The MCP Registry is a metadata registry that points to packages hosted on PyPI, npm, Docker Hub, etc. Publishing involves creating a `server.json` metadata file, adding a PyPI ownership verification tag to the README, and automating the publish process via GitHub Actions using OIDC authentication under the `io.github.awslabs` namespace.
+This feature enables publishing the `mcp-server-for-oscal` MCP server to the official MCP Registry at https://modelcontextprotocol.io/registry/. The MCP Registry is a metadata registry that points to packages hosted on PyPI, npm, Docker Hub, etc. Publishing involves creating a `server.json` metadata file, adding a PyPI ownership verification tag to the README, and automating the publish process via GitHub Actions using OIDC authentication under the `io.github.dfkunstler` namespace.
 
 ## Glossary
 
@@ -11,8 +11,8 @@ This feature enables publishing the `mcp-server-for-oscal` MCP server to the off
 - **MCP_Publisher_CLI**: The `mcp-publisher` command-line tool used to validate and publish `server.json` to the MCP_Registry.
 - **PyPI_Verification_Tag**: An HTML comment embedded in the package README containing `mcp-name: <SERVER_NAME>` that the MCP_Registry uses to verify PyPI package ownership.
 - **GitHub_OIDC**: GitHub's OpenID Connect token-based authentication mechanism that allows GitHub Actions workflows to authenticate with external services without storing secrets.
-- **Namespace**: A scoped identifier prefix in the MCP_Registry derived from the GitHub organization (e.g., `io.github.awslabs`).
-- **Server_Name**: The fully qualified identifier for the server in the MCP_Registry, formatted as `io.github.awslabs/mcp-server-for-oscal`.
+- **Namespace**: A scoped identifier prefix in the MCP_Registry derived from the GitHub organization (e.g., `io.github.dfkunstler`).
+- **Server_Name**: The fully qualified identifier for the server in the MCP_Registry, formatted as `io.github.dfkunstler/mcp-server-for-oscal`.
 - **Hatch_VCS**: The hatch build plugin that derives the Python package version from git tags.
 - **Release_Workflow**: The existing GitHub Actions workflow (`.github/workflows/release.yml`) triggered on GitHub release events that publishes the package to PyPI.
 
@@ -25,9 +25,9 @@ This feature enables publishing the `mcp-server-for-oscal` MCP server to the off
 #### Acceptance Criteria
 
 1. THE server.json SHALL contain a `$schema` field pointing to `https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`.
-2. THE server.json SHALL contain a `name` field set to the Server_Name `io.github.awslabs/mcp-server-for-oscal`.
+2. THE server.json SHALL contain a `name` field set to the Server_Name `io.github.dfkunstler/mcp-server-for-oscal`.
 3. THE server.json SHALL contain `title`, `description`, and `version` fields describing the server.
-4. THE server.json SHALL contain a `repository` object with `url` set to `https://github.com/awslabs/mcp-server-for-oscal` and `source` set to `github`.
+4. THE server.json SHALL contain a `repository` object with `url` set to `https://github.com/dfkunstler/mcp-server-for-oscal` and `source` set to `github`.
 5. THE server.json SHALL contain a `packages` array with at least one entry where `registryType` is `pypi`, `identifier` is `mcp-server-for-oscal`, and `transport` includes an entry with `type` set to `stdio`.
 6. THE server.json SHALL be valid JSON that passes validation against the MCP Registry schema.
 
@@ -37,7 +37,7 @@ This feature enables publishing the `mcp-server-for-oscal` MCP server to the off
 
 #### Acceptance Criteria
 
-1. THE README.md SHALL contain an HTML comment with the text `mcp-name: io.github.awslabs/mcp-server-for-oscal`.
+1. THE README.md SHALL contain an HTML comment with the text `mcp-name: io.github.dfkunstler/mcp-server-for-oscal`.
 2. THE PyPI_Verification_Tag in README.md SHALL match the `name` field in server.json exactly.
 3. WHEN the package is built and published to PyPI, THE PyPI_Verification_Tag SHALL be present in the published package description visible to the MCP_Registry verification process.
 
