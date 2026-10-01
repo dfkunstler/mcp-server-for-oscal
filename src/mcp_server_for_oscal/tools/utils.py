@@ -7,6 +7,8 @@ import logging
 import warnings
 from enum import StrEnum
 import json
+import re
+from functools import cache
 from typing import Literal
 from pathlib import Path
 import hashlib
@@ -73,6 +75,33 @@ def load_oscal_json_schema(model_type: OSCALModelType) -> dict:
     schema_path = Path(__file__).parent.parent / "oscal_schemas" / f"{schema_base}.json"
     with open(schema_path) as f:
         return json.load(f)
+
+
+# Bundled schema "$id" values embed the OSCAL release, e.g.
+# http://csrc.nist.gov/ns/oscal/1.2.3/oscal-catalog-schema.json
+_SCHEMA_ID_VERSION_RE = re.compile(r"/(\d+\.\d+\.\d+)/oscal-[\w-]+-schema\.json$")
+
+
+def oscal_version_from_schema(schema: dict) -> str:
+    """Extract the OSCAL release version from a JSON schema's ``$id``.
+
+    Raises:
+        ValueError: If the ``$id`` does not contain a recognizable version.
+    """
+    schema_id = schema.get("$id", "")
+    match = _SCHEMA_ID_VERSION_RE.search(schema_id)
+    if not match:
+        raise ValueError(f"No OSCAL version found in schema $id: {schema_id!r}")
+    return match.group(1)
+
+
+@cache
+def get_bundled_oscal_version() -> str:
+    """Return the OSCAL version of the bundled schemas.
+
+    Read from the schemas themselves so it can't drift from what is shipped.
+    """
+    return oscal_version_from_schema(load_oscal_json_schema(OSCALModelType.CATALOG))
 
 
 def try_notify_client_error(msg: str, ctx: Context | None) -> None:
