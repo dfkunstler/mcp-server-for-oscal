@@ -102,7 +102,7 @@ def _setup_tools() -> None:
         return {
             "version": meta.get("version"),
             "keywords": meta.get("keywords"),
-            "oscal-version": "1.2.1",
+            "oscal-version": "1.2.3",
         }
 
 def main():
