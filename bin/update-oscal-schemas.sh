@@ -24,7 +24,7 @@
 # This ensures the script works regardless of where it's called from
 SCRIPT_DIR="$(CDPATH="" cd -- "$(dirname -- "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-CURRENT_RELEASE_VERSION="1.2.1"
+CURRENT_RELEASE_VERSION="1.2.3"
 
 # Define the target directory where OSCAL schemas will be stored
 # This is where the MCP server will look for schema definitions
