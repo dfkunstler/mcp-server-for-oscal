@@ -30,6 +30,9 @@ jobs:
         with:
           node-version: "20"
 
+      # uv is used to lock the MCPB bundle's dependencies
+      - uses: astral-sh/setup-uv@v6
+
       - name: Validate server.json against MCP Registry schema
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher && sudo mv mcp-publisher /usr/local/bin/
@@ -55,5 +58,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: python-packages
-          path: build/
+          path: |
+            build/*.whl
+            build/*.tar.gz
+          if-no-files-found: error
+
+      - name: Upload MCP Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcpb
+          path: build/*.mcpb
           if-no-files-found: error

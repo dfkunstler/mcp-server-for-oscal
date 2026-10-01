@@ -154,7 +154,7 @@ update-awesome-oscal = [
   https://raw.githubusercontent.com/oscal-club/awesome-oscal/refs/heads/main/README.md''',
 ]
 
-release = ["hatch run tests", "git status", "./bin/refresh-nist-docs.sh", "build-db", "hatch build"]
+release = ["hatch run tests", "git status", "./bin/refresh-nist-docs.sh", "build-db", "hatch build", "build-mcpb"]
 
 typing = [
   # Type checking using mypy
@@ -189,6 +189,12 @@ tests = ["typing", "hatch test --exitfirst --all --cover --junitxml private/docs
 
 build-db = [
   "python bin/build_oscal_db.py",
+]
+
+# Package the most recently built wheel as an MCP Bundle (.mcpb) in ./build.
+# Run `hatch build` first. Requires uv and npx (Node.js).
+build-mcpb = [
+  "python bin/build_mcpb.py",
 ]
 
 build-agentcore-container = [

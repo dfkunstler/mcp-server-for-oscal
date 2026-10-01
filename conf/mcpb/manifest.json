@@ -1,0 +1,94 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
+  "manifest_version": "0.4",
+  "name": "mcp-server-for-oscal",
+  "display_name": "MCP Server for OSCAL",
+  "version": "0.0.0",
+  "description": "AI agent tools for Open Security Controls Assessment Language (OSCAL).",
+  "long_description": "Tools to explore, query, and validate NIST OSCAL content: model schemas, catalogs, profiles, SSPs, component definitions, assessment plans and results, POA&Ms, and mapping collections. Ships with bundled OSCAL schemas, documentation, and AWS component definitions, and can index your own OSCAL documents from a local directory.",
+  "author": {
+    "name": "fritz kunstler",
+    "url": "https://github.com/dfkunstler"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dfkunstler/mcp-server-for-oscal"
+  },
+  "homepage": "https://github.com/dfkunstler/mcp-server-for-oscal",
+  "documentation": "https://github.com/dfkunstler/mcp-server-for-oscal#readme",
+  "support": "https://github.com/dfkunstler/mcp-server-for-oscal/issues",
+  "server": {
+    "type": "uv",
+    "entry_point": "src/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--frozen", "--directory", "${__dirname}", "src/server.py"],
+      "env": {
+        "OSCAL_DOCUMENTS_DIR": "${user_config.oscal_documents_dir}",
+        "OSCAL_ALLOW_REMOTE_URIS": "${user_config.allow_remote_uris}",
+        "OSCAL_KB_ID": "${user_config.knowledge_base_id}",
+        "AWS_PROFILE": "${user_config.aws_profile}",
+        "AWS_REGION": "${user_config.aws_region}",
+        "LOG_LEVEL": "${user_config.log_level}"
+      }
+    }
+  },
+  "tools": [],
+  "tools_generated": false,
+  "keywords": [
+    "OSCAL",
+    "compliance as code",
+    "security as code",
+    "compliance automation",
+    "continuous compliance",
+    "security assurance",
+    "grc engineering"
+  ],
+  "license": "Apache-2.0",
+  "compatibility": {
+    "platforms": ["darwin", "linux", "win32"],
+    "runtimes": {
+      "python": ">=3.11"
+    }
+  },
+  "user_config": {
+    "oscal_documents_dir": {
+      "type": "directory",
+      "title": "OSCAL documents directory",
+      "description": "Optional directory of your own OSCAL JSON files (catalogs, profiles, SSPs, etc.) to index alongside the bundled content.",
+      "required": false
+    },
+    "allow_remote_uris": {
+      "type": "boolean",
+      "title": "Allow remote URIs",
+      "description": "Allow tools to fetch OSCAL content from remote (http/https) URIs.",
+      "required": false,
+      "default": false
+    },
+    "knowledge_base_id": {
+      "type": "string",
+      "title": "Bedrock Knowledge Base ID",
+      "description": "Optional Amazon Bedrock Knowledge Base ID for OSCAL documentation queries. Leave empty to use the bundled local documentation search.",
+      "required": false
+    },
+    "aws_profile": {
+      "type": "string",
+      "title": "AWS profile",
+      "description": "Optional AWS CLI profile used for Bedrock Knowledge Base queries.",
+      "required": false
+    },
+    "aws_region": {
+      "type": "string",
+      "title": "AWS region",
+      "description": "Optional AWS region used for Bedrock Knowledge Base queries.",
+      "required": false
+    },
+    "log_level": {
+      "type": "string",
+      "title": "Log level",
+      "description": "Logging verbosity: DEBUG, INFO, WARNING, or ERROR.",
+      "required": false,
+      "default": "INFO"
+    }
+  }
+}
