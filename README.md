@@ -28,12 +28,25 @@ A Model Context Protocol (MCP) server that provides AI assistants (Claude, Cline
 > [!TIP]
 > To get started, see [Installation](#installation) below.
 
+## Contents
+
+- [Features](#features): what the tools cover, local-only operation, and integrity checks
+- [What is OSCAL?](#what-is-oscal) and [What is MCP?](#what-is-mcp): background
+- [How to use / examples](#how-to-use--examples): sample sessions covering models, templates, catalogs, and AWS component definitions
+- [Installation](#installation): prerequisites and configuration for Kiro, Claude Desktop (MCP Bundle), and VS Code
+- [Using your own OSCAL Content](#using-your-own-oscal-content): `OSCAL_DOCUMENTS_DIR` and store settings
+- [OSCAL Agent](#oscal-agent): the standalone Strands/Bedrock agent, sessions, and conversation management
+- [Development](#development), [Security](#security), [Known limitations](#known-limitations), [Related projects](#related-projects), [License](#license)
+
 ## Features
+<!-- tags: features, overview, security -->
 Together, the tools provided by this MCP server are meant to enable your preferred AI assistant to provide accurate, authoritative guidance about OSCAL architecture, models, use-cases, requirements, and implementation. You don't need to understand the tools to use them, but details are in the [tools](src/mcp_server_for_oscal/tools/) directory. 
 
 The server is lightweight and meant to run locally without additional setup. By default, it uses `stdio` protocol for MCP transport. Do not attempt to use the server with `streamable-http` transport, as we've not yet implemented transport security or authentication. 
 
-The default tools should not connect to any remote services or resources - all required content is bundled with the server. As a security measure, we've implemented basic file integrity verification for bundled content. At build-time we generate manifests including SHA-256 hashes of all content files. Each time the server starts, all content files are verified against the hash manifests. Any mismatch should produce an error and prevent startup.
+The default tools should not connect to any remote services or resources - all required content is bundled with the server. As a security measure, we've implemented basic file integrity verification for bundled content. At build-time we generate manifests including SHA-256 hashes of the bundled OSCAL schemas and the pre-built content database. Each time the server starts, both are verified against their manifests. A schema mismatch produces an error and prevents startup; a database mismatch causes the server to discard the bundled database and start with an empty one.
+
+The tools cover OSCAL schemas and model metadata, multi-level content validation, Component Definition navigation, query/list/full-text search for every OSCAL model type (catalogs, profiles, SSPs, assessment plans and results, POA&Ms, mapping collections), community resources, and documentation search. See the [tools README](src/mcp_server_for_oscal/tools/README.md) for the full list.
 
 In addition to the MCP server, the package includes a standalone OSCAL agent built with [Strands Agents](https://github.com/strands-agents/sdk-python). See the [OSCAL Agent](#oscal-agent) section below.
 
@@ -462,7 +475,7 @@ Set the `OSCAL_DOCUMENTS_DIR` environment variable to the path of your OSCAL con
 
 The server scans the directory recursively for `.json` files and indexes any valid OSCAL documents it finds. Your content is merged with the bundled content — both are queryable in the same session.
 
-Two additional environment variables control the OSCAL store behavior:
+These environment variables control the OSCAL store behavior:
 
 | Variable | Default | Description |
 |---|---|---|
