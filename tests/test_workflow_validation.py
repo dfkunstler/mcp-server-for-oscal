@@ -55,10 +55,7 @@ class TestReleaseWorkflowMcpPublisher:
     def test_uses_mcp_publisher(self, release_workflow):
         job = release_workflow["jobs"]["mcp-registry-publish"]
         steps = job.get("steps", [])
-        has_mcp_publisher = any(
-            "mcp-publisher" in str(step.get("run", ""))
-            for step in steps
-        )
+        has_mcp_publisher = any("mcp-publisher" in str(step.get("run", "")) for step in steps)
         assert has_mcp_publisher, (
             "mcp-registry-publish job must use mcp-publisher in at least one step"
         )
@@ -70,13 +67,9 @@ class TestReleaseWorkflowErrorIsolation:
     def test_has_continue_on_error(self, release_workflow):
         job = release_workflow["jobs"]["mcp-registry-publish"]
         steps = job.get("steps", [])
-        has_error_isolation = any(
-            step.get("continue-on-error") is True
-            for step in steps
-        )
+        has_error_isolation = any(step.get("continue-on-error") is True for step in steps)
         assert has_error_isolation, (
-            "mcp-registry-publish job must have at least one step "
-            "with continue-on-error: true"
+            "mcp-registry-publish job must have at least one step with continue-on-error: true"
         )
 
 
@@ -104,9 +97,7 @@ class TestBuildWorkflowValidation:
             for step in steps:
                 step_name = str(step.get("name", "")).lower()
                 step_run = str(step.get("run", "")).lower()
-                if (
-                    "mcp-publisher" in step_run and "validate" in step_run
-                ) or (
+                if ("mcp-publisher" in step_run and "validate" in step_run) or (
                     "server.json" in step_name and "validat" in step_name
                 ):
                     found = True

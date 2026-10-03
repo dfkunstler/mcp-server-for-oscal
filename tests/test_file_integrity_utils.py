@@ -39,9 +39,7 @@ class TestPackageManager:
         """Get the temporary directory path."""
         return self._temp_dir
 
-    def create_test_package(
-        self, package_name: str, files: dict[str, str | bytes]
-    ) -> Path:
+    def create_test_package(self, package_name: str, files: dict[str, str | bytes]) -> Path:
         """Create a test package with specified files and generate hash manifest.
 
         Args:
@@ -96,9 +94,7 @@ class TestPackageManager:
         # This is much faster for tests (no subprocess overhead)
         capture_file_state(directory=str(package_dir), outdir=str(package_dir))
 
-    def tamper_file(
-        self, package_dir: Path, filename: str, modification: str = "append"
-    ) -> None:
+    def tamper_file(self, package_dir: Path, filename: str, modification: str = "append") -> None:
         """Modify a file to simulate tampering.
 
         Args:
@@ -110,18 +106,14 @@ class TestPackageManager:
         """
         file_path = package_dir / filename
         if not file_path.exists():
-            raise FileNotFoundError(
-                f"File {filename} not found in package {package_dir}"
-            )
+            raise FileNotFoundError(f"File {filename} not found in package {package_dir}")
 
         if modification == "append":
             with open(file_path, "a", encoding="utf-8") as f:
                 f.write("\n# TAMPERED CONTENT")
         elif modification == "prepend":
             original_content = file_path.read_text(encoding="utf-8")
-            file_path.write_text(
-                "# TAMPERED CONTENT\n" + original_content, encoding="utf-8"
-            )
+            file_path.write_text("# TAMPERED CONTENT\n" + original_content, encoding="utf-8")
         elif modification == "replace":
             file_path.write_text("COMPLETELY REPLACED CONTENT", encoding="utf-8")
         elif modification == "truncate":
@@ -324,13 +316,10 @@ def assert_integrity_fails(package_dir: Path, expected_error_pattern: str) -> No
         # The key name should match the expected error pattern (filename)
         if expected_error_pattern not in str(e):
             raise AssertionError(
-                f"Expected error containing '{expected_error_pattern}', "
-                f"but got KeyError: {e}"
+                f"Expected error containing '{expected_error_pattern}', but got KeyError: {e}"
             )
     except Exception as e:
-        raise AssertionError(
-            f"Expected RuntimeError or KeyError, but got {type(e).__name__}: {e}"
-        )
+        raise AssertionError(f"Expected RuntimeError or KeyError, but got {type(e).__name__}: {e}")
 
 
 def assert_file_exists(package_dir: Path, filename: str) -> None:

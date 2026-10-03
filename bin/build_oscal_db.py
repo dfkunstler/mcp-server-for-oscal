@@ -131,12 +131,10 @@ def build_db(
         store._ensure_indexed(row["id"])
 
     # --- Gather stats ---
-    doc_count = store._conn.execute(
-        "SELECT COUNT(*) AS cnt FROM documents"
-    ).fetchone()["cnt"]
-    child_count = store._conn.execute(
-        "SELECT COUNT(*) AS cnt FROM child_elements"
-    ).fetchone()["cnt"]
+    doc_count = store._conn.execute("SELECT COUNT(*) AS cnt FROM documents").fetchone()["cnt"]
+    child_count = store._conn.execute("SELECT COUNT(*) AS cnt FROM child_elements").fetchone()[
+        "cnt"
+    ]
 
     store.close()
 

@@ -38,7 +38,10 @@ _TRESTLE_MODEL_MAP: dict[OSCALModelType, tuple[str, str]] = {
     OSCALModelType.SYSTEM_SECURITY_PLAN: ("trestle.oscal.ssp", "SystemSecurityPlan"),
     OSCALModelType.ASSESSMENT_PLAN: ("trestle.oscal.assessment_plan", "AssessmentPlan"),
     OSCALModelType.ASSESSMENT_RESULTS: ("trestle.oscal.assessment_results", "AssessmentResults"),
-    OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES: ("trestle.oscal.poam", "PlanOfActionAndMilestones"),
+    OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES: (
+        "trestle.oscal.poam",
+        "PlanOfActionAndMilestones",
+    ),
     OSCALModelType.MAPPING: ("trestle.oscal.mapping", "MappingCollection"),
 }
 
@@ -55,6 +58,7 @@ def _pattern_safe(validator: Any, patrn: str, instance: Any, schema: Any) -> Any
     try:
         if not regex.search(patrn, instance):
             from jsonschema import ValidationError
+
             yield ValidationError(f"{instance!r} does not match {patrn!r}")
     except regex.error:
         logger.debug("Skipping invalid JSON Schema pattern: %s", patrn)
@@ -141,9 +145,7 @@ def _validate_json_schema(data: dict, model_type: OSCALModelType) -> dict:
     errors = [e.message for e in raw_errors[:MAX_ERRORS_PER_LEVEL]]
     warnings = []
     if len(raw_errors) > MAX_ERRORS_PER_LEVEL:
-        warnings.append(
-            f"Showing first {MAX_ERRORS_PER_LEVEL} errors; more may exist"
-        )
+        warnings.append(f"Showing first {MAX_ERRORS_PER_LEVEL} errors; more may exist")
 
     return _make_level("json_schema", valid=False, errors=errors, warnings=warnings)
 
@@ -182,9 +184,7 @@ def _validate_trestle(data: dict, model_type: OSCALModelType) -> dict:
         errors = error_lines[:MAX_ERRORS_PER_LEVEL]
         warnings = []
         if len(error_lines) > MAX_ERRORS_PER_LEVEL:
-            warnings.append(
-                f"Showing {MAX_ERRORS_PER_LEVEL} of {len(error_lines)} error lines"
-            )
+            warnings.append(f"Showing {MAX_ERRORS_PER_LEVEL} of {len(error_lines)} error lines")
         return _make_level("trestle", valid=False, errors=errors, warnings=warnings)
 
     return _make_level("trestle")
@@ -202,15 +202,14 @@ def _validate_oscal_cli(content: str, model_type: OSCALModelType) -> dict:
 
     tmp_file = None
     try:
-        tmp_file = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        )
+        tmp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         tmp_file.write(content)
         tmp_file.close()
 
         result = subprocess.run(
             [oscal_cli, "validate", tmp_file.name],
-            check=False, capture_output=True,
+            check=False,
+            capture_output=True,
             text=True,
             timeout=60,
         )
@@ -225,9 +224,7 @@ def _validate_oscal_cli(content: str, model_type: OSCALModelType) -> dict:
         errors = error_lines[:MAX_ERRORS_PER_LEVEL]
         warnings = []
         if len(error_lines) > MAX_ERRORS_PER_LEVEL:
-            warnings.append(
-                f"Showing {MAX_ERRORS_PER_LEVEL} of {len(error_lines)} error lines"
-            )
+            warnings.append(f"Showing {MAX_ERRORS_PER_LEVEL} of {len(error_lines)} error lines")
         return _make_level("oscal_cli", valid=False, errors=errors, warnings=warnings)
 
     except subprocess.TimeoutExpired:
@@ -245,6 +242,7 @@ def _validate_oscal_cli(content: str, model_type: OSCALModelType) -> dict:
     finally:
         if tmp_file is not None:
             Path(tmp_file.name).unlink(missing_ok=True)
+
 
 @tool
 def validate_oscal_file(
@@ -276,7 +274,7 @@ def validate_oscal_file(
     """
     uri = urlparse(file_uri)
 
-    if uri.scheme in ('', 'file'):
+    if uri.scheme in ("", "file"):
         lf = Path(uri.path)
         if lf.is_dir():
             raise ValueError("URI must point to a file")
@@ -343,7 +341,9 @@ def validate_oscal_content(
         dict: Structured validation results with per-level detail
     """
     content_length = len(content) if isinstance(content, str) else None
-    logger.debug("validate_oscal_content(model_type=%s, content_length=%s)", model_type, content_length)
+    logger.debug(
+        "validate_oscal_content(model_type=%s, content_length=%s)", model_type, content_length
+    )
 
     levels: list[dict] = []
 
@@ -371,7 +371,11 @@ def validate_oscal_content(
             try_notify_client_error(msg, ctx)
             for lvl in ("json_schema", "trestle", "oscal_cli"):
                 levels.append(
-                    _make_level(lvl, skipped=True, skip_reason=f"Skipped due to invalid model_type: '{model_type}'")
+                    _make_level(
+                        lvl,
+                        skipped=True,
+                        skip_reason=f"Skipped due to invalid model_type: '{model_type}'",
+                    )
                 )
             return {"valid": False, "model_type": model_type, "levels": levels, "error": msg}
     elif detected is not None:
@@ -398,8 +402,6 @@ def validate_oscal_content(
     levels.append(_validate_oscal_cli(content, resolved_type))
 
     # -- Overall validity --
-    overall_valid = all(
-        lvl["valid"] for lvl in levels if not lvl["skipped"]
-    )
+    overall_valid = all(lvl["valid"] for lvl in levels if not lvl["skipped"])
 
     return {"valid": overall_valid, "model_type": model_type_str, "levels": levels}

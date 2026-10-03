@@ -32,17 +32,19 @@ def mock_context():
 @pytest.fixture
 def valid_catalog_json():
     """Minimal valid OSCAL catalog JSON string."""
-    return json.dumps({
-        "catalog": {
-            "uuid": "12345678-1234-4123-8123-123456789abc",
-            "metadata": {
-                "title": "Test Catalog",
-                "last-modified": "2024-01-01T00:00:00Z",
-                "version": "1.0",
-                "oscal-version": "1.1.2",
-            },
+    return json.dumps(
+        {
+            "catalog": {
+                "uuid": "12345678-1234-4123-8123-123456789abc",
+                "metadata": {
+                    "title": "Test Catalog",
+                    "last-modified": "2024-01-01T00:00:00Z",
+                    "version": "1.0",
+                    "oscal-version": "1.1.2",
+                },
+            }
         }
-    })
+    )
 
 
 class TestDetectModelType:
@@ -55,10 +57,14 @@ class TestDetectModelType:
         assert _detect_model_type({"profile": {}}) == OSCALModelType.PROFILE
 
     def test_detect_component_definition(self):
-        assert _detect_model_type({"component-definition": {}}) == OSCALModelType.COMPONENT_DEFINITION
+        assert (
+            _detect_model_type({"component-definition": {}}) == OSCALModelType.COMPONENT_DEFINITION
+        )
 
     def test_detect_ssp(self):
-        assert _detect_model_type({"system-security-plan": {}}) == OSCALModelType.SYSTEM_SECURITY_PLAN
+        assert (
+            _detect_model_type({"system-security-plan": {}}) == OSCALModelType.SYSTEM_SECURITY_PLAN
+        )
 
     def test_detect_assessment_plan(self):
         assert _detect_model_type({"assessment-plan": {}}) == OSCALModelType.ASSESSMENT_PLAN
@@ -67,7 +73,10 @@ class TestDetectModelType:
         assert _detect_model_type({"assessment-results": {}}) == OSCALModelType.ASSESSMENT_RESULTS
 
     def test_detect_poam(self):
-        assert _detect_model_type({"plan-of-action-and-milestones": {}}) == OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES
+        assert (
+            _detect_model_type({"plan-of-action-and-milestones": {}})
+            == OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES
+        )
 
     def test_detect_mapping(self):
         assert _detect_model_type({"mapping-collection": {}}) == OSCALModelType.MAPPING
@@ -272,9 +281,7 @@ class TestValidateOscalCli:
     def test_timeout(self, mock_run, mock_which):
         """Timeout is handled gracefully."""
         mock_which.return_value = "/usr/local/bin/oscal-cli"
-        mock_run.side_effect = __import__("subprocess").TimeoutExpired(
-            cmd="oscal-cli", timeout=60
-        )
+        mock_run.side_effect = __import__("subprocess").TimeoutExpired(cmd="oscal-cli", timeout=60)
         result = _validate_oscal_cli('{"catalog": {}}', OSCALModelType.CATALOG)
         assert result["valid"] is False
         assert "timed out" in result["errors"][0]
@@ -290,9 +297,30 @@ class TestValidateOscalContentEndToEnd:
         self, mock_schema, mock_trestle, mock_cli, mock_context, valid_catalog_json
     ):
         """Full pipeline with auto-detected model type."""
-        mock_schema.return_value = {"level": "json_schema", "valid": True, "errors": [], "warnings": [], "skipped": False, "skip_reason": None}
-        mock_trestle.return_value = {"level": "trestle", "valid": True, "errors": [], "warnings": [], "skipped": False, "skip_reason": None}
-        mock_cli.return_value = {"level": "oscal_cli", "valid": True, "errors": [], "warnings": [], "skipped": True, "skip_reason": "oscal-cli not found in PATH"}
+        mock_schema.return_value = {
+            "level": "json_schema",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "skipped": False,
+            "skip_reason": None,
+        }
+        mock_trestle.return_value = {
+            "level": "trestle",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "skipped": False,
+            "skip_reason": None,
+        }
+        mock_cli.return_value = {
+            "level": "oscal_cli",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "skipped": True,
+            "skip_reason": "oscal-cli not found in PATH",
+        }
 
         result = validate_oscal_content(valid_catalog_json, ctx=mock_context)
 
@@ -307,9 +335,30 @@ class TestValidateOscalContentEndToEnd:
         self, mock_schema, mock_trestle, mock_cli, mock_context, valid_catalog_json
     ):
         """Explicit model_type overrides auto-detection."""
-        mock_schema.return_value = {"level": "json_schema", "valid": True, "errors": [], "warnings": [], "skipped": False, "skip_reason": None}
-        mock_trestle.return_value = {"level": "trestle", "valid": True, "errors": [], "warnings": [], "skipped": False, "skip_reason": None}
-        mock_cli.return_value = {"level": "oscal_cli", "valid": True, "errors": [], "warnings": [], "skipped": True, "skip_reason": "oscal-cli not found in PATH"}
+        mock_schema.return_value = {
+            "level": "json_schema",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "skipped": False,
+            "skip_reason": None,
+        }
+        mock_trestle.return_value = {
+            "level": "trestle",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "skipped": False,
+            "skip_reason": None,
+        }
+        mock_cli.return_value = {
+            "level": "oscal_cli",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "skipped": True,
+            "skip_reason": "oscal-cli not found in PATH",
+        }
 
         result = validate_oscal_content(valid_catalog_json, model_type="profile", ctx=mock_context)
 
@@ -360,9 +409,30 @@ class TestValidateOscalContentEndToEnd:
         self, mock_schema, mock_trestle, mock_cli, mock_context, valid_catalog_json
     ):
         """Overall valid is False if any non-skipped level fails."""
-        mock_schema.return_value = {"level": "json_schema", "valid": False, "errors": ["bad"], "warnings": [], "skipped": False, "skip_reason": None}
-        mock_trestle.return_value = {"level": "trestle", "valid": True, "errors": [], "warnings": [], "skipped": False, "skip_reason": None}
-        mock_cli.return_value = {"level": "oscal_cli", "valid": True, "errors": [], "warnings": [], "skipped": True, "skip_reason": "not found"}
+        mock_schema.return_value = {
+            "level": "json_schema",
+            "valid": False,
+            "errors": ["bad"],
+            "warnings": [],
+            "skipped": False,
+            "skip_reason": None,
+        }
+        mock_trestle.return_value = {
+            "level": "trestle",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "skipped": False,
+            "skip_reason": None,
+        }
+        mock_cli.return_value = {
+            "level": "oscal_cli",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "skipped": True,
+            "skip_reason": "not found",
+        }
 
         result = validate_oscal_content(valid_catalog_json, ctx=mock_context)
         assert result["valid"] is False
@@ -374,9 +444,30 @@ class TestValidateOscalContentEndToEnd:
         self, mock_schema, mock_trestle, mock_cli, mock_context, valid_catalog_json
     ):
         """Skipped levels don't make the overall result invalid."""
-        mock_schema.return_value = {"level": "json_schema", "valid": True, "errors": [], "warnings": [], "skipped": False, "skip_reason": None}
-        mock_trestle.return_value = {"level": "trestle", "valid": True, "errors": [], "warnings": [], "skipped": True, "skip_reason": "no model"}
-        mock_cli.return_value = {"level": "oscal_cli", "valid": True, "errors": [], "warnings": [], "skipped": True, "skip_reason": "not found"}
+        mock_schema.return_value = {
+            "level": "json_schema",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "skipped": False,
+            "skip_reason": None,
+        }
+        mock_trestle.return_value = {
+            "level": "trestle",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "skipped": True,
+            "skip_reason": "no model",
+        }
+        mock_cli.return_value = {
+            "level": "oscal_cli",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "skipped": True,
+            "skip_reason": "not found",
+        }
 
         result = validate_oscal_content(valid_catalog_json, ctx=mock_context)
         assert result["valid"] is True

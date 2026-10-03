@@ -26,8 +26,9 @@ def store(tmp_path):
     s.close()
 
 
-def _make_component_definition(uuid="a1b2c3d4-5678-4abc-8def-123456789012",
-                                title="Test Component Definition"):
+def _make_component_definition(
+    uuid="a1b2c3d4-5678-4abc-8def-123456789012", title="Test Component Definition"
+):
     """Create a minimal valid component-definition JSON dict."""
     return {
         "component-definition": {
@@ -50,8 +51,7 @@ def _make_component_definition(uuid="a1b2c3d4-5678-4abc-8def-123456789012",
     }
 
 
-def _make_catalog(uuid="c1d2e3f4-5678-4abc-8def-aabbccddeeff",
-                  title="Test Catalog"):
+def _make_catalog(uuid="c1d2e3f4-5678-4abc-8def-aabbccddeeff", title="Test Catalog"):
     """Create a minimal valid catalog JSON dict."""
     return {
         "catalog": {
@@ -129,19 +129,13 @@ class TestScanDirectory:
     def test_scan_multiple_files(self, store, tmp_path):
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog()))
 
         count = store.scan_directory(doc_dir)
         assert count == 2
 
-        total = store._conn.execute(
-            "SELECT COUNT(*) as cnt FROM documents"
-        ).fetchone()["cnt"]
+        total = store._conn.execute("SELECT COUNT(*) as cnt FROM documents").fetchone()["cnt"]
         assert total == 2
 
     def test_scan_missing_directory_returns_zero(self, store, tmp_path):
@@ -197,12 +191,8 @@ class TestScanDirectory:
     def test_model_type_filter(self, store, tmp_path):
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog()))
 
         count = store.scan_directory(
             doc_dir,
@@ -210,17 +200,13 @@ class TestScanDirectory:
         )
         assert count == 1
 
-        row = store._conn.execute(
-            "SELECT model_type FROM documents"
-        ).fetchone()
+        row = store._conn.execute("SELECT model_type FROM documents").fetchone()
         assert row["model_type"] == "catalog"
 
     def test_skips_hashes_json(self, store, tmp_path):
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "hashes.json").write_text(
-            json.dumps({"file_hashes": {}})
-        )
+        (doc_dir / "hashes.json").write_text(json.dumps({"file_hashes": {}}))
         count = store.scan_directory(doc_dir)
         assert count == 0
 
@@ -234,9 +220,7 @@ class TestScanDirectory:
     def test_skips_non_oscal_json(self, store, tmp_path):
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "other.json").write_text(
-            json.dumps({"not-oscal": True})
-        )
+        (doc_dir / "other.json").write_text(json.dumps({"not-oscal": True}))
         count = store.scan_directory(doc_dir)
         assert count == 0
 
@@ -253,9 +237,7 @@ class TestScanDirectory:
         count = store.scan_directory(doc_dir)
         assert count == 1
 
-        row = store._conn.execute(
-            "SELECT uuid, title, model_type FROM documents"
-        ).fetchone()
+        row = store._conn.execute("SELECT uuid, title, model_type FROM documents").fetchone()
         assert row["uuid"] == "a1b2c3d4-5678-4abc-8def-123456789012"
         assert row["model_type"] == "component-definition"
 
@@ -290,9 +272,7 @@ class TestScanDirectory:
 
         store.scan_directory(doc_dir)
 
-        row = store._conn.execute(
-            "SELECT raw_json FROM documents"
-        ).fetchone()
+        row = store._conn.execute("SELECT raw_json FROM documents").fetchone()
         assert json.loads(row["raw_json"]) == data
 
     def test_file_path_stored(self, store, tmp_path):
@@ -303,18 +283,14 @@ class TestScanDirectory:
 
         store.scan_directory(doc_dir)
 
-        row = store._conn.execute(
-            "SELECT file_path FROM documents"
-        ).fetchone()
+        row = store._conn.execute("SELECT file_path FROM documents").fetchone()
         assert row["file_path"] == str(f)
 
     def test_scan_subdirectories(self, store, tmp_path):
         doc_dir = tmp_path / "docs"
         sub = doc_dir / "sub" / "deep"
         sub.mkdir(parents=True)
-        (sub / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
+        (sub / "cdef.json").write_text(json.dumps(_make_component_definition()))
 
         count = store.scan_directory(doc_dir)
         assert count == 1
@@ -353,9 +329,7 @@ class TestGetParsedModel:
 
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
         store.scan_directory(doc_dir)
 
         row = store._conn.execute("SELECT id FROM documents").fetchone()
@@ -369,9 +343,7 @@ class TestGetParsedModel:
 
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog())
-        )
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog()))
         store.scan_directory(doc_dir)
 
         row = store._conn.execute("SELECT id FROM documents").fetchone()
@@ -383,9 +355,7 @@ class TestGetParsedModel:
         """Repeated calls return the same cached object (identity check)."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
         store.scan_directory(doc_dir)
 
         row = store._conn.execute("SELECT id FROM documents").fetchone()
@@ -397,9 +367,7 @@ class TestGetParsedModel:
         """LRU cache stats reflect hits after repeated access."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
         store.scan_directory(doc_dir)
 
         row = store._conn.execute("SELECT id FROM documents").fetchone()
@@ -430,15 +398,11 @@ class TestGetParsedModel:
             ]
             for i, uuid in enumerate(uuids):
                 f = doc_dir / f"cdef_{i}.json"
-                f.write_text(json.dumps(
-                    _make_component_definition(uuid=uuid, title=f"Doc {i}")
-                ))
+                f.write_text(json.dumps(_make_component_definition(uuid=uuid, title=f"Doc {i}")))
 
             small_store.scan_directory(doc_dir)
 
-            rows = small_store._conn.execute(
-                "SELECT id FROM documents ORDER BY id"
-            ).fetchall()
+            rows = small_store._conn.execute("SELECT id FROM documents ORDER BY id").fetchall()
             assert len(rows) == 3
 
             # Parse all three — cache_size=2 so first should be evicted
@@ -625,9 +589,7 @@ class TestEnsureIndexed:
         """Calling _ensure_indexed on an already-indexed doc is a no-op."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         row = store._conn.execute("SELECT id FROM documents").fetchone()
@@ -650,17 +612,14 @@ class TestEnsureIndexed:
         """Indexing a catalog extracts controls and groups."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog_with_controls())
-        )
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
         store.scan_directory(doc_dir)
 
         row = store._conn.execute("SELECT id FROM documents").fetchone()
         store._ensure_indexed(row["id"])
 
         children = store._conn.execute(
-            "SELECT uuid, title, element_type FROM child_elements "
-            "WHERE parent_doc_id = ?",
+            "SELECT uuid, title, element_type FROM child_elements WHERE parent_doc_id = ?",
             (row["id"],),
         ).fetchall()
         assert len(children) == 3  # 2 controls + 1 group
@@ -692,9 +651,7 @@ class TestEnsureIndexed:
         """Indexing populates the FTS index for both document and children."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         row = store._conn.execute("SELECT id FROM documents").fetchone()
@@ -723,9 +680,7 @@ class TestEnsureIndexed:
         """Child elements store serialized JSON."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         row = store._conn.execute("SELECT id FROM documents").fetchone()
@@ -748,16 +703,12 @@ class TestExtractChildElements:
         """Extracts components and capabilities from a component-definition."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         row = store._conn.execute("SELECT id FROM documents").fetchone()
         model = store.get_parsed_model(row["id"])
-        children = store._extract_child_elements(
-            OSCALModelType.COMPONENT_DEFINITION, model
-        )
+        children = store._extract_child_elements(OSCALModelType.COMPONENT_DEFINITION, model)
 
         assert len(children) == 3
         comp_children = [c for c in children if c["element_type"] == "component"]
@@ -770,16 +721,12 @@ class TestExtractChildElements:
         """Extracts controls and groups from a catalog."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog_with_controls())
-        )
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
         store.scan_directory(doc_dir)
 
         row = store._conn.execute("SELECT id FROM documents").fetchone()
         model = store.get_parsed_model(row["id"])
-        children = store._extract_child_elements(
-            OSCALModelType.CATALOG, model
-        )
+        children = store._extract_child_elements(OSCALModelType.CATALOG, model)
 
         assert len(children) == 3
         ctrl_children = [c for c in children if c["element_type"] == "control"]
@@ -799,9 +746,7 @@ class TestExtractChildElements:
 
         row = store._conn.execute("SELECT id FROM documents").fetchone()
         model = store.get_parsed_model(row["id"])
-        children = store._extract_child_elements(
-            OSCALModelType.CATALOG, model
-        )
+        children = store._extract_child_elements(OSCALModelType.CATALOG, model)
         assert children == []
 
     def test_child_element_types_match_mapping(self, store, tmp_path):
@@ -810,16 +755,12 @@ class TestExtractChildElements:
 
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         row = store._conn.execute("SELECT id FROM documents").fetchone()
         model = store.get_parsed_model(row["id"])
-        children = store._extract_child_elements(
-            OSCALModelType.COMPONENT_DEFINITION, model
-        )
+        children = store._extract_child_elements(OSCALModelType.COMPONENT_DEFINITION, model)
 
         expected_types = set(CHILD_ELEMENT_TYPES[OSCALModelType.COMPONENT_DEFINITION])
         actual_types = {c["element_type"] for c in children}
@@ -930,14 +871,11 @@ class TestIncrementalReindexingProperty:
         store1 = OscalStore(db_path=db_path, cache_size=50, seed_from_bundled=False)
         try:
             count1 = store1.scan_directory(doc_dir)
-            assert count1 == len(doc_set), (
-                f"Expected {len(doc_set)} ingested, got {count1}"
-            )
+            assert count1 == len(doc_set), f"Expected {len(doc_set)} ingested, got {count1}"
 
             # Snapshot the document rows for later comparison
             original_rows = store1._conn.execute(
-                "SELECT uuid, title, model_type, file_path, file_size "
-                "FROM documents ORDER BY uuid"
+                "SELECT uuid, title, model_type, file_path, file_size FROM documents ORDER BY uuid"
             ).fetchall()
             original_data = [
                 {
@@ -960,14 +898,12 @@ class TestIncrementalReindexingProperty:
             # With content_hash now populated by _upsert_document,
             # unchanged files are correctly detected and skipped.
             assert count2 == 0, (
-                f"Expected 0 re-processed files "
-                f"(content_hash enables skip), got {count2}"
+                f"Expected 0 re-processed files (content_hash enables skip), got {count2}"
             )
 
             # Verify all documents are still present and queryable
             persisted_rows = store2._conn.execute(
-                "SELECT uuid, title, model_type, file_path, file_size "
-                "FROM documents ORDER BY uuid"
+                "SELECT uuid, title, model_type, file_path, file_size FROM documents ORDER BY uuid"
             ).fetchall()
             persisted_data = [
                 {
@@ -981,8 +917,7 @@ class TestIncrementalReindexingProperty:
             ]
 
             assert len(persisted_data) == len(original_data), (
-                f"Document count changed: {len(original_data)} → "
-                f"{len(persisted_data)}"
+                f"Document count changed: {len(original_data)} → {len(persisted_data)}"
             )
 
             # Verify each document's metadata is intact
@@ -998,9 +933,7 @@ class TestIncrementalReindexingProperty:
                     "SELECT uuid, title FROM documents WHERE uuid = ?",
                     (doc_uuid,),
                 ).fetchone()
-                assert row is not None, (
-                    f"Document {doc_uuid} not found after re-init"
-                )
+                assert row is not None, f"Document {doc_uuid} not found after re-init"
                 assert row["uuid"] == doc_uuid
         finally:
             store2.close()
@@ -1153,12 +1086,8 @@ class TestQuery:
         """query(query_type='all') returns all ingested documents."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog()))
         store.scan_directory(doc_dir)
 
         result = store.query(query_type="all")
@@ -1172,12 +1101,8 @@ class TestQuery:
         """query(query_type='all', oscal_model_type=...) filters by type."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog()))
         store.scan_directory(doc_dir)
 
         result = store.query(
@@ -1193,9 +1118,7 @@ class TestQuery:
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
         target_uuid = "a1b2c3d4-5678-4abc-8def-123456789012"
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition(uuid=target_uuid))
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition(uuid=target_uuid)))
         store.scan_directory(doc_dir)
 
         result = store.query(query_type="by_uuid", query_value=target_uuid)
@@ -1207,9 +1130,7 @@ class TestQuery:
         """query(query_type='by_uuid') with unknown UUID returns empty."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
         store.scan_directory(doc_dir)
 
         result = store.query(
@@ -1224,9 +1145,7 @@ class TestQuery:
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
         target_uuid = "a1b2c3d4-5678-4abc-8def-123456789012"
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition(uuid=target_uuid))
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition(uuid=target_uuid)))
         store.scan_directory(doc_dir)
 
         # Correct type — should find it
@@ -1255,16 +1174,12 @@ class TestQuery:
         store.scan_directory(doc_dir)
 
         # Exact case
-        result = store.query(
-            query_type="by_title", query_value="My Component Def"
-        )
+        result = store.query(query_type="by_title", query_value="My Component Def")
         assert result["total"] == 1
         assert result["items"][0]["title"] == "My Component Def"
 
         # Different case
-        result = store.query(
-            query_type="by_title", query_value="my component def"
-        )
+        result = store.query(query_type="by_title", query_value="my component def")
         assert result["total"] == 1
 
     def test_query_by_title_fts_fallback(self, store, tmp_path):
@@ -1272,9 +1187,7 @@ class TestQuery:
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
         (doc_dir / "cdef.json").write_text(
-            json.dumps(
-                _make_component_definition(title="AWS Security Controls")
-            )
+            json.dumps(_make_component_definition(title="AWS Security Controls"))
         )
         store.scan_directory(doc_dir)
 
@@ -1283,9 +1196,7 @@ class TestQuery:
         store._ensure_indexed(row["id"])
 
         # FTS fallback — partial title that won't exact-match
-        result = store.query(
-            query_type="by_title", query_value="Security"
-        )
+        result = store.query(query_type="by_title", query_value="Security")
         assert result["total"] >= 1
 
     def test_query_by_title_not_found(self, store, tmp_path):
@@ -1297,26 +1208,18 @@ class TestQuery:
         )
         store.scan_directory(doc_dir)
 
-        result = store.query(
-            query_type="by_title", query_value="Nonexistent Title"
-        )
+        result = store.query(query_type="by_title", query_value="Nonexistent Title")
         assert result["total"] == 0
 
     def test_query_by_type(self, store, tmp_path):
         """by_type filters on model_type column."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog()))
         store.scan_directory(doc_dir)
 
-        result = store.query(
-            query_type="by_type", query_value="catalog"
-        )
+        result = store.query(query_type="by_type", query_value="catalog")
         assert result["total"] == 1
         assert result["items"][0]["model_type"] == "catalog"
 
@@ -1324,14 +1227,10 @@ class TestQuery:
         """by_type returns empty when no documents of that type."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
         store.scan_directory(doc_dir)
 
-        result = store.query(
-            query_type="by_type", query_value="catalog"
-        )
+        result = store.query(query_type="by_type", query_value="catalog")
         assert result["total"] == 0
 
     def test_query_raises_for_missing_query_value(self, store):
@@ -1359,9 +1258,7 @@ class TestQuery:
             uid = f"a1b2c3d4-{i:04d}-4abc-8def-123456789012"
             uuids.append(uid)
             (doc_dir / f"cdef_{i}.json").write_text(
-                json.dumps(
-                    _make_component_definition(uuid=uid, title=f"Doc {i}")
-                )
+                json.dumps(_make_component_definition(uuid=uid, title=f"Doc {i}"))
             )
         store.scan_directory(doc_dir)
 
@@ -1387,15 +1284,11 @@ class TestQuery:
         """query() triggers _ensure_indexed for result documents."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         # Before query, document should not be indexed
-        row = store._conn.execute(
-            "SELECT indexed FROM documents"
-        ).fetchone()
+        row = store._conn.execute("SELECT indexed FROM documents").fetchone()
         assert row["indexed"] == 0
 
         # Query triggers indexing
@@ -1403,18 +1296,14 @@ class TestQuery:
         assert len(result["items"]) == 1
 
         # After query, document should be indexed
-        row = store._conn.execute(
-            "SELECT indexed FROM documents"
-        ).fetchone()
+        row = store._conn.execute("SELECT indexed FROM documents").fetchone()
         assert row["indexed"] == 1
 
     def test_query_items_include_children(self, store, tmp_path):
         """query() items include children after _ensure_indexed."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         result = store.query(query_type="all")
@@ -1428,9 +1317,7 @@ class TestQuery:
         """query() items have the expected keys."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
         store.scan_directory(doc_dir)
 
         result = store.query(query_type="all")
@@ -1453,9 +1340,7 @@ class TestQuery:
         """ctx parameter is accepted but ignored."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
         store.scan_directory(doc_dir)
 
         result = store.query(ctx="some_context", query_type="all")
@@ -1466,13 +1351,9 @@ class TestQuery:
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
         (doc_dir / "cdef.json").write_text(
-            json.dumps(
-                _make_component_definition(title="Shared Title")
-            )
+            json.dumps(_make_component_definition(title="Shared Title"))
         )
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog(title="Shared Title"))
-        )
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog(title="Shared Title")))
         store.scan_directory(doc_dir)
 
         # Filter to catalog only
@@ -1488,9 +1369,7 @@ class TestQuery:
         """Offset beyond total returns empty items."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
         store.scan_directory(doc_dir)
 
         result = store.query(query_type="all", offset=100, limit=10)
@@ -1511,9 +1390,7 @@ class TestTextSearch:
         """Helper: ingest and index a component-definition with children."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir(exist_ok=True)
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
         row = store._conn.execute("SELECT id FROM documents").fetchone()
         store._ensure_indexed(row["id"])
@@ -1566,12 +1443,8 @@ class TestTextSearch:
         """Scoping by model type filters results to that type only."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir(exist_ok=True)
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog_with_controls())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
         store.scan_directory(doc_dir)
 
         # Index all documents
@@ -1630,9 +1503,7 @@ class TestTextSearch:
         """Pagination parameters work correctly for text search."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir(exist_ok=True)
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
         row = store._conn.execute("SELECT id FROM documents").fetchone()
         store._ensure_indexed(row["id"])
@@ -1715,17 +1586,13 @@ class TestThreadSafety:
         TestTextSearch()._index_component_definition(store, tmp_path)
 
         with ThreadPoolExecutor(max_workers=8) as pool:
-            totals = list(pool.map(
-                lambda _: store.list_documents()["total"], range(32)
-            ))
+            totals = list(pool.map(lambda _: store.list_documents()["total"], range(32)))
 
         assert totals == [1] * 32
 
     def test_close_closes_connections_from_all_threads(self, tmp_path):
         """close() shuts down connections opened by other threads."""
-        s = OscalStore(
-            db_path=str(tmp_path / "t.db"), seed_from_bundled=False
-        )
+        s = OscalStore(db_path=str(tmp_path / "t.db"), seed_from_bundled=False)
         with ThreadPoolExecutor(max_workers=1) as pool:
             worker_conn = pool.submit(lambda: s._conn).result()
 
@@ -1755,9 +1622,7 @@ class TestListDocuments:
         """Lists a single ingested document with correct fields."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         result = store.list_documents()
@@ -1777,15 +1642,9 @@ class TestListDocuments:
         """Lists multiple documents of different types."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog_with_controls())
-        )
-        (doc_dir / "poam.json").write_text(
-            json.dumps(_make_poam())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
+        (doc_dir / "poam.json").write_text(json.dumps(_make_poam()))
         store.scan_directory(doc_dir)
 
         result = store.list_documents()
@@ -1797,17 +1656,11 @@ class TestListDocuments:
         """Filtering by model type returns only matching documents."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog_with_controls())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
         store.scan_directory(doc_dir)
 
-        result = store.list_documents(
-            oscal_model_type=OSCALModelType.CATALOG
-        )
+        result = store.list_documents(oscal_model_type=OSCALModelType.CATALOG)
         assert result["total"] == 1
         assert len(result["items"]) == 1
         assert result["items"][0]["model_type"] == "catalog"
@@ -1817,15 +1670,9 @@ class TestListDocuments:
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
         # Create 3 documents
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog_with_controls())
-        )
-        (doc_dir / "poam.json").write_text(
-            json.dumps(_make_poam())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
+        (doc_dir / "poam.json").write_text(json.dumps(_make_poam()))
         store.scan_directory(doc_dir)
 
         # First page: limit=2
@@ -1846,9 +1693,7 @@ class TestListDocuments:
         """childCount reflects actual child elements after lazy indexing."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog_with_controls())
-        )
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
         store.scan_directory(doc_dir)
 
         result = store.list_documents()
@@ -1859,9 +1704,7 @@ class TestListDocuments:
         """A document with no children has childCount=0."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog())
-        )
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog()))
         store.scan_directory(doc_dir)
 
         result = store.list_documents()
@@ -1871,9 +1714,7 @@ class TestListDocuments:
         """Returned dict has all Page_Response keys."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
         store.scan_directory(doc_dir)
 
         result = store.list_documents()
@@ -1883,16 +1724,12 @@ class TestListDocuments:
         """Each item has the expected fields."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
         store.scan_directory(doc_dir)
 
         result = store.list_documents()
         item = result["items"][0]
-        assert set(item.keys()) == {
-            "uuid", "title", "model_type", "childCount", "sizeInBytes"
-        }
+        assert set(item.keys()) == {"uuid", "title", "model_type", "childCount", "sizeInBytes"}
 
 
 class TestListChildElements:
@@ -1913,12 +1750,8 @@ class TestListChildElements:
         """Lists all child elements across all documents."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog_with_controls())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
         store.scan_directory(doc_dir)
 
         result = store.list_child_elements(limit=100)
@@ -1931,12 +1764,8 @@ class TestListChildElements:
         """Filtering by parent_doc_uuid returns only that document's children."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog_with_controls())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
         store.scan_directory(doc_dir)
 
         result = store.list_child_elements(
@@ -1951,9 +1780,7 @@ class TestListChildElements:
         """Filtering by element_type returns only matching children."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         result = store.list_child_elements(element_type="component")
@@ -1965,9 +1792,7 @@ class TestListChildElements:
         """Filtering by both parent_doc_uuid and element_type."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         result = store.list_child_elements(
@@ -1982,9 +1807,7 @@ class TestListChildElements:
         """Each child element includes parentDocumentTitle and parentDocumentUuid."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         result = store.list_child_elements()
@@ -1996,9 +1819,7 @@ class TestListChildElements:
         """Pagination works for child elements."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         # 3 children total, page of 2
@@ -2016,14 +1837,10 @@ class TestListChildElements:
         """Filtering by a non-existent parent UUID returns empty results."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
-        result = store.list_child_elements(
-            parent_doc_uuid="00000000-0000-0000-0000-000000000000"
-        )
+        result = store.list_child_elements(parent_doc_uuid="00000000-0000-0000-0000-000000000000")
         assert result["total"] == 0
         assert result["items"] == []
 
@@ -2031,9 +1848,7 @@ class TestListChildElements:
         """Returned dict has all Page_Response keys."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         result = store.list_child_elements()
@@ -2043,31 +1858,29 @@ class TestListChildElements:
         """Each item has the expected fields."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         result = store.list_child_elements()
         item = result["items"][0]
         assert set(item.keys()) == {
-            "id", "title", "element_type", "description",
-            "parentDocumentTitle", "parentDocumentUuid",
+            "id",
+            "title",
+            "element_type",
+            "description",
+            "parentDocumentTitle",
+            "parentDocumentUuid",
         }
 
     def test_triggers_lazy_indexing(self, store, tmp_path):
         """list_child_elements triggers _ensure_indexed for unindexed docs."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(
-            json.dumps(_make_component_definition_with_children())
-        )
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
         store.scan_directory(doc_dir)
 
         # Verify not indexed yet
-        row = store._conn.execute(
-            "SELECT indexed FROM documents"
-        ).fetchone()
+        row = store._conn.execute("SELECT indexed FROM documents").fetchone()
         assert row["indexed"] == 0
 
         # list_child_elements should trigger indexing
@@ -2075,9 +1888,7 @@ class TestListChildElements:
         assert result["total"] == 3
 
         # Verify now indexed
-        row = store._conn.execute(
-            "SELECT indexed FROM documents"
-        ).fetchone()
+        row = store._conn.execute("SELECT indexed FROM documents").fetchone()
         assert row["indexed"] == 1
 
     def test_description_included(self, store, tmp_path):
@@ -2123,17 +1934,20 @@ class TestGetChildElement:
         assert result["parentDocumentUuid"] == "e5f6a7b8-9abc-4ef0-a1ab-567890123456"
         assert "raw_json" in result
         assert set(result.keys()) == {
-            "id", "title", "element_type", "description",
-            "parentDocumentTitle", "parentDocumentUuid", "raw_json",
+            "id",
+            "title",
+            "element_type",
+            "description",
+            "parentDocumentTitle",
+            "parentDocumentUuid",
+            "raw_json",
         }
 
     def test_get_by_token_id_with_parent_doc_uuid(self, store, tmp_path):
         """Get a token-ID element (catalog control) with parent_doc_uuid."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog_with_controls())
-        )
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
         store.scan_directory(doc_dir)
 
         result = store.get_child_element(
@@ -2147,17 +1961,20 @@ class TestGetChildElement:
         assert result["parentDocumentUuid"] == "c1d2e3f4-5678-4abc-8def-aabbccddeeff"
         assert "raw_json" in result
         assert set(result.keys()) == {
-            "id", "title", "element_type", "description",
-            "parentDocumentTitle", "parentDocumentUuid", "raw_json",
+            "id",
+            "title",
+            "element_type",
+            "description",
+            "parentDocumentTitle",
+            "parentDocumentUuid",
+            "raw_json",
         }
 
     def test_get_by_token_id_without_parent_unique(self, store, tmp_path):
         """Token ID without parent returns element when only one match exists."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog_with_controls())
-        )
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
         store.scan_directory(doc_dir)
 
         result = store.get_child_element(element_id="ac-1")
@@ -2205,21 +2022,23 @@ class TestGetChildElement:
         assert result["error"] == "ambiguous_element_id"
         assert result["element_id"] == "ac-1"
         assert set(result.keys()) == {
-            "error", "message", "element_id", "matching_documents",
+            "error",
+            "message",
+            "element_id",
+            "matching_documents",
         }
         assert isinstance(result["matching_documents"], list)
         assert len(result["matching_documents"]) == 2
         assert set(result["matching_documents"]) == {
-            catalog_a_uuid, catalog_b_uuid,
+            catalog_a_uuid,
+            catalog_b_uuid,
         }
 
     def test_get_nonexistent_element_id_returns_none(self, store, tmp_path):
         """Querying a nonexistent element_id returns None."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "catalog.json").write_text(
-            json.dumps(_make_catalog_with_controls())
-        )
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
         store.scan_directory(doc_dir)
 
         result = store.get_child_element(element_id="nonexistent-id-xyz")
@@ -2271,22 +2090,16 @@ class TestPropertyUuidLookup:
         store = OscalStore(db_path=db_path, cache_size=50, seed_from_bundled=False)
         try:
             count = store.scan_directory(doc_dir)
-            assert count == len(doc_set), (
-                f"Expected {len(doc_set)} ingested, got {count}"
-            )
+            assert count == len(doc_set), f"Expected {len(doc_set)} ingested, got {count}"
 
             # For each document, query by UUID and verify exact match
             for _filename, _data, doc_uuid, _title in doc_set:
-                result = store.query(
-                    query_type="by_uuid", query_value=doc_uuid
-                )
+                result = store.query(query_type="by_uuid", query_value=doc_uuid)
                 assert result["total"] == 1, (
-                    f"Expected exactly 1 result for UUID {doc_uuid}, "
-                    f"got {result['total']}"
+                    f"Expected exactly 1 result for UUID {doc_uuid}, got {result['total']}"
                 )
                 assert len(result["items"]) == 1, (
-                    f"Expected 1 item for UUID {doc_uuid}, "
-                    f"got {len(result['items'])}"
+                    f"Expected 1 item for UUID {doc_uuid}, got {len(result['items'])}"
                 )
                 assert result["items"][0]["uuid"] == doc_uuid, (
                     f"Returned UUID {result['items'][0]['uuid']} "
@@ -2348,9 +2161,7 @@ class TestPaginationCorrectnessProperty:
         offset_frac=st.floats(min_value=0.0, max_value=1.5),
         limit=st.integers(min_value=1, max_value=100),
     )
-    def test_pagination_invariants(
-        self, doc_set, offset_frac, limit, tmp_path_factory
-    ):
+    def test_pagination_invariants(self, doc_set, offset_frac, limit, tmp_path_factory):
         """Pagination invariants hold for any N documents with random offset/limit.
 
         **Validates: Requirements 4.3**
@@ -2379,9 +2190,7 @@ class TestPaginationCorrectnessProperty:
             expected_items = min(limit, max(0, n - offset))
             expected_has_more = offset + limit < n
 
-            assert result["total"] == n, (
-                f"total: expected {n}, got {result['total']}"
-            )
+            assert result["total"] == n, f"total: expected {n}, got {result['total']}"
             assert len(result["items"]) == expected_items, (
                 f"len(items): expected {expected_items}, got {len(result['items'])} "
                 f"(N={n}, offset={offset}, limit={limit})"
@@ -2574,9 +2383,7 @@ class TestPropertyModelTypeFiltering:
         store = OscalStore(db_path=db_path, cache_size=50, seed_from_bundled=False)
         try:
             count = store.scan_directory(doc_dir)
-            assert count == len(doc_set), (
-                f"Expected {len(doc_set)} ingested, got {count}"
-            )
+            assert count == len(doc_set), f"Expected {len(doc_set)} ingested, got {count}"
 
             # Compute expected counts per model type
             type_counts: dict[OSCALModelType, int] = {}
@@ -2587,9 +2394,7 @@ class TestPropertyModelTypeFiltering:
 
             # For each model type present, filter and verify
             for model_type, expected_count in type_counts.items():
-                result = store.list_documents(
-                    oscal_model_type=model_type, limit=100
-                )
+                result = store.list_documents(oscal_model_type=model_type, limit=100)
 
                 # Verify total matches expected count
                 assert result["total"] == expected_count, (
@@ -2606,8 +2411,7 @@ class TestPropertyModelTypeFiltering:
                 # Verify all returned items have the correct model type
                 for item in result["items"]:
                     assert item["model_type"] == model_type.value, (
-                        f"Expected model_type '{model_type.value}', "
-                        f"got '{item['model_type']}'"
+                        f"Expected model_type '{model_type.value}', got '{item['model_type']}'"
                     )
 
                 # Verify the returned UUIDs match the expected set
@@ -2652,12 +2456,14 @@ def component_definition_doc_set(draw):
             while comp_uuid in used_uuids:
                 comp_uuid = _uuid4_hex()
             used_uuids.add(comp_uuid)
-            components.append({
-                "uuid": comp_uuid,
-                "type": "software",
-                "title": f"Component-{i}-{j}",
-                "description": f"Component {j} of doc {i}",
-            })
+            components.append(
+                {
+                    "uuid": comp_uuid,
+                    "type": "software",
+                    "title": f"Component-{i}-{j}",
+                    "description": f"Component {j} of doc {i}",
+                }
+            )
 
         capabilities = []
         if include_capability:
@@ -2665,11 +2471,13 @@ def component_definition_doc_set(draw):
             while cap_uuid in used_uuids:
                 cap_uuid = _uuid4_hex()
             used_uuids.add(cap_uuid)
-            capabilities.append({
-                "uuid": cap_uuid,
-                "name": f"Capability-{i}",
-                "description": f"Capability of doc {i}",
-            })
+            capabilities.append(
+                {
+                    "uuid": cap_uuid,
+                    "name": f"Capability-{i}",
+                    "description": f"Capability of doc {i}",
+                }
+            )
 
         data = {
             "component-definition": {
@@ -2714,9 +2522,7 @@ class TestPropertyBackwardCompatibleReturnFormat:
         doc_set=component_definition_doc_set(),
         query_type=st.sampled_from(["all", "by_uuid", "by_title", "by_type"]),
     )
-    def test_query_returns_page_response_keys(
-        self, doc_set, query_type, tmp_path_factory
-    ):
+    def test_query_returns_page_response_keys(self, doc_set, query_type, tmp_path_factory):
         """OscalStore.query() with COMPONENT_DEFINITION returns Page_Response keys.
 
         **Validates: Requirements 7.2**
@@ -2803,8 +2609,7 @@ class TestPropertyBackwardCompatibleReturnFormat:
             expected_item_keys = {"uuid", "title", "model_type", "childCount", "sizeInBytes"}
             for item in result["items"]:
                 assert set(item.keys()) == expected_item_keys, (
-                    f"Expected item keys {expected_item_keys}, "
-                    f"got {set(item.keys())}"
+                    f"Expected item keys {expected_item_keys}, got {set(item.keys())}"
                 )
                 assert item["model_type"] == "component-definition"
                 assert isinstance(item["childCount"], int)
@@ -2821,9 +2626,7 @@ class TestPropertyBackwardCompatibleReturnFormat:
         deadline=None,
     )
     @given(doc_set=component_definition_doc_set())
-    def test_list_child_elements_component_item_keys(
-        self, doc_set, tmp_path_factory
-    ):
+    def test_list_child_elements_component_item_keys(self, doc_set, tmp_path_factory):
         """list_child_elements(element_type="component") items contain expected keys.
 
         **Validates: Requirements 7.2**
@@ -2856,13 +2659,16 @@ class TestPropertyBackwardCompatibleReturnFormat:
 
             # Verify each item has the expected keys
             expected_item_keys = {
-                "id", "title", "element_type", "description",
-                "parentDocumentTitle", "parentDocumentUuid",
+                "id",
+                "title",
+                "element_type",
+                "description",
+                "parentDocumentTitle",
+                "parentDocumentUuid",
             }
             for item in result["items"]:
                 assert set(item.keys()) == expected_item_keys, (
-                    f"Expected item keys {expected_item_keys}, "
-                    f"got {set(item.keys())}"
+                    f"Expected item keys {expected_item_keys}, got {set(item.keys())}"
                 )
                 assert item["element_type"] == "component"
                 assert item["parentDocumentTitle"] is not None
@@ -2929,9 +2735,15 @@ class TestVerifyBundledDb:
         fake_db = tmp_path / "oscal_store.db"
         fake_db.write_bytes(b"fake db content")
         hashes_file = tmp_path / "hashes.json"
-        hashes_file.write_text(json.dumps({
-            "file_hashes": {"oscal_store.db": "0000000000000000000000000000000000000000000000000000000000000000"}
-        }))
+        hashes_file.write_text(
+            json.dumps(
+                {
+                    "file_hashes": {
+                        "oscal_store.db": "0000000000000000000000000000000000000000000000000000000000000000"
+                    }
+                }
+            )
+        )
         monkeypatch.setattr(mod, "BUNDLED_DB_PATH", fake_db)
         monkeypatch.setattr(mod, "BUNDLED_HASHES_PATH", hashes_file)
         assert OscalStore._verify_bundled_db() is False
@@ -2947,9 +2759,7 @@ class TestVerifyBundledDb:
         expected_hash = hashlib.sha256(content).hexdigest()
 
         hashes_file = tmp_path / "hashes.json"
-        hashes_file.write_text(json.dumps({
-            "file_hashes": {"oscal_store.db": expected_hash}
-        }))
+        hashes_file.write_text(json.dumps({"file_hashes": {"oscal_store.db": expected_hash}}))
         monkeypatch.setattr(mod, "BUNDLED_DB_PATH", fake_db)
         monkeypatch.setattr(mod, "BUNDLED_HASHES_PATH", hashes_file)
         assert OscalStore._verify_bundled_db() is True
@@ -2958,9 +2768,7 @@ class TestVerifyBundledDb:
 class TestBundledDbIntegrityAtStartup:
     """Tests for bundled DB integrity verification during initialization."""
 
-    def test_auto_mode_falls_back_to_ephemeral_on_integrity_failure(
-        self, tmp_path, monkeypatch
-    ):
+    def test_auto_mode_falls_back_to_ephemeral_on_integrity_failure(self, tmp_path, monkeypatch):
         """When bundled DB exists but fails integrity, falls back to ephemeral."""
         import mcp_server_for_oscal.tools.oscal_store as mod
 
@@ -2971,9 +2779,7 @@ class TestBundledDbIntegrityAtStartup:
 
         # Create hashes.json with wrong hash
         hashes_file = tmp_path / "bundled" / "hashes.json"
-        hashes_file.write_text(json.dumps({
-            "file_hashes": {"oscal_store.db": "badhash"}
-        }))
+        hashes_file.write_text(json.dumps({"file_hashes": {"oscal_store.db": "badhash"}}))
 
         monkeypatch.setattr(mod, "BUNDLED_DB_PATH", fake_db)
         monkeypatch.setattr(mod, "BUNDLED_HASHES_PATH", hashes_file)
@@ -2987,9 +2793,7 @@ class TestBundledDbIntegrityAtStartup:
         finally:
             store.close()
 
-    def test_auto_mode_uses_bundled_when_integrity_passes(
-        self, tmp_path, monkeypatch
-    ):
+    def test_auto_mode_uses_bundled_when_integrity_passes(self, tmp_path, monkeypatch):
         """When bundled DB passes integrity, uses bundled mode."""
         import hashlib
         import mcp_server_for_oscal.tools.oscal_store as mod
@@ -3003,9 +2807,7 @@ class TestBundledDbIntegrityAtStartup:
 
         db_hash = hashlib.sha256(bundled_db_path.read_bytes()).hexdigest()
         hashes_file = tmp_path / "bundled" / "hashes.json"
-        hashes_file.write_text(json.dumps({
-            "file_hashes": {"oscal_store.db": db_hash}
-        }))
+        hashes_file.write_text(json.dumps({"file_hashes": {"oscal_store.db": db_hash}}))
 
         monkeypatch.setattr(mod, "BUNDLED_DB_PATH", bundled_db_path)
         monkeypatch.setattr(mod, "BUNDLED_HASHES_PATH", hashes_file)
@@ -3017,9 +2819,7 @@ class TestBundledDbIntegrityAtStartup:
         finally:
             store.close()
 
-    def test_persistent_seeds_from_bundled_when_integrity_passes(
-        self, tmp_path, monkeypatch
-    ):
+    def test_persistent_seeds_from_bundled_when_integrity_passes(self, tmp_path, monkeypatch):
         """When OSCAL_STORE_DB_PATH is set but missing, seeds from verified bundled DB."""
         import hashlib
         import mcp_server_for_oscal.tools.oscal_store as mod
@@ -3033,9 +2833,7 @@ class TestBundledDbIntegrityAtStartup:
 
         db_hash = hashlib.sha256(bundled_db_path.read_bytes()).hexdigest()
         hashes_file = tmp_path / "bundled" / "hashes.json"
-        hashes_file.write_text(json.dumps({
-            "file_hashes": {"oscal_store.db": db_hash}
-        }))
+        hashes_file.write_text(json.dumps({"file_hashes": {"oscal_store.db": db_hash}}))
 
         monkeypatch.setattr(mod, "BUNDLED_DB_PATH", bundled_db_path)
         monkeypatch.setattr(mod, "BUNDLED_HASHES_PATH", hashes_file)
@@ -3053,9 +2851,7 @@ class TestBundledDbIntegrityAtStartup:
         finally:
             store.close()
 
-    def test_persistent_creates_fresh_when_bundled_fails_integrity(
-        self, tmp_path, monkeypatch
-    ):
+    def test_persistent_creates_fresh_when_bundled_fails_integrity(self, tmp_path, monkeypatch):
         """When OSCAL_STORE_DB_PATH is set, bundled exists but fails integrity, creates fresh DB."""
         import mcp_server_for_oscal.tools.oscal_store as mod
 
@@ -3067,9 +2863,7 @@ class TestBundledDbIntegrityAtStartup:
         conn.close()
 
         hashes_file = tmp_path / "bundled" / "hashes.json"
-        hashes_file.write_text(json.dumps({
-            "file_hashes": {"oscal_store.db": "wronghash"}
-        }))
+        hashes_file.write_text(json.dumps({"file_hashes": {"oscal_store.db": "wronghash"}}))
 
         monkeypatch.setattr(mod, "BUNDLED_DB_PATH", bundled_db_path)
         monkeypatch.setattr(mod, "BUNDLED_HASHES_PATH", hashes_file)
@@ -3181,23 +2975,16 @@ class TestPropertyBundledDatabaseCompleteness:
         try:
             # 1. Verify all documents are queryable by UUID
             for _filename, _data, doc_uuid, _title, _maker in doc_set:
-                result = store.query(
-                    query_type="by_uuid", query_value=doc_uuid
-                )
-                assert result["total"] == 1, (
-                    f"Document {doc_uuid} not found in bundled DB"
-                )
+                result = store.query(query_type="by_uuid", query_value=doc_uuid)
+                assert result["total"] == 1, f"Document {doc_uuid} not found in bundled DB"
                 assert result["items"][0]["uuid"] == doc_uuid
 
             # 2. Verify child elements exist for documents that have them
             for _filename, _data, doc_uuid, _title, maker_name in doc_set:
-                children = store.list_child_elements(
-                    parent_doc_uuid=doc_uuid, limit=100
-                )
+                children = store.list_child_elements(parent_doc_uuid=doc_uuid, limit=100)
                 # All our test makers produce at least 1 child element
                 assert children["total"] > 0, (
-                    f"Document {doc_uuid} ({maker_name}) has no children "
-                    f"in bundled DB"
+                    f"Document {doc_uuid} ({maker_name}) has no children in bundled DB"
                 )
                 for child in children["items"]:
                     assert child["parentDocumentUuid"] == doc_uuid
@@ -3208,17 +2995,14 @@ class TestPropertyBundledDatabaseCompleteness:
                 search_term = title.split("-")[0]  # "BundledDoc"
                 fts_result = store.text_search(search_term)
                 assert fts_result["total"] > 0, (
-                    f"FTS search for '{search_term}' returned no results "
-                    f"in bundled DB"
+                    f"FTS search for '{search_term}' returned no results in bundled DB"
                 )
 
             # 4. Verify all documents are marked as indexed
             unindexed = store._conn.execute(
                 "SELECT COUNT(*) as cnt FROM documents WHERE indexed = 0"
             ).fetchone()["cnt"]
-            assert unindexed == 0, (
-                f"Found {unindexed} unindexed documents in bundled DB"
-            )
+            assert unindexed == 0, f"Found {unindexed} unindexed documents in bundled DB"
         finally:
             store.close()
 
@@ -3275,9 +3059,7 @@ class TestPropertyDatabaseModeResolution:
         deadline=None,
     )
     @given(combo=db_mode_combination())
-    def test_mode_resolution_is_deterministic(
-        self, combo, tmp_path_factory
-    ):
+    def test_mode_resolution_is_deterministic(self, combo, tmp_path_factory):
         """For each of the 4 combinations of DB_PATH × bundled DB presence,
         the resolved db_mode is deterministic and correct.
 
@@ -3307,9 +3089,7 @@ class TestPropertyDatabaseModeResolution:
 
             # Compute correct SHA-256 hash for integrity verification
             db_hash = hashlib.sha256(bundled_db_path.read_bytes()).hexdigest()
-            hashes_file.write_text(json.dumps({
-                "file_hashes": {"oscal_store.db": db_hash}
-            }))
+            hashes_file.write_text(json.dumps({"file_hashes": {"oscal_store.db": db_hash}}))
         else:
             # Ensure bundled DB does NOT exist
             if bundled_db_path.exists():
@@ -3358,9 +3138,7 @@ class TestPropertyDatabaseModeResolution:
         )
 
         # Verify mode is one of the three valid modes
-        assert modes[0] in {"bundled", "persistent", "ephemeral"}, (
-            f"Invalid mode '{modes[0]}'"
-        )
+        assert modes[0] in {"bundled", "persistent", "ephemeral"}, f"Invalid mode '{modes[0]}'"
 
 
 # ---------------------------------------------------------------------------
@@ -3403,27 +3181,24 @@ class TestPropertyDocumentMetadataRoundTrip:
             file_path = doc_dir / filename
             raw = json.dumps(data)
             file_path.write_text(raw)
-            expected.append({
-                "uuid": doc_uuid,
-                "title": title,
-                "file_path": str(file_path),
-                "sizeInBytes": file_path.stat().st_size,
-            })
+            expected.append(
+                {
+                    "uuid": doc_uuid,
+                    "title": title,
+                    "file_path": str(file_path),
+                    "sizeInBytes": file_path.stat().st_size,
+                }
+            )
 
         store = OscalStore(db_path=db_path, cache_size=50, seed_from_bundled=False)
         try:
             count = store.scan_directory(doc_dir)
-            assert count == len(doc_set), (
-                f"Expected {len(doc_set)} ingested, got {count}"
-            )
+            assert count == len(doc_set), f"Expected {len(doc_set)} ingested, got {count}"
 
             for exp in expected:
-                result = store.query(
-                    query_type="by_uuid", query_value=exp["uuid"]
-                )
+                result = store.query(query_type="by_uuid", query_value=exp["uuid"])
                 assert result["total"] == 1, (
-                    f"Expected 1 result for UUID {exp['uuid']}, "
-                    f"got {result['total']}"
+                    f"Expected 1 result for UUID {exp['uuid']}, got {result['total']}"
                 )
                 item = result["items"][0]
 
@@ -3519,14 +3294,10 @@ class TestPropertyChildElementMetadataPersistence:
 
             for _filename, _data, doc_uuid, _title in doc_set:
                 # Trigger full indexing via list_child_elements
-                children_result = store.list_child_elements(
-                    parent_doc_uuid=doc_uuid, limit=100
-                )
+                children_result = store.list_child_elements(parent_doc_uuid=doc_uuid, limit=100)
 
                 # Documents from _MAKERS_WITH_CHILDREN always have children
-                assert children_result["total"] > 0, (
-                    f"Document {doc_uuid} should have children"
-                )
+                assert children_result["total"] > 0, f"Document {doc_uuid} should have children"
 
                 for child in children_result["items"]:
                     # Each child has required fields
@@ -3542,8 +3313,7 @@ class TestPropertyChildElementMetadataPersistence:
 
                     # parent_doc_id references a valid document
                     assert child["parentDocumentUuid"] == doc_uuid, (
-                        f"Child parent UUID {child['parentDocumentUuid']} "
-                        f"!= expected {doc_uuid}"
+                        f"Child parent UUID {child['parentDocumentUuid']} != expected {doc_uuid}"
                     )
 
                 # Verify parent_doc_id references a valid document row
@@ -3688,22 +3458,15 @@ class TestPropertyChildElementParentInfo:
             doc_lookup = {doc_uuid: title for _, _, doc_uuid, title in doc_set}
 
             for _filename, _data, doc_uuid, doc_title in doc_set:
-                children_result = store.list_child_elements(
-                    parent_doc_uuid=doc_uuid, limit=100
-                )
+                children_result = store.list_child_elements(parent_doc_uuid=doc_uuid, limit=100)
 
-                assert children_result["total"] > 0, (
-                    f"Document {doc_uuid} should have children"
-                )
+                assert children_result["total"] > 0, f"Document {doc_uuid} should have children"
 
                 for child in children_result["items"]:
                     # Verify parentDocumentUuid is present and correct
-                    assert "parentDocumentUuid" in child, (
-                        "Child element missing parentDocumentUuid"
-                    )
+                    assert "parentDocumentUuid" in child, "Child element missing parentDocumentUuid"
                     assert child["parentDocumentUuid"] == doc_uuid, (
-                        f"parentDocumentUuid {child['parentDocumentUuid']} "
-                        f"!= expected {doc_uuid}"
+                        f"parentDocumentUuid {child['parentDocumentUuid']} != expected {doc_uuid}"
                     )
 
                     # Verify parentDocumentTitle is present and correct
@@ -3733,14 +3496,26 @@ def oscal_mixed_type_set_for_fts(draw):
     """
     # Use makers that produce children (so FTS has child content too)
     _FTS_MAKERS = [
-        ("component-definition-with-children", _make_component_definition_with_children, "component-definition"),
+        (
+            "component-definition-with-children",
+            _make_component_definition_with_children,
+            "component-definition",
+        ),
         ("catalog-with-controls", _make_catalog_with_controls, "catalog"),
         ("poam", _make_poam, "plan-of-action-and-milestones"),
     ]
     # Unique words that are unlikely to collide with other content
     _UNIQUE_WORDS = [
-        "Xylophone", "Quasar", "Zephyr", "Nebula", "Prism",
-        "Vortex", "Glacier", "Zenith", "Pulsar", "Mirage",
+        "Xylophone",
+        "Quasar",
+        "Zephyr",
+        "Nebula",
+        "Prism",
+        "Vortex",
+        "Glacier",
+        "Zenith",
+        "Pulsar",
+        "Mirage",
     ]
     count = draw(st.integers(min_value=2, max_value=6))
     docs = []
@@ -3803,9 +3578,7 @@ class TestPropertyFtsWithModelTypeScoping:
 
             # 1. Search for a term present in all document titles
             result = store.text_search("Searchable", limit=100)
-            assert result["total"] > 0, (
-                "FTS search for 'Searchable' should find results"
-            )
+            assert result["total"] > 0, "FTS search for 'Searchable' should find results"
 
             # 2. For each document, search for its unique word
             for _filename, _data, doc_uuid, title, _mt, unique_word in doc_set:
@@ -3816,8 +3589,7 @@ class TestPropertyFtsWithModelTypeScoping:
                 # Verify the document's title appears in results
                 result_titles = [item["title"] for item in result["items"]]
                 assert any(unique_word in t for t in result_titles), (
-                    f"Expected '{unique_word}' in result titles, "
-                    f"got {result_titles}"
+                    f"Expected '{unique_word}' in result titles, got {result_titles}"
                 )
 
             # 3. Model type scoping: for each model type present, verify filtering
@@ -3837,9 +3609,7 @@ class TestPropertyFtsWithModelTypeScoping:
                     )
 
                 # Verify we get results for this type (we know docs exist)
-                expected_count = sum(
-                    1 for _, _, _, _, m, _ in doc_set if m == mt_value
-                )
+                expected_count = sum(1 for _, _, _, _, m, _ in doc_set if m == mt_value)
                 if expected_count > 0:
                     assert scoped_result["total"] > 0, (
                         f"Scoped search for type '{mt_value}' should find "
@@ -3880,10 +3650,7 @@ class TestGetParsedModelByUuid:
 
     def test_unknown_uuid_returns_none(self, fixture_store):
         assert (
-            fixture_store.get_parsed_model_by_uuid(
-                "00000000-0000-4000-8000-000000000000"
-            )
-            is None
+            fixture_store.get_parsed_model_by_uuid("00000000-0000-4000-8000-000000000000") is None
         )
 
     def test_empty_string_returns_none(self, fixture_store):

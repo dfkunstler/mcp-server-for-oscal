@@ -36,7 +36,7 @@ class TestOSCALModelType:
             "assessment-plan",
             "assessment-results",
             "plan-of-action-and-milestones",
-            "mapping-collection"
+            "mapping-collection",
         }
 
         actual_values = {model_type.value for model_type in OSCALModelType}
@@ -96,7 +96,7 @@ class TestOSCALModelType:
             OSCALModelType.ASSESSMENT_PLAN,
             OSCALModelType.ASSESSMENT_RESULTS,
             OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES,
-            OSCALModelType.MAPPING
+            OSCALModelType.MAPPING,
         ]
 
         for expected_type in expected_types:
@@ -137,7 +137,7 @@ class TestOSCALModelType:
             OSCALModelType.ASSESSMENT_PLAN,
             OSCALModelType.ASSESSMENT_RESULTS,
             OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES,
-            OSCALModelType.MAPPING
+            OSCALModelType.MAPPING,
         ]
 
         for model_type in multi_word_types:
@@ -214,8 +214,7 @@ class TestBundledOscalVersion:
 
     def test_all_bundled_schemas_share_one_version(self):
         versions = {
-            name: oscal_version_from_schema(load_oscal_json_schema(name))
-            for name in schema_names
+            name: oscal_version_from_schema(load_oscal_json_schema(name)) for name in schema_names
         }
         assert set(versions.values()) == {get_bundled_oscal_version()}, versions
 

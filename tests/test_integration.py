@@ -62,7 +62,7 @@ class TestIntegration:
         """Test that all expected tools are registered with the MCP server."""
 
         _setup_tools()
-        
+
         # Get the registered tools
         tools = mcp._tool_manager._tools
 
@@ -93,9 +93,7 @@ class TestIntegration:
 
     @patch("mcp_server_for_oscal.tools.query_documentation.Session")
     @patch("mcp_server_for_oscal.tools.query_documentation.config")
-    def test_query_documentation_tool_integration(
-        self, mock_config, mock_session_class
-    ):
+    def test_query_documentation_tool_integration(self, mock_config, mock_session_class):
         """Test integration of query_documentation tool."""
         # Setup mocks
         mock_config.aws_profile = None
@@ -105,9 +103,7 @@ class TestIntegration:
         mock_session = Mock()
         mock_client = Mock()
         mock_response = {
-            "retrievalResults": [
-                {"content": {"text": "Test OSCAL content"}, "score": 0.9}
-            ]
+            "retrievalResults": [{"content": {"text": "Test OSCAL content"}, "score": 0.9}]
         }
         mock_client.retrieve.return_value = mock_response
         mock_session.client.return_value = mock_client
@@ -138,9 +134,7 @@ class TestIntegration:
         mock_context.session.client_params = {}
 
         # Execute tool
-        result = get_oscal_schema(
-            mock_context, model_name="catalog", schema_type="json"
-        )
+        result = get_oscal_schema(mock_context, model_name="catalog", schema_type="json")
 
         # Verify result
         import json
@@ -318,9 +312,7 @@ class TestIntegration:
         # Verify loggers exist for key components
         config_logger = logging.getLogger("mcp_server_for_oscal.config")
         main_logger = logging.getLogger("mcp_server_for_oscal.main")
-        tools_logger = logging.getLogger(
-            "mcp_server_for_oscal.tools.query_documentation"
-        )
+        tools_logger = logging.getLogger("mcp_server_for_oscal.tools.query_documentation")
 
         # Verify loggers are properly configured (they should exist)
         assert config_logger is not None

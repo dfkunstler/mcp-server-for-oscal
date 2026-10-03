@@ -40,6 +40,7 @@ _COMMON_METADATA = {
 # Hypothesis strategies for generating catalogs with nested controls
 # ---------------------------------------------------------------------------
 
+
 @st.composite
 def oscal_control(draw, prefix="ctrl"):
     """Generate a single OSCAL control dict with a unique id."""
@@ -84,9 +85,7 @@ def oscal_group_with_controls(draw, depth=0, max_depth=2):
         else:
             nested_groups = draw(
                 st.lists(
-                    oscal_group_with_controls(
-                        depth=depth + 1, max_depth=max_depth
-                    ),
+                    oscal_group_with_controls(depth=depth + 1, max_depth=max_depth),
                     min_size=1,
                     max_size=2,
                 )
@@ -122,9 +121,7 @@ def catalog_with_nested_controls(draw):
     )
 
     # Optionally include top-level controls too
-    top_level_controls = draw(
-        st.lists(oscal_control(prefix="top"), min_size=0, max_size=2)
-    )
+    top_level_controls = draw(st.lists(oscal_control(prefix="top"), min_size=0, max_size=2))
 
     catalog_dict = {
         "catalog": {
@@ -143,6 +140,7 @@ def catalog_with_nested_controls(draw):
 # Helper: recursively collect all control IDs from groups
 # ---------------------------------------------------------------------------
 
+
 def _collect_all_control_ids_from_groups(groups):
     """Recursively collect all control IDs from a list of groups."""
     ids = set()
@@ -158,6 +156,7 @@ def _collect_all_control_ids_from_groups(groups):
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def store(tmp_path):
     """Create an OscalStore with an ephemeral DB in tmp_path."""
@@ -170,6 +169,7 @@ def store(tmp_path):
 # ---------------------------------------------------------------------------
 # Helper: ingest a catalog dict and return the parsed model
 # ---------------------------------------------------------------------------
+
 
 def _ingest_and_parse(store, tmp_path, catalog_dict):
     """Write a catalog JSON to disk, scan it, and return the parsed model."""
@@ -184,6 +184,7 @@ def _ingest_and_parse(store, tmp_path, catalog_dict):
 # ---------------------------------------------------------------------------
 # Property-based test: Bug Condition - Nested Controls Are Extracted
 # ---------------------------------------------------------------------------
+
 
 class TestBugConditionNestedControlsExtracted:
     """
@@ -202,9 +203,7 @@ class TestBugConditionNestedControlsExtracted:
         deadline=None,
     )
     @given(catalog_dict=catalog_with_nested_controls())
-    def test_all_nested_controls_extracted(
-        self, catalog_dict, tmp_path_factory
-    ):
+    def test_all_nested_controls_extracted(self, catalog_dict, tmp_path_factory):
         """
         Property 1: Bug Condition - Nested Controls Are Extracted
 
@@ -219,29 +218,20 @@ class TestBugConditionNestedControlsExtracted:
         s = OscalStore(db_path=db_path, cache_size=10, seed_from_bundled=False)
         try:
             model = _ingest_and_parse(s, tmp_path, catalog_dict)
-            children = s._extract_child_elements(
-                OSCALModelType.CATALOG, model
-            )
+            children = s._extract_child_elements(OSCALModelType.CATALOG, model)
 
             # Collect all control IDs from groups (nested at any depth)
             groups = catalog_dict["catalog"].get("groups", [])
             expected_nested_ids = _collect_all_control_ids_from_groups(groups)
 
             # Collect all top-level control IDs
-            top_level_ids = {
-                c["id"]
-                for c in catalog_dict["catalog"].get("controls", [])
-            }
+            top_level_ids = {c["id"] for c in catalog_dict["catalog"].get("controls", [])}
 
             # All expected IDs (top-level + nested)
             all_expected_ids = expected_nested_ids | top_level_ids
 
             # Extracted control IDs
-            extracted_control_ids = {
-                c["uuid"]
-                for c in children
-                if c["element_type"] == "control"
-            }
+            extracted_control_ids = {c["uuid"] for c in children if c["element_type"] == "control"}
 
             # Every expected control must be in the extracted set
             missing = all_expected_ids - extracted_control_ids
@@ -281,13 +271,9 @@ class TestBugConditionNestedControlsExtracted:
         }
 
         model = _ingest_and_parse(store, tmp_path, catalog_dict)
-        children = store._extract_child_elements(
-            OSCALModelType.CATALOG, model
-        )
+        children = store._extract_child_elements(OSCALModelType.CATALOG, model)
 
-        extracted_control_ids = {
-            c["uuid"] for c in children if c["element_type"] == "control"
-        }
+        extracted_control_ids = {c["uuid"] for c in children if c["element_type"] == "control"}
         assert "ctrl-a" in extracted_control_ids, (
             f"Control 'ctrl-a' nested inside group not found in extracted "
             f"children. Got: {extracted_control_ids}"
@@ -326,13 +312,9 @@ class TestBugConditionNestedControlsExtracted:
         }
 
         model = _ingest_and_parse(store, tmp_path, catalog_dict)
-        children = store._extract_child_elements(
-            OSCALModelType.CATALOG, model
-        )
+        children = store._extract_child_elements(OSCALModelType.CATALOG, model)
 
-        extracted_control_ids = {
-            c["uuid"] for c in children if c["element_type"] == "control"
-        }
+        extracted_control_ids = {c["uuid"] for c in children if c["element_type"] == "control"}
         assert "ctrl-b" in extracted_control_ids, (
             f"Control 'ctrl-b' nested inside nested group not found in "
             f"extracted children. Got: {extracted_control_ids}"
@@ -384,13 +366,9 @@ class TestBugConditionNestedControlsExtracted:
         }
 
         model = _ingest_and_parse(store, tmp_path, catalog_dict)
-        children = store._extract_child_elements(
-            OSCALModelType.CATALOG, model
-        )
+        children = store._extract_child_elements(OSCALModelType.CATALOG, model)
 
-        extracted_control_ids = {
-            c["uuid"] for c in children if c["element_type"] == "control"
-        }
+        extracted_control_ids = {c["uuid"] for c in children if c["element_type"] == "control"}
 
         expected_ids = {"top-1", "nested-1", "deep-1"}
         missing = expected_ids - extracted_control_ids

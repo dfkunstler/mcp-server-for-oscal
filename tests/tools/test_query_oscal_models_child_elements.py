@@ -118,15 +118,18 @@ def multi_type_store(tmp_path):
     s.close()
 
 
-
 # ---------------------------------------------------------------------------
 # Task 6.1: Unit tests for list child element tools
 # ---------------------------------------------------------------------------
 
 PAGE_RESPONSE_KEYS = {"items", "total", "offset", "limit", "hasMore"}
 ITEM_REQUIRED_KEYS = {
-    "id", "title", "element_type", "description",
-    "parentDocumentTitle", "parentDocumentUuid",
+    "id",
+    "title",
+    "element_type",
+    "description",
+    "parentDocumentTitle",
+    "parentDocumentUuid",
 }
 
 

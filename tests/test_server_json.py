@@ -37,8 +37,7 @@ class TestServerJsonSchema:
 
     def test_schema_field_value(self, server_data):
         assert server_data["$schema"] == (
-            "https://static.modelcontextprotocol.io/schemas/"
-            "2025-12-11/server.schema.json"
+            "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json"
         )
 
 
@@ -46,10 +45,7 @@ class TestServerJsonName:
     """Req 1.2: name field equals the expected Server_Name."""
 
     def test_name_field_value(self, server_data):
-        assert (
-            server_data["name"]
-            == "io.github.dfkunstler/mcp-server-for-oscal"
-        )
+        assert server_data["name"] == "io.github.dfkunstler/mcp-server-for-oscal"
 
 
 class TestServerJsonDescriptiveFields:
@@ -88,24 +84,15 @@ class TestServerJsonPackages:
         assert len(server_data["packages"]) >= 1
 
     def test_pypi_package_entry_exists(self, server_data):
-        pypi_entries = [
-            p for p in server_data["packages"]
-            if p.get("registryType") == "pypi"
-        ]
+        pypi_entries = [p for p in server_data["packages"] if p.get("registryType") == "pypi"]
         assert len(pypi_entries) >= 1
 
     def test_pypi_package_identifier(self, server_data):
-        pypi_entry = next(
-            p for p in server_data["packages"]
-            if p.get("registryType") == "pypi"
-        )
+        pypi_entry = next(p for p in server_data["packages"] if p.get("registryType") == "pypi")
         assert pypi_entry["identifier"] == "mcp-server-for-oscal"
 
     def test_pypi_package_has_stdio_transport(self, server_data):
-        pypi_entry = next(
-            p for p in server_data["packages"]
-            if p.get("registryType") == "pypi"
-        )
+        pypi_entry = next(p for p in server_data["packages"] if p.get("registryType") == "pypi")
         transport = pypi_entry["transport"]
         assert transport["type"] == "stdio"
 
@@ -122,10 +109,7 @@ class TestServerJsonEnvironmentVariables:
     ]
 
     def _get_env_vars(self, server_data):
-        pypi_entry = next(
-            p for p in server_data["packages"]
-            if p.get("registryType") == "pypi"
-        )
+        pypi_entry = next(p for p in server_data["packages"] if p.get("registryType") == "pypi")
         return pypi_entry["environmentVariables"]
 
     def test_all_expected_env_vars_documented(self, server_data):

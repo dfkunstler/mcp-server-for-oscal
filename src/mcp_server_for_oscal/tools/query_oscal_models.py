@@ -37,8 +37,7 @@ def _get_store() -> OscalStore:
     """Return the module-level store, raising if not yet initialised."""
     if _store is None:
         raise RuntimeError(
-            "OscalStore has not been initialised. "
-            "Call init_store() during server startup."
+            "OscalStore has not been initialised. Call init_store() during server startup."
         )
     return _store
 
@@ -46,6 +45,7 @@ def _get_store() -> OscalStore:
 # ------------------------------------------------------------------
 # Catalog tools
 # ------------------------------------------------------------------
+
 
 @tool()
 def query_catalog(
@@ -114,6 +114,7 @@ def list_catalogs(
 # SSP tools
 # ------------------------------------------------------------------
 
+
 @tool()
 def query_ssp(
     ctx: Context | None = None,
@@ -147,7 +148,6 @@ def query_ssp(
     )
 
 
-
 @tool()
 def list_ssps(
     ctx: Context | None = None,
@@ -175,6 +175,7 @@ def list_ssps(
 # ------------------------------------------------------------------
 # Profile tools
 # ------------------------------------------------------------------
+
 
 @tool()
 def query_profile(
@@ -238,6 +239,7 @@ def list_profiles(
 # Assessment Plan tools
 # ------------------------------------------------------------------
 
+
 @tool()
 def query_assessment_plan(
     ctx: Context | None = None,
@@ -298,6 +300,7 @@ def list_assessment_plans(
 # ------------------------------------------------------------------
 # Assessment Results tools
 # ------------------------------------------------------------------
+
 
 @tool()
 def query_assessment_results(
@@ -360,6 +363,7 @@ def list_assessment_results(
 # POA&M tools
 # ------------------------------------------------------------------
 
+
 @tool()
 def query_poam(
     ctx: Context | None = None,
@@ -420,6 +424,7 @@ def list_poams(
 # ------------------------------------------------------------------
 # Mapping Collection tools
 # ------------------------------------------------------------------
+
 
 @tool()
 def query_mapping_collection(
@@ -482,6 +487,7 @@ def list_mapping_collections(
 # ------------------------------------------------------------------
 # Cross-model text search
 # ------------------------------------------------------------------
+
 
 @tool()
 def text_search_oscal(
@@ -956,6 +962,7 @@ def list_mapping_collection_mappings(
         offset=offset,
         limit=limit,
     )
+
 
 # ------------------------------------------------------------------
 # Get child element by ID (cross-model)

@@ -19,9 +19,7 @@ class TestContentHashSchemaMigration:
         db_path = str(tmp_path / "new.db")
         store = OscalStore(db_path=db_path, seed_from_bundled=False)
         try:
-            row = store._conn.execute(
-                "PRAGMA table_info(documents)"
-            ).fetchall()
+            row = store._conn.execute("PRAGMA table_info(documents)").fetchall()
             col_names = [r["name"] for r in row]
             assert "content_hash" in col_names
         finally:
@@ -60,9 +58,7 @@ class TestContentHashSchemaMigration:
         # Open with OscalStore — migration should add content_hash
         store = OscalStore(db_path=db_path, seed_from_bundled=False)
         try:
-            row = store._conn.execute(
-                "PRAGMA table_info(documents)"
-            ).fetchall()
+            row = store._conn.execute("PRAGMA table_info(documents)").fetchall()
             col_names = [r["name"] for r in row]
             assert "content_hash" in col_names
 
@@ -103,9 +99,7 @@ class TestContentHashSchemaMigration:
             # Call _init_schema again — should not raise
             store._init_schema()
 
-            row = store._conn.execute(
-                "PRAGMA table_info(documents)"
-            ).fetchall()
+            row = store._conn.execute("PRAGMA table_info(documents)").fetchall()
             col_names = [r["name"] for r in row]
             assert col_names.count("content_hash") == 1
         finally:
@@ -186,35 +180,25 @@ class TestSHA256ChangeDetectionProperty:
                 assert count_first == 1, "First scan should ingest the new file"
 
                 # Verify stored content_hash matches content_a
-                expected_hash_a = hashlib.sha256(
-                    content_a.encode("utf-8")
-                ).hexdigest()
+                expected_hash_a = hashlib.sha256(content_a.encode("utf-8")).hexdigest()
                 row_a = store._conn.execute(
                     "SELECT content_hash, raw_json FROM documents "
                     "WHERE model_type = 'documentation'"
                 ).fetchone()
-                assert row_a is not None, (
-                    "Document row should exist after first scan"
-                )
+                assert row_a is not None, "Document row should exist after first scan"
                 assert row_a["content_hash"] == expected_hash_a
 
                 # --- Phase 2: Scan same file again (idempotence) ---
                 count_noop = store.scan_directory(doc_dir)
-                assert count_noop == 0, (
-                    "Second scan of unchanged file should return 0"
-                )
+                assert count_noop == 0, "Second scan of unchanged file should return 0"
 
                 # --- Phase 3: Replace content and scan again ---
                 md_file.write_text(content_b, encoding="utf-8")
                 count_update = store.scan_directory(doc_dir)
-                assert count_update == 1, (
-                    "Scan after content change should re-index the file"
-                )
+                assert count_update == 1, "Scan after content change should re-index the file"
 
                 # Verify content_hash updated to match content_b
-                expected_hash_b = hashlib.sha256(
-                    content_b.encode("utf-8")
-                ).hexdigest()
+                expected_hash_b = hashlib.sha256(content_b.encode("utf-8")).hexdigest()
                 row_b = store._conn.execute(
                     "SELECT content_hash, raw_json FROM documents "
                     "WHERE model_type = 'documentation'"
@@ -254,16 +238,12 @@ class TestSHA256ChangeDetectionProperty:
                 md_file.write_text(content_b, encoding="utf-8")
                 count_update = store.scan_directory(doc_dir)
                 assert count_update == 1, (
-                    "Same byte length but different content must trigger "
-                    "re-index"
+                    "Same byte length but different content must trigger re-index"
                 )
 
-                expected_hash_b = hashlib.sha256(
-                    content_b.encode("utf-8")
-                ).hexdigest()
+                expected_hash_b = hashlib.sha256(content_b.encode("utf-8")).hexdigest()
                 row = store._conn.execute(
-                    "SELECT content_hash FROM documents "
-                    "WHERE model_type = 'documentation'"
+                    "SELECT content_hash FROM documents WHERE model_type = 'documentation'"
                 ).fetchone()
                 assert row is not None
                 assert row["content_hash"] == expected_hash_b
@@ -317,9 +297,11 @@ _filename_chars = st.characters(
     whitelist_categories=("L", "N"),
     whitelist_characters="-_",
 )
-filename_strategy = st.text(
-    alphabet=_filename_chars, min_size=1, max_size=40
-).filter(lambda s: s.strip() and s.strip("-_")).map(lambda s: s + ".md")
+filename_strategy = (
+    st.text(alphabet=_filename_chars, min_size=1, max_size=40)
+    .filter(lambda s: s.strip() and s.strip("-_"))
+    .map(lambda s: s + ".md")
+)
 
 
 class TestTitleDerivationProperty:
@@ -367,12 +349,9 @@ class TestTitleDerivationProperty:
                     (str(md_file),),
                 ).fetchone()
 
-                assert row is not None, (
-                    f"Document not indexed for file {filename}"
-                )
+                assert row is not None, f"Document not indexed for file {filename}"
                 assert row["title"] == expected_title, (
-                    f"Title mismatch: got {row['title']!r}, "
-                    f"expected {expected_title!r}"
+                    f"Title mismatch: got {row['title']!r}, expected {expected_title!r}"
                 )
             finally:
                 store.close()
@@ -584,15 +563,11 @@ class TestSearchDocumentation:
         total = result_all["total"]
 
         if total > 1:
-            result_page = store_with_docs.search_documentation(
-                "OSCAL", offset=0, limit=1
-            )
+            result_page = store_with_docs.search_documentation("OSCAL", offset=0, limit=1)
             assert len(result_page["items"]) == 1
             assert result_page["hasMore"] is True
 
-            result_offset = store_with_docs.search_documentation(
-                "OSCAL", offset=total, limit=10
-            )
+            result_offset = store_with_docs.search_documentation("OSCAL", offset=total, limit=10)
             assert len(result_offset["items"]) == 0
             assert result_offset["hasMore"] is False
 
@@ -717,8 +692,7 @@ class TestEmptyQueryReturnsEmptyResponseProperty:
                 f"Expected total=0 for query {query!r}, got {result['total']}"
             )
             assert result["hasMore"] is False, (
-                f"Expected hasMore=False for query {query!r}, "
-                f"got {result['hasMore']}"
+                f"Expected hasMore=False for query {query!r}, got {result['hasMore']}"
             )
         finally:
             store.close()
@@ -819,9 +793,7 @@ class TestSearchResultStructureProperty:
             assert isinstance(result["hasMore"], bool)
 
             # We indexed content containing "OSCAL" so expect ≥1 result
-            assert result["total"] >= 1, (
-                "Expected at least one result for 'OSCAL' query"
-            )
+            assert result["total"] >= 1, "Expected at least one result for 'OSCAL' query"
 
             # --- Per-item structure ---
             for item in result["items"]:
@@ -877,9 +849,7 @@ class TestDocumentationSearchScopingProperty:
     )
     @given(
         md_body=st.text(
-            alphabet=st.characters(
-                blacklist_categories=["Cs"], blacklist_characters="\r"
-            ),
+            alphabet=st.characters(blacklist_categories=["Cs"], blacklist_characters="\r"),
             min_size=0,
             max_size=300,
         ),
@@ -939,11 +909,8 @@ class TestDocumentationSearchScopingProperty:
             # If there are results, they should all come from our markdown file
             if result["total"] > 0:
                 for item in result["items"]:
-                    assert not any(
-                        mt in item["source"] for mt in self._oscal_model_types
-                    ), (
-                        f"OSCAL model content appeared in documentation search: "
-                        f"{item!r}"
+                    assert not any(mt in item["source"] for mt in self._oscal_model_types), (
+                        f"OSCAL model content appeared in documentation search: {item!r}"
                     )
         finally:
             store.close()
@@ -1061,11 +1028,10 @@ class TestQueryOscalDocumentationRouting:
 
         Validates: Requirement 4.2
         """
-        with patch.object(
-            query_documentation, "config"
-        ) as mock_config, patch.object(
-            query_documentation, "query_kb"
-        ) as mock_kb:
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_kb") as mock_kb,
+        ):
             mock_config.knowledge_base_id = "my-kb-id"
             mock_kb.return_value = {"results": []}
 
@@ -1082,11 +1048,10 @@ class TestQueryOscalDocumentationRouting:
 
         Validates: Requirement 4.3
         """
-        with patch.object(
-            query_documentation, "config"
-        ) as mock_config, patch.object(
-            query_documentation, "query_local"
-        ) as mock_local:
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
             mock_config.knowledge_base_id = None
             mock_local.return_value = {"items": [], "total": 0}
 
@@ -1101,13 +1066,11 @@ class TestQueryOscalDocumentationRouting:
 
         Validates: Requirement 4.4
         """
-        with patch.object(
-            query_documentation, "config"
-        ) as mock_config, patch.object(
-            query_documentation, "query_kb", side_effect=RuntimeError("KB down")
-        ), patch.object(
-            query_documentation, "query_local"
-        ) as mock_local:
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_kb", side_effect=RuntimeError("KB down")),
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
             mock_config.knowledge_base_id = "my-kb-id"
             mock_local.return_value = {"items": [{"title": "Fallback"}], "total": 1}
 
@@ -1122,11 +1085,10 @@ class TestQueryOscalDocumentationRouting:
 
         Validates: Requirement 4.3
         """
-        with patch.object(
-            query_documentation, "config"
-        ) as mock_config, patch.object(
-            query_documentation, "query_local"
-        ) as mock_local:
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
             # Empty string is falsy but not None — check the actual code path
             mock_config.knowledge_base_id = None
             mock_local.return_value = {"items": [], "total": 0}
@@ -1148,15 +1110,16 @@ class TestSearchPathLogging:
 
         Validates: Requirement 4.5
         """
-        with patch.object(
-            query_documentation, "config"
-        ) as mock_config, patch.object(
-            query_documentation, "query_kb"
-        ) as mock_kb:
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_kb") as mock_kb,
+        ):
             mock_config.knowledge_base_id = "kb-123"
             mock_kb.return_value = {"results": []}
 
-            with caplog.at_level(logging.INFO, logger="mcp_server_for_oscal.tools.query_documentation"):
+            with caplog.at_level(
+                logging.INFO, logger="mcp_server_for_oscal.tools.query_documentation"
+            ):
                 fn = query_documentation.query_oscal_documentation
                 fn(query="test", ctx=None)
 
@@ -1167,15 +1130,16 @@ class TestSearchPathLogging:
 
         Validates: Requirement 4.5
         """
-        with patch.object(
-            query_documentation, "config"
-        ) as mock_config, patch.object(
-            query_documentation, "query_local"
-        ) as mock_local:
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
             mock_config.knowledge_base_id = None
             mock_local.return_value = {"items": [], "total": 0}
 
-            with caplog.at_level(logging.INFO, logger="mcp_server_for_oscal.tools.query_documentation"):
+            with caplog.at_level(
+                logging.INFO, logger="mcp_server_for_oscal.tools.query_documentation"
+            ):
                 fn = query_documentation.query_oscal_documentation
                 fn(query="test", ctx=None)
 
@@ -1186,21 +1150,23 @@ class TestSearchPathLogging:
 
         Validates: Requirements 4.4, 4.5
         """
-        with patch.object(
-            query_documentation, "config"
-        ) as mock_config, patch.object(
-            query_documentation, "query_kb", side_effect=RuntimeError("fail")
-        ), patch.object(
-            query_documentation, "query_local"
-        ) as mock_local:
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_kb", side_effect=RuntimeError("fail")),
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
             mock_config.knowledge_base_id = "kb-123"
             mock_local.return_value = {"items": [], "total": 0}
 
-            with caplog.at_level(logging.WARNING, logger="mcp_server_for_oscal.tools.query_documentation"):
+            with caplog.at_level(
+                logging.WARNING, logger="mcp_server_for_oscal.tools.query_documentation"
+            ):
                 fn = query_documentation.query_oscal_documentation
                 fn(query="test", ctx=None)
 
-            assert any("falling back" in msg.lower() or "failed" in msg.lower() for msg in caplog.messages)
+            assert any(
+                "falling back" in msg.lower() or "failed" in msg.lower() for msg in caplog.messages
+            )
 
 
 class TestUnconditionalToolRegistration:
@@ -1251,20 +1217,17 @@ class TestStartupWiring:
 
         mock_store = MagicMock()
 
-        with patch(
-            "mcp_server_for_oscal.tools.oscal_store.OscalStore",
-            return_value=mock_store,
-        ), patch(
-            "mcp_server_for_oscal.main.config"
-        ) as mock_config, patch(
-            "mcp_server_for_oscal.tools.list_oscal_resources.init_store"
-        ), patch(
-            "mcp_server_for_oscal.tools.query_component_definition.init_store"
-        ), patch(
-            "mcp_server_for_oscal.tools.query_oscal_models.init_store"
-        ), patch(
-            "mcp_server_for_oscal.tools.query_documentation.init_store"
-        ) as mock_doc_init:
+        with (
+            patch(
+                "mcp_server_for_oscal.tools.oscal_store.OscalStore",
+                return_value=mock_store,
+            ),
+            patch("mcp_server_for_oscal.main.config") as mock_config,
+            patch("mcp_server_for_oscal.tools.list_oscal_resources.init_store"),
+            patch("mcp_server_for_oscal.tools.query_component_definition.init_store"),
+            patch("mcp_server_for_oscal.tools.query_oscal_models.init_store"),
+            patch("mcp_server_for_oscal.tools.query_documentation.init_store") as mock_doc_init,
+        ):
             mock_config.oscal_store_db_path = None
             mock_config.oscal_store_cache_size = 100
             mock_config.component_definitions_dir = "component_definitions"
@@ -1286,19 +1249,16 @@ class TestStartupWiring:
 
         mock_store = MagicMock()
 
-        with patch(
-            "mcp_server_for_oscal.tools.oscal_store.OscalStore",
-            return_value=mock_store,
-        ), patch(
-            "mcp_server_for_oscal.main.config"
-        ) as mock_config, patch(
-            "mcp_server_for_oscal.tools.list_oscal_resources.init_store"
-        ), patch(
-            "mcp_server_for_oscal.tools.query_component_definition.init_store"
-        ), patch(
-            "mcp_server_for_oscal.tools.query_oscal_models.init_store"
-        ), patch(
-            "mcp_server_for_oscal.tools.query_documentation.init_store"
+        with (
+            patch(
+                "mcp_server_for_oscal.tools.oscal_store.OscalStore",
+                return_value=mock_store,
+            ),
+            patch("mcp_server_for_oscal.main.config") as mock_config,
+            patch("mcp_server_for_oscal.tools.list_oscal_resources.init_store"),
+            patch("mcp_server_for_oscal.tools.query_component_definition.init_store"),
+            patch("mcp_server_for_oscal.tools.query_oscal_models.init_store"),
+            patch("mcp_server_for_oscal.tools.query_documentation.init_store"),
         ):
             mock_config.oscal_store_db_path = None
             mock_config.oscal_store_cache_size = 100
@@ -1310,9 +1270,7 @@ class TestStartupWiring:
             # Verify scan_directory was NOT called with a path ending in "oscal_docs"
             scan_calls = mock_store.scan_directory.call_args_list
             oscal_docs_scanned = any(
-                str(c.args[0]).endswith("oscal_docs")
-                for c in scan_calls
-                if c.args
+                str(c.args[0]).endswith("oscal_docs") for c in scan_calls if c.args
             )
             assert not oscal_docs_scanned, (
                 f"Expected scan_directory NOT to be called with a path ending in "
@@ -1353,20 +1311,19 @@ class TestStartupWiring:
 
         mock_store = MagicMock()
 
-        with patch(
-            "mcp_server_for_oscal.tools.oscal_store.OscalStore",
-            return_value=mock_store,
-        ), patch(
-            "mcp_server_for_oscal.main.config"
-        ) as mock_config, patch(
-            "mcp_server_for_oscal.tools.list_oscal_resources.init_store"
-        ) as mock_lr_init, patch(
-            "mcp_server_for_oscal.tools.query_component_definition.init_store"
-        ) as mock_cd_init, patch(
-            "mcp_server_for_oscal.tools.query_oscal_models.init_store"
-        ) as mock_models_init, patch(
-            "mcp_server_for_oscal.tools.query_documentation.init_store"
-        ) as mock_doc_init:
+        with (
+            patch(
+                "mcp_server_for_oscal.tools.oscal_store.OscalStore",
+                return_value=mock_store,
+            ),
+            patch("mcp_server_for_oscal.main.config") as mock_config,
+            patch("mcp_server_for_oscal.tools.list_oscal_resources.init_store") as mock_lr_init,
+            patch(
+                "mcp_server_for_oscal.tools.query_component_definition.init_store"
+            ) as mock_cd_init,
+            patch("mcp_server_for_oscal.tools.query_oscal_models.init_store") as mock_models_init,
+            patch("mcp_server_for_oscal.tools.query_documentation.init_store") as mock_doc_init,
+        ):
             mock_config.oscal_store_db_path = None
             mock_config.oscal_store_cache_size = 100
             mock_config.component_definitions_dir = "component_definitions"

@@ -3,6 +3,7 @@
 Simple OSCAL MCP server using MCPServer.
 
 """
+
 # Import configuration
 import argparse
 import logging
@@ -17,6 +18,7 @@ from mcp_server_for_oscal.tools.utils import (
     get_bundled_oscal_version,
     verify_package_integrity,
 )
+
 # Configure logging
 try:
     logging.basicConfig(level=config.log_level)
@@ -126,6 +128,7 @@ def _setup_tools() -> None:
             "oscal-version": get_bundled_oscal_version(),
         }
 
+
 def main():
     """Main function to run the OSCAL agent."""
     # Parse command line arguments
@@ -224,9 +227,7 @@ def main():
     except KeyboardInterrupt:
         logger.info("Shutdown due to keyboard interrupt")
     except Exception:
-        logger.exception(
-            "Error running MCP server with transport '%s':", config.transport
-        )
+        logger.exception("Error running MCP server with transport '%s':", config.transport)
         raise
 
 

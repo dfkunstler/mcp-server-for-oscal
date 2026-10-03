@@ -39,6 +39,7 @@ LIST_TOOLS_AND_ELEMENT_TYPES: list[tuple] = [
 # Helpers — minimal valid OSCAL documents
 # ---------------------------------------------------------------------------
 
+
 def _make_catalog_with_controls(
     uuid="d2e3f4a5-6789-4bcd-9ef0-bbccddeeff00",
     title="Security Controls Catalog",
@@ -89,6 +90,7 @@ def _make_poam(
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def multi_type_store(tmp_path):
@@ -147,9 +149,7 @@ class TestProperty1CorrectDelegation:
         limit,
     ):
         sentinel = {"items": [], "total": 0, "offset": 0, "limit": 10, "hasMore": False}
-        with patch.object(
-            OscalStore, "list_child_elements", return_value=sentinel
-        ) as mock_lce:
+        with patch.object(OscalStore, "list_child_elements", return_value=sentinel) as mock_lce:
             # Ensure _get_store() returns a real-ish object
             saved = query_oscal_models._store
             try:

@@ -180,8 +180,7 @@ class TestWrappersAgainstFixtureStore:
         """Items keep the existing summary keys (5.8)."""
         result = list_component_definitions(ctx=None)
         titles = {
-            str(_parse_fixture(f).uuid): _parse_fixture(f).metadata.title
-            for f in VALID_CDEF_FILES
+            str(_parse_fixture(f).uuid): _parse_fixture(f).metadata.title for f in VALID_CDEF_FILES
         }
         for item in result["items"]:
             assert set(item) == {
@@ -306,9 +305,7 @@ class TestQueryMatrixNoFilter:
 class TestQueryMatrixWithFilter:
     """Component queries scoped to multi_component_definition.json."""
 
-    def _query(
-        self, cdef_filter: str, query_type: str, query_value: str | None = None
-    ) -> dict:
+    def _query(self, cdef_filter: str, query_type: str, query_value: str | None = None) -> dict:
         result = query_component_definition(
             ctx=None,
             component_definition_filter=cdef_filter,
@@ -422,9 +419,7 @@ WRAPPER_CALLS = [
     pytest.param(lambda: list_component_definitions(ctx=None), id="list_cdefs"),
     pytest.param(lambda: list_components(ctx=None), id="list_components"),
     pytest.param(lambda: list_capabilities(ctx=None), id="list_capabilities"),
-    pytest.param(
-        lambda: get_capability(ctx=None, uuid=CAPABILITY_UUID), id="get_capability"
-    ),
+    pytest.param(lambda: get_capability(ctx=None, uuid=CAPABILITY_UUID), id="get_capability"),
 ]
 
 
@@ -446,18 +441,12 @@ class TestQueryErrorsAndEdgeCases:
     @pytest.mark.parametrize("query_value", [None, "", "   \t "])
     def test_missing_query_value(self, query_type, query_value):
         with pytest.raises(ValueError, match="query_value is required"):
-            query_component_definition(
-                ctx=None, query_type=query_type, query_value=query_value
-            )
+            query_component_definition(ctx=None, query_type=query_type, query_value=query_value)
 
-    @pytest.mark.parametrize(
-        "cdef_filter", ["no-such-definition", "Multi", "Component"]
-    )
+    @pytest.mark.parametrize("cdef_filter", ["no-such-definition", "Multi", "Component"])
     def test_unmatched_or_fuzzy_filter_is_empty(self, cdef_filter):
         """Unknown and partial (fuzzy-only) titles never select a cdef."""
-        result = query_component_definition(
-            ctx=None, component_definition_filter=cdef_filter
-        )
+        result = query_component_definition(ctx=None, component_definition_filter=cdef_filter)
         assert set(result) == COMPONENT_QUERY_KEYS
         assert result["components"] == []
         assert result["total_count"] == 0
@@ -473,9 +462,7 @@ class TestQueryErrorsAndEdgeCases:
             ("by_type", " hardware ", {HSM_UUID}),
         ],
     )
-    def test_whitespace_padded_query_value_matches(
-        self, query_type, query_value, expected
-    ):
+    def test_whitespace_padded_query_value_matches(self, query_type, query_value, expected):
         result = query_component_definition(
             ctx=None, query_type=query_type, query_value=query_value
         )
@@ -529,9 +516,7 @@ class TestManyCapabilities:
         assert str(result["uuid"]) == target["uuid"]
         assert result["name"] == target["name"]
 
-    @pytest.mark.parametrize(
-        ("query_type", "key"), [("by_uuid", "uuid"), ("by_title", "name")]
-    )
+    @pytest.mark.parametrize(("query_type", "key"), [("by_uuid", "uuid"), ("by_title", "name")])
     def test_query_finds_capability_beyond_position_100(
         self, many_capabilities_store, query_type, key
     ):
@@ -586,9 +571,7 @@ class TestParseScope:
     """Component results parse only the Component Definitions they need."""
 
     @pytest.mark.parametrize("cdef_filter", MULTI_FILTERS)
-    @pytest.mark.parametrize(
-        ("query_type", "query_value", "expected"), FILTERED_COMPONENT_QUERIES
-    )
+    @pytest.mark.parametrize(("query_type", "query_value", "expected"), FILTERED_COMPONENT_QUERIES)
     def test_filtered_query_parses_only_matched_cdef(
         self, parse_spy, cdef_filter, query_type, query_value, expected
     ):
@@ -605,9 +588,7 @@ class TestParseScope:
     @pytest.mark.parametrize(
         ("query_type", "query_value", "expected_uuid", "parent_uuid"),
         [
-            pytest.param(
-                "by_uuid", HSM_UUID, HSM_UUID, MULTI_CDEF_UUID, id="by_uuid-multi"
-            ),
+            pytest.param("by_uuid", HSM_UUID, HSM_UUID, MULTI_CDEF_UUID, id="by_uuid-multi"),
             pytest.param(
                 "by_uuid",
                 SAMPLE_COMPONENT_UUID,
@@ -706,9 +687,7 @@ class TestLegacyStoreRemoved:
         assert names.isdisjoint(_LEGACY_NAMES)
 
     def test_source_does_not_reference_cdef_dir_setting(self):
-        assert "component_definitions_dir" not in _CDEF_TOOLS_PATH.read_text(
-            encoding="utf-8"
-        )
+        assert "component_definitions_dir" not in _CDEF_TOOLS_PATH.read_text(encoding="utf-8")
 
 
 class TestPublicStoreApiOnly:
@@ -794,7 +773,5 @@ class TestImportReadsNoCdefContent:
         # The probe really executed the module and left the real one intact.
         assert fresh.init_store is not qcd_module.init_store
         assert sys.modules[qcd_module.__name__] is qcd_module
-        offenders = [
-            p for p in import_seen if str(cdef_dir) in p or "component_definitions" in p
-        ]
+        offenders = [p for p in import_seen if str(cdef_dir) in p or "component_definitions" in p]
         assert offenders == []

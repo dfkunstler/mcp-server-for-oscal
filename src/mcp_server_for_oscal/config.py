@@ -42,7 +42,9 @@ class Config:
         self.stateless_http: bool = os.getenv("OSCAL_MCP_STATELESS_HTTP", "false").lower() == "true"
 
         # Component Definition remote URI configuration
-        self.allow_remote_uris: bool = os.getenv("OSCAL_ALLOW_REMOTE_URIS", "false").lower() == "true"
+        self.allow_remote_uris: bool = (
+            os.getenv("OSCAL_ALLOW_REMOTE_URIS", "false").lower() == "true"
+        )
         self.request_timeout: int = int(os.getenv("OSCAL_REQUEST_TIMEOUT", "30"))
         self.max_uri_depth: int = int(os.getenv("OSCAL_MAX_URI_DEPTH", "3"))
 
@@ -50,7 +52,9 @@ class Config:
         # removed. Retained so existing configurations keep loading. Use
         # OSCAL_DOCUMENTS_DIR (oscal_documents_dir) instead. See
         # main._warn_deprecated_settings.
-        self.component_definitions_dir: str = os.getenv("OSCAL_COMPONENT_DEFINITIONS_DIR", "component_definitions")
+        self.component_definitions_dir: str = os.getenv(
+            "OSCAL_COMPONENT_DEFINITIONS_DIR", "component_definitions"
+        )
 
         # OSCAL Store configuration
         self.oscal_store_db_path: str = os.getenv("OSCAL_STORE_DB_PATH", "")
@@ -66,9 +70,7 @@ class Config:
         )
 
         # Conversation management configuration
-        self.conversation_manager_type: str = os.getenv(
-            "OSCAL_AGENT_CONVERSATION_MANAGER", ""
-        )
+        self.conversation_manager_type: str = os.getenv("OSCAL_AGENT_CONVERSATION_MANAGER", "")
 
         # Agent configuration
         self.agent_max_tokens: int = int(os.getenv("OSCAL_AGENT_MAX_TOKENS", "4096"))

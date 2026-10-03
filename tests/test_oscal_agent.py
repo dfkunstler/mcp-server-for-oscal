@@ -31,6 +31,7 @@ from mcp_server_for_oscal.oscal_agent import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_mock_tool(name: str):
     """Create a mock callable with a __name__ attribute."""
     fn = Mock()
@@ -83,9 +84,7 @@ class TestCreateOscalAgent:
     @patch("mcp_server_for_oscal.oscal_agent.Agent")
     @patch("mcp_server_for_oscal.oscal_agent.BedrockModel")
     @patch("mcp_server_for_oscal.oscal_agent.boto3.Session")
-    def test_retry_strategy_defaults(
-        self, mock_session_cls, mock_bedrock_cls, mock_agent_cls
-    ):
+    def test_retry_strategy_defaults(self, mock_session_cls, mock_bedrock_cls, mock_agent_cls):
         """ModelRetryStrategy uses defaults: max_attempts=4, initial_delay=2, max_delay=60."""
         tools = [_make_mock_tool("t")]
         create_oscal_agent(tools=tools)
@@ -99,9 +98,7 @@ class TestCreateOscalAgent:
     @patch("mcp_server_for_oscal.oscal_agent.Agent")
     @patch("mcp_server_for_oscal.oscal_agent.BedrockModel")
     @patch("mcp_server_for_oscal.oscal_agent.boto3.Session")
-    def test_max_tokens_default(
-        self, mock_session_cls, mock_bedrock_cls, mock_agent_cls
-    ):
+    def test_max_tokens_default(self, mock_session_cls, mock_bedrock_cls, mock_agent_cls):
         """BedrockModel is created with max_tokens=4096 by default."""
         tools = [_make_mock_tool("t")]
         create_oscal_agent(tools=tools)
@@ -133,9 +130,7 @@ class TestCreateOscalAgent:
         side_effect=Exception("model boom"),
     )
     @patch("mcp_server_for_oscal.oscal_agent.boto3.Session")
-    def test_valueerror_on_bedrock_model_failure(
-        self, mock_session_cls, mock_bedrock_cls
-    ):
+    def test_valueerror_on_bedrock_model_failure(self, mock_session_cls, mock_bedrock_cls):
         """ValueError raised when BedrockModel fails, message contains model ID."""
         with pytest.raises(ValueError, match="BedrockModel"):
             create_oscal_agent(tools=[_make_mock_tool("t")])
@@ -147,9 +142,9 @@ class TestCreateOscalAgent:
             with pytest.raises(ValueError):
                 create_oscal_agent(tools=[_make_mock_tool("t")])
 
-        assert any(
-            record.levelno == logging.ERROR for record in caplog.records
-        ), "Expected an ERROR log record before raising"
+        assert any(record.levelno == logging.ERROR for record in caplog.records), (
+            "Expected an ERROR log record before raising"
+        )
 
     @patch("mcp_server_for_oscal.oscal_agent.Agent")
     @patch("mcp_server_for_oscal.oscal_agent.BedrockModel")
@@ -163,17 +158,15 @@ class TestCreateOscalAgent:
 
         call_kwargs = mock_agent_cls.call_args[1]
         hooks = call_kwargs["hooks"]
-        assert any(
-            isinstance(h, AgentObservabilityHook) for h in hooks
-        ), "Expected AgentObservabilityHook in hooks list"
+        assert any(isinstance(h, AgentObservabilityHook) for h in hooks), (
+            "Expected AgentObservabilityHook in hooks list"
+        )
 
     def test_no_module_level_agent_attribute(self):
         """The oscal_agent module must not have a module-level 'agent' attribute."""
         import mcp_server_for_oscal.oscal_agent as mod
 
-        assert not hasattr(mod, "agent"), (
-            "Module should not have a module-level 'agent' attribute"
-        )
+        assert not hasattr(mod, "agent"), "Module should not have a module-level 'agent' attribute"
 
 
 # ---------------------------------------------------------------------------
@@ -205,9 +198,7 @@ class TestProperty2ErrorContextPropagation:
 
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
     @given(profile_name=safe_text, error_msg=safe_text)
-    def test_boto3_error_contains_profile_and_original_error(
-        self, profile_name, error_msg
-    ):
+    def test_boto3_error_contains_profile_and_original_error(self, profile_name, error_msg):
         """
         Feature: oscal-agent-production, Property 2: Error context propagation
 
@@ -235,9 +226,7 @@ class TestProperty2ErrorContextPropagation:
 
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
     @given(model_id=safe_text, error_msg=safe_text)
-    def test_bedrock_error_contains_model_id_and_original_error(
-        self, model_id, error_msg
-    ):
+    def test_bedrock_error_contains_model_id_and_original_error(self, model_id, error_msg):
         """
         Feature: oscal-agent-production, Property 2: Error context propagation
 
@@ -273,9 +262,13 @@ class TestProperty2ErrorContextPropagation:
 
 # Strategy for generating argument dicts
 arg_dict_strategy = st.dictionaries(
-    keys=st.text(min_size=1, max_size=20, alphabet=st.characters(
-        whitelist_categories=("L", "N"),
-    )),
+    keys=st.text(
+        min_size=1,
+        max_size=20,
+        alphabet=st.characters(
+            whitelist_categories=("L", "N"),
+        ),
+    ),
     values=st.one_of(st.text(max_size=30), st.integers(), st.booleans()),
     max_size=5,
 )
@@ -314,9 +307,9 @@ class TestProperty4HookEventLoggingCompleteness:
         with caplog.at_level(logging.DEBUG, logger="mcp_server_for_oscal.oscal_agent"):
             hook._on_before_tool_call(event)
 
-        assert any(
-            tool_name in record.message for record in caplog.records
-        ), f"Tool name '{tool_name}' not found in log output"
+        assert any(tool_name in record.message for record in caplog.records), (
+            f"Tool name '{tool_name}' not found in log output"
+        )
 
     @settings(
         max_examples=100,
@@ -341,9 +334,9 @@ class TestProperty4HookEventLoggingCompleteness:
         with caplog.at_level(logging.DEBUG, logger="mcp_server_for_oscal.oscal_agent"):
             hook._on_after_model_call(event)
 
-        assert any(
-            stop_reason in record.message for record in caplog.records
-        ), f"Stop reason '{stop_reason}' not found in log output"
+        assert any(stop_reason in record.message for record in caplog.records), (
+            f"Stop reason '{stop_reason}' not found in log output"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -369,9 +362,7 @@ class TestProperty5SystemPromptToolNameInclusion:
     """
 
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
-    @given(
-        tool_names=st.lists(tool_name_strategy, min_size=1, max_size=10, unique=True)
-    )
+    @given(tool_names=st.lists(tool_name_strategy, min_size=1, max_size=10, unique=True))
     def test_system_prompt_contains_all_tool_names(self, tool_names):
         """
         Feature: oscal-agent-production, Property 5: System prompt tool name inclusion
@@ -382,9 +373,7 @@ class TestProperty5SystemPromptToolNameInclusion:
         prompt = _build_system_prompt(tools)
 
         for name in tool_names:
-            assert name in prompt, (
-                f"Tool name '{name}' not found in system prompt"
-            )
+            assert name in prompt, f"Tool name '{name}' not found in system prompt"
 
 
 # ---------------------------------------------------------------------------
@@ -437,9 +426,7 @@ class TestMainEntryPoint:
             "8192",
         ],
     )
-    def test_cli_parses_model_kb_and_max_tokens(
-        self, mock_config, mock_verify, mock_create_agent
-    ):
+    def test_cli_parses_model_kb_and_max_tokens(self, mock_config, mock_verify, mock_create_agent):
         """CLI --bedrock-model-id, --knowledge-base-id, --max-tokens are parsed."""
         from mcp_server_for_oscal.oscal_agent import main
 
@@ -567,8 +554,7 @@ class TestMainEntryPoint:
 
         # Verify INFO log contains session ID
         assert any(
-            "Session ID: test-session-abc" in record.message
-            and record.levelno == logging.INFO
+            "Session ID: test-session-abc" in record.message and record.levelno == logging.INFO
             for record in caplog.records
         ), f"Expected INFO log with session ID, got: {[r.message for r in caplog.records]}"
 
@@ -611,9 +597,7 @@ class TestMainEntryPoint:
             main()
 
         # Verify DEBUG log contains session ID (not INFO)
-        session_logs = [
-            r for r in caplog.records if "Session ID: test-session-xyz" in r.message
-        ]
+        session_logs = [r for r in caplog.records if "Session ID: test-session-xyz" in r.message]
         assert len(session_logs) == 1, (
             f"Expected exactly one session ID log, got: "
             f"{[(r.levelno, r.message) for r in caplog.records]}"
@@ -657,9 +641,9 @@ class TestMainEntryPoint:
                 main()
 
         # No "Session ID:" in logs
-        assert not any(
-            "Session ID:" in record.message for record in caplog.records
-        ), f"Unexpected session ID log: {[r.message for r in caplog.records]}"
+        assert not any("Session ID:" in record.message for record in caplog.records), (
+            f"Unexpected session ID log: {[r.message for r in caplog.records]}"
+        )
 
         # No "Session ID:" in stdout
         captured = capsys.readouterr()
@@ -1086,10 +1070,14 @@ class TestCLISessionArgParsing:
         "sys.argv",
         [
             "agent",
-            "--session-id", "abc-123",
-            "--session-storage", "file",
-            "--session-dir", "/tmp/sessions",
-            "--conversation-manager", "summarizing",
+            "--session-id",
+            "abc-123",
+            "--session-storage",
+            "file",
+            "--session-dir",
+            "/tmp/sessions",
+            "--conversation-manager",
+            "summarizing",
         ],
     )
     def test_session_args_parsed_and_forwarded(
@@ -1133,9 +1121,12 @@ class TestCLISessionArgParsing:
         "sys.argv",
         [
             "agent",
-            "--session-storage", "s3",
-            "--session-s3-bucket", "my-bucket",
-            "--session-s3-prefix", "my-prefix/",
+            "--session-storage",
+            "s3",
+            "--session-s3-bucket",
+            "my-bucket",
+            "--session-s3-prefix",
+            "my-prefix/",
         ],
     )
     def test_s3_args_parsed_correctly(
@@ -1313,10 +1304,11 @@ class TestProperty3CLIPrecedenceOverEnvVars:
             "null": "NullConversationManager",
         }
 
-        with patch("strands.agent.conversation_manager.SlidingWindowConversationManager") as mock_sw, \
-             patch("strands.agent.conversation_manager.SummarizingConversationManager") as mock_sum, \
-             patch("strands.agent.conversation_manager.NullConversationManager") as mock_null:
-
+        with (
+            patch("strands.agent.conversation_manager.SlidingWindowConversationManager") as mock_sw,
+            patch("strands.agent.conversation_manager.SummarizingConversationManager") as mock_sum,
+            patch("strands.agent.conversation_manager.NullConversationManager") as mock_null,
+        ):
             mock_sw.return_value = MagicMock(name="SlidingWindowCM")
             mock_sum.return_value = MagicMock(name="SummarizingCM")
             mock_null.return_value = MagicMock(name="NullCM")
@@ -1373,9 +1365,10 @@ class TestProperty3CLIPrecedenceOverEnvVars:
             session_s3_prefix="config-prefix/",
         )
 
-        with patch("strands.session.FileSessionManager") as mock_file, \
-             patch("strands.session.S3SessionManager") as mock_s3:
-
+        with (
+            patch("strands.session.FileSessionManager") as mock_file,
+            patch("strands.session.S3SessionManager") as mock_s3,
+        ):
             mock_file.return_value = MagicMock(name="FileSM")
             mock_s3.return_value = MagicMock(name="S3SM")
 
@@ -1510,9 +1503,7 @@ class TestProperty4SessionIDPropagation:
         assert str(parsed) == returned_sid, (
             f"Session ID '{returned_sid}' is not a canonical UUID v4 string"
         )
-        assert parsed.version == 4, (
-            f"Expected UUID version 4, got version {parsed.version}"
-        )
+        assert parsed.version == 4, f"Expected UUID version 4, got version {parsed.version}"
 
         # FileSessionManager must have received the same UUID
         call_kwargs = mock_file_sm_cls.call_args[1]

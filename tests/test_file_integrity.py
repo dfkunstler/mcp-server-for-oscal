@@ -42,9 +42,7 @@ class TestFileIntegrity:
         # Set up logging capture for testing logging behavior
         self.log_messages = []
         self.log_handler = logging.Handler()
-        self.log_handler.emit = lambda record: self.log_messages.append(
-            record.getMessage()
-        )
+        self.log_handler.emit = lambda record: self.log_messages.append(record.getMessage())
 
         # Get the logger used by verify_package_integrity
         self.logger = logging.getLogger("mcp_server_for_oscal.tools.utils")
@@ -130,9 +128,7 @@ class TestLoggingBehavior:
         """
         # Create a valid package
         files = {"test_file.txt": "test content"}
-        package_dir = self.package_manager.create_test_package(
-            "start_logging_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("start_logging_pkg", files)
 
         # Clear any existing log messages
         self.log_messages.clear()
@@ -162,9 +158,7 @@ class TestLoggingBehavior:
             "file2.json": '{"key": "value"}',
             "file3.md": "# Header\nContent",
         }
-        package_dir = self.package_manager.create_test_package(
-            "success_logging_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("success_logging_pkg", files)
 
         # Clear any existing log messages
         self.log_messages.clear()
@@ -192,9 +186,7 @@ class TestLoggingBehavior:
         """
         # Create a package with files
         files = {"test_file.txt": "original content"}
-        package_dir = self.package_manager.create_test_package(
-            "error_logging_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("error_logging_pkg", files)
 
         # Tamper with the file to cause an error
         self.package_manager.tamper_file(package_dir, "test_file.txt", "append")
@@ -233,9 +225,7 @@ class TestLoggingBehavior:
             "file2.json": '{"key": "value"}',
             "file3.md": "# Header\nContent",
         }
-        package_dir = self.package_manager.create_test_package(
-            "debug_logging_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("debug_logging_pkg", files)
 
         # Clear any existing log messages
         self.log_messages.clear()
@@ -244,9 +234,7 @@ class TestLoggingBehavior:
         verify_package_integrity(package_dir)
 
         # Check for debug-level logging of individual file results
-        debug_messages = [
-            record for record in self.log_records if record.levelno == logging.DEBUG
-        ]
+        debug_messages = [record for record in self.log_records if record.levelno == logging.DEBUG]
 
         # Should have debug messages for file existence and hash verification
         file_existence_messages = [msg for msg in self.log_messages if "exists" in msg]
@@ -258,9 +246,7 @@ class TestLoggingBehavior:
         # Check that individual files are mentioned in debug logs
         for filename in files:
             file_mentioned = any(filename in msg for msg in self.log_messages)
-            assert file_mentioned, (
-                f"Expected file {filename} to be mentioned in debug logs"
-            )
+            assert file_mentioned, f"Expected file {filename} to be mentioned in debug logs"
 
     def test_logging_levels_are_appropriate(self):
         """Test that different types of log messages use appropriate log levels.
@@ -279,27 +265,19 @@ class TestLoggingBehavior:
         verify_package_integrity(package_dir)
 
         # Check log levels
-        info_messages = [
-            record for record in self.log_records if record.levelno == logging.INFO
-        ]
-        debug_messages = [
-            record for record in self.log_records if record.levelno == logging.DEBUG
-        ]
+        info_messages = [record for record in self.log_records if record.levelno == logging.INFO]
+        debug_messages = [record for record in self.log_records if record.levelno == logging.DEBUG]
 
         # Should have at least one INFO message (package verification start)
         assert len(info_messages) > 0, "Expected at least one INFO-level message"
 
         # Should have DEBUG messages for individual file operations
-        assert len(debug_messages) > 0, (
-            "Expected DEBUG-level messages for individual files"
-        )
+        assert len(debug_messages) > 0, "Expected DEBUG-level messages for individual files"
 
         # The first message should be INFO level (verification start)
         if self.log_records:
             first_record = self.log_records[0]
-            assert first_record.levelno == logging.INFO, (
-                "First log message should be INFO level"
-            )
+            assert first_record.levelno == logging.INFO, "First log message should be INFO level"
 
     def test_logging_with_empty_package(self):
         """Test logging behavior with an empty package (no files).
@@ -308,9 +286,7 @@ class TestLoggingBehavior:
         """
         # Create an empty package
         files = {}
-        package_dir = self.package_manager.create_test_package(
-            "empty_logging_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("empty_logging_pkg", files)
 
         # Clear any existing log messages
         self.log_messages.clear()
@@ -333,9 +309,7 @@ class TestLoggingBehavior:
         """
         # Create a package with files
         files = {"missing_file.txt": "content that will be missing"}
-        package_dir = self.package_manager.create_test_package(
-            "missing_logging_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("missing_logging_pkg", files)
 
         # Remove the file to cause a missing file error
         self.package_manager.remove_file(package_dir, "missing_file.txt")
@@ -365,14 +339,10 @@ class TestLoggingBehavior:
         """
         # Create a package with files
         files = {"legitimate_file.txt": "legitimate content"}
-        package_dir = self.package_manager.create_test_package(
-            "orphan_logging_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("orphan_logging_pkg", files)
 
         # Add an orphaned file
-        self.package_manager.add_orphaned_file(
-            package_dir, "orphaned_file.txt", "orphaned content"
-        )
+        self.package_manager.add_orphaned_file(package_dir, "orphaned_file.txt", "orphaned content")
 
         # Clear any existing log messages
         self.log_messages.clear()
@@ -402,9 +372,7 @@ class TestLoggingBehavior:
             "formatted_file.txt": "content for format testing",
             "another_file.json": '{"test": "data"}',
         }
-        package_dir = self.package_manager.create_test_package(
-            "format_logging_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("format_logging_pkg", files)
 
         # Clear any existing log messages
         self.log_messages.clear()
@@ -421,20 +389,14 @@ class TestLoggingBehavior:
         assert package_dir.name in first_message
 
         # Debug messages should contain specific file information
-        debug_messages = [
-            record for record in self.log_records if record.levelno == logging.DEBUG
-        ]
+        debug_messages = [record for record in self.log_records if record.levelno == logging.DEBUG]
         if debug_messages:
             # Check that debug messages contain file-specific information
             debug_message_texts = [record.getMessage() for record in debug_messages]
             file_specific_messages = [
-                msg
-                for msg in debug_message_texts
-                if any(filename in msg for filename in files)
+                msg for msg in debug_message_texts if any(filename in msg for filename in files)
             ]
-            assert len(file_specific_messages) > 0, (
-                "Expected file-specific debug messages"
-            )
+            assert len(file_specific_messages) > 0, "Expected file-specific debug messages"
 
 
 class TestValidPackageScenarios:
@@ -542,9 +504,7 @@ class TestValidPackageScenarios:
             "file123numbers.md": "# Test content",
         }
 
-        package_dir = self.package_manager.create_test_package(
-            "special_chars_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("special_chars_pkg", files)
 
         # Verification should pass without raising exceptions
         assert_integrity_passes(package_dir)
@@ -589,9 +549,7 @@ class TestHashManifestValidation:
         """
         # Create a package with valid files and manifest
         files = {"test_file.json": '{"test": "content"}'}
-        package_dir = self.package_manager.create_test_package(
-            "valid_manifest_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("valid_manifest_pkg", files)
 
         # Verify the manifest is valid JSON and has required structure
         assert_hash_manifest_valid(package_dir)
@@ -625,9 +583,7 @@ class TestHashManifestValidation:
         """
         # Create a package with files first
         files = {"test_file.txt": "test content"}
-        package_dir = self.package_manager.create_test_package(
-            "malformed_json_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("malformed_json_pkg", files)
 
         # Create malformed JSON manifest
         self.package_manager.create_malformed_manifest(package_dir, "invalid_json")
@@ -643,9 +599,7 @@ class TestHashManifestValidation:
         """
         # Create a package with files first
         files = {"test_file.txt": "test content"}
-        package_dir = self.package_manager.create_test_package(
-            "missing_section_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("missing_section_pkg", files)
 
         # Create manifest missing file_hashes section
         self.package_manager.create_malformed_manifest(package_dir, "missing_section")
@@ -660,12 +614,8 @@ class TestHashManifestValidation:
         Requirements: 1.5
         """
         # Create a package with files that match the malformed manifest
-        files = {
-            "test.txt": "test content"
-        }  # Use "test.txt" to match malformed manifest
-        package_dir = self.package_manager.create_test_package(
-            "invalid_hash_pkg", files
-        )
+        files = {"test.txt": "test content"}  # Use "test.txt" to match malformed manifest
+        package_dir = self.package_manager.create_test_package("invalid_hash_pkg", files)
 
         # Create manifest with invalid hash format
         self.package_manager.create_malformed_manifest(package_dir, "invalid_hash")
@@ -680,9 +630,7 @@ class TestHashManifestValidation:
         """
         # Create an empty package (no files except hashes.json)
         files = {}
-        package_dir = self.package_manager.create_test_package(
-            "empty_hashes_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("empty_hashes_pkg", files)
 
         # Verify the manifest has empty file_hashes
         manifest = self.package_manager.get_valid_hash_manifest(package_dir)
@@ -700,9 +648,7 @@ class TestHashManifestValidation:
         """
         # Create a package with files
         files = {"test_file.txt": "test content"}
-        package_dir = self.package_manager.create_test_package(
-            "commit_field_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("commit_field_pkg", files)
 
         # Verify the manifest includes commit field
         manifest = self.package_manager.get_valid_hash_manifest(package_dir)
@@ -775,9 +721,7 @@ class TestMissingFileDetection:
             "file2.json": '{"key": "value"}',
             "file3.md": "# Header\nContent",
         }
-        package_dir = self.package_manager.create_test_package(
-            "missing_single_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("missing_single_pkg", files)
 
         # Remove one file to simulate missing file
         self.package_manager.remove_file(package_dir, "file2.json")
@@ -797,9 +741,7 @@ class TestMissingFileDetection:
             "file3.md": "# Header\nContent",
             "file4.xml": "<root>data</root>",
         }
-        package_dir = self.package_manager.create_test_package(
-            "missing_multiple_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("missing_multiple_pkg", files)
 
         # Remove multiple files
         self.package_manager.remove_file(package_dir, "file1.txt")
@@ -819,17 +761,13 @@ class TestMissingFileDetection:
             "important_file.json": '{"critical": "data"}',
             "other_file.txt": "other content",
         }
-        package_dir = self.package_manager.create_test_package(
-            "specific_error_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("specific_error_pkg", files)
 
         # Remove the important file
         self.package_manager.remove_file(package_dir, "important_file.json")
 
         # Verification should fail with the exact filename in the error
-        assert_integrity_fails(
-            package_dir, "File important_file.json missing from package."
-        )
+        assert_integrity_fails(package_dir, "File important_file.json missing from package.")
 
     @pytest.mark.skipif(sys.platform != "linux", reason="Case-sensitive file system required")
     def test_exact_filename_matching_behavior(self):
@@ -839,18 +777,14 @@ class TestMissingFileDetection:
         """
         # Create a package with a specific filename
         files = {"CaseSensitive.TXT": "content with specific case"}
-        package_dir = self.package_manager.create_test_package(
-            "case_sensitive_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("case_sensitive_pkg", files)
 
         # Remove the file and create a similar one with different case
         self.package_manager.remove_file(package_dir, "CaseSensitive.TXT")
         (package_dir / "casesensitive.txt").write_text("different case content")
 
         # Verification should fail because exact filename doesn't match
-        assert_integrity_fails(
-            package_dir, "File CaseSensitive.TXT missing from package."
-        )
+        assert_integrity_fails(package_dir, "File CaseSensitive.TXT missing from package.")
 
     def test_missing_file_with_special_characters(self):
         """Test detection of missing files with special characters in names.
@@ -863,17 +797,13 @@ class TestMissingFileDetection:
             "file_with_underscores.xml": "<test>content</test>",
             "file.with.dots.txt": "test content",
         }
-        package_dir = self.package_manager.create_test_package(
-            "special_chars_missing_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("special_chars_missing_pkg", files)
 
         # Remove file with dashes
         self.package_manager.remove_file(package_dir, "file-with-dashes.json")
 
         # Verification should fail with exact filename including special characters
-        assert_integrity_fails(
-            package_dir, "File file-with-dashes.json missing from package."
-        )
+        assert_integrity_fails(package_dir, "File file-with-dashes.json missing from package.")
 
     def test_missing_file_from_empty_directory(self):
         """Test detection when all files are missing from directory.
@@ -897,9 +827,7 @@ class TestMissingFileDetection:
         """
         # Create a package with binary files
         files = create_binary_test_files()
-        package_dir = self.package_manager.create_test_package(
-            "missing_binary_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("missing_binary_pkg", files)
 
         # Remove a binary file
         self.package_manager.remove_file(package_dir, "test.bin")
@@ -915,9 +843,7 @@ class TestMissingFileDetection:
         # Create a package with a large file
         large_content = "x" * (1024 * 1024)  # 1MB of data
         files = {"large_file.txt": large_content}
-        package_dir = self.package_manager.create_test_package(
-            "missing_large_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("missing_large_pkg", files)
 
         # Remove the large file
         self.package_manager.remove_file(package_dir, "large_file.txt")
@@ -932,17 +858,13 @@ class TestMissingFileDetection:
         """
         # Create files with Unicode characters (if filesystem supports it)
         files = {"test_file_café.txt": "content with unicode filename"}
-        package_dir = self.package_manager.create_test_package(
-            "unicode_missing_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("unicode_missing_pkg", files)
 
         # Remove the Unicode filename file
         self.package_manager.remove_file(package_dir, "test_file_café.txt")
 
         # Verification should fail with exact Unicode filename
-        assert_integrity_fails(
-            package_dir, "File test_file_café.txt missing from package."
-        )
+        assert_integrity_fails(package_dir, "File test_file_café.txt missing from package.")
 
 
 class TestFileTamperingDetection:
@@ -970,9 +892,7 @@ class TestFileTamperingDetection:
             "original_file.txt": "original content",
             "other_file.json": '{"key": "value"}',
         }
-        package_dir = self.package_manager.create_test_package(
-            "tampered_append_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("tampered_append_pkg", files)
 
         # Tamper with one file by appending content
         self.package_manager.tamper_file(package_dir, "original_file.txt", "append")
@@ -987,9 +907,7 @@ class TestFileTamperingDetection:
         """
         # Create a package with files
         files = {"target_file.md": "# Original Header\nOriginal content"}
-        package_dir = self.package_manager.create_test_package(
-            "tampered_prepend_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("tampered_prepend_pkg", files)
 
         # Tamper with file by prepending content
         self.package_manager.tamper_file(package_dir, "target_file.md", "prepend")
@@ -1004,9 +922,7 @@ class TestFileTamperingDetection:
         """
         # Create a package with files
         files = {"important_data.json": '{"important": "data", "version": 1}'}
-        package_dir = self.package_manager.create_test_package(
-            "tampered_replace_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("tampered_replace_pkg", files)
 
         # Tamper with file by replacing all content
         self.package_manager.tamper_file(package_dir, "important_data.json", "replace")
@@ -1020,12 +936,8 @@ class TestFileTamperingDetection:
         Requirements: 3.1, 3.3
         """
         # Create a package with files
-        files = {
-            "data_file.txt": "This file contains important data that should not be truncated"
-        }
-        package_dir = self.package_manager.create_test_package(
-            "tampered_truncate_pkg", files
-        )
+        files = {"data_file.txt": "This file contains important data that should not be truncated"}
+        package_dir = self.package_manager.create_test_package("tampered_truncate_pkg", files)
 
         # Tamper with file by truncating it
         self.package_manager.tamper_file(package_dir, "data_file.txt", "truncate")
@@ -1067,9 +979,7 @@ class TestFileTamperingDetection:
         """
         # Create a package with binary files
         files = create_binary_test_files()
-        package_dir = self.package_manager.create_test_package(
-            "binary_tamper_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("binary_tamper_pkg", files)
 
         # Tamper with a binary file by modifying its bytes
         binary_file = package_dir / "test.bin"
@@ -1089,9 +999,7 @@ class TestFileTamperingDetection:
         # Create a package with a large file
         large_content = "x" * (1024 * 1024)  # 1MB of data
         files = {"large_file.txt": large_content}
-        package_dir = self.package_manager.create_test_package(
-            "large_tamper_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("large_tamper_pkg", files)
 
         # Tamper with the large file
         self.package_manager.tamper_file(package_dir, "large_file.txt", "append")
@@ -1110,9 +1018,7 @@ class TestFileTamperingDetection:
             "file2.json": '{"key": "value"}',
             "file3.md": "# Header\nContent",
         }
-        package_dir = self.package_manager.create_test_package(
-            "multi_tamper_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("multi_tamper_pkg", files)
 
         # Tamper with multiple files
         self.package_manager.tamper_file(package_dir, "file1.txt", "append")
@@ -1132,9 +1038,7 @@ class TestFileTamperingDetection:
             "unicode_file.txt": "Test with émojis 🔒 and spëcial characters: αβγδε",
             "chinese.json": '{"title": "测试文档", "content": "这是一个测试"}',
         }
-        package_dir = self.package_manager.create_test_package(
-            "unicode_tamper_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("unicode_tamper_pkg", files)
 
         # Tamper with Unicode content file
         self.package_manager.tamper_file(package_dir, "unicode_file.txt", "append")
@@ -1149,9 +1053,7 @@ class TestFileTamperingDetection:
         """
         # Create a file with content that could have subtle changes
         files = {"subtle_file.json": '{"version": "1.0.0", "data": "important"}'}
-        package_dir = self.package_manager.create_test_package(
-            "subtle_tamper_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("subtle_tamper_pkg", files)
 
         # Make a very subtle change (change one character)
         file_path = package_dir / "subtle_file.json"
@@ -1189,9 +1091,7 @@ class TestOrphanedFileDetection:
             "legitimate_file.txt": "legitimate content",
             "other_file.json": '{"key": "value"}',
         }
-        package_dir = self.package_manager.create_test_package(
-            "single_orphan_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("single_orphan_pkg", files)
 
         # Add an orphaned file not in the manifest
         self.package_manager.add_orphaned_file(
@@ -1208,17 +1108,11 @@ class TestOrphanedFileDetection:
         """
         # Create a package with legitimate files
         files = {"legitimate_file.txt": "legitimate content"}
-        package_dir = self.package_manager.create_test_package(
-            "multi_orphan_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("multi_orphan_pkg", files)
 
         # Add multiple orphaned files
-        self.package_manager.add_orphaned_file(
-            package_dir, "orphan1.txt", "suspicious content 1"
-        )
-        self.package_manager.add_orphaned_file(
-            package_dir, "orphan2.json", '{"malicious": "data"}'
-        )
+        self.package_manager.add_orphaned_file(package_dir, "orphan1.txt", "suspicious content 1")
+        self.package_manager.add_orphaned_file(package_dir, "orphan2.json", '{"malicious": "data"}')
 
         # Verification should fail on the first orphaned file encountered
         # The function processes files in directory iteration order
@@ -1232,9 +1126,7 @@ class TestOrphanedFileDetection:
         """
         # Create a package with files
         files = {"normal_file.txt": "normal content"}
-        package_dir = self.package_manager.create_test_package(
-            "exclude_hashes_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("exclude_hashes_pkg", files)
 
         # Verification should pass - hashes.json should not be considered orphaned
         assert_integrity_passes(package_dir)
@@ -1273,9 +1165,7 @@ class TestOrphanedFileDetection:
         """
         # Create a package with files
         files = {"target_file.txt": "target content"}
-        package_dir = self.package_manager.create_test_package(
-            "filter_symlinks_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("filter_symlinks_pkg", files)
 
         # Create a symbolic link (if the OS supports it)
         try:
@@ -1297,15 +1187,11 @@ class TestOrphanedFileDetection:
         """
         # Create a package with legitimate files
         files = {"legitimate.txt": "legitimate content"}
-        package_dir = self.package_manager.create_test_package(
-            "orphan_binary_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("orphan_binary_pkg", files)
 
         # Add an orphaned binary file
         orphaned_binary = b"\x00\x01\x02\x03\x04\x05MALICIOUS"
-        self.package_manager.add_orphaned_file(
-            package_dir, "malicious.bin", orphaned_binary
-        )
+        self.package_manager.add_orphaned_file(package_dir, "malicious.bin", orphaned_binary)
 
         # Verification should fail identifying the orphaned binary file
         assert_integrity_fails(package_dir, "malicious.bin")
@@ -1317,14 +1203,10 @@ class TestOrphanedFileDetection:
         """
         # Create a package with legitimate files
         files = {"normal-file.txt": "normal content"}
-        package_dir = self.package_manager.create_test_package(
-            "orphan_special_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("orphan_special_pkg", files)
 
         # Add orphaned files with special characters
-        self.package_manager.add_orphaned_file(
-            package_dir, "orphan-with-dashes.txt", "content"
-        )
+        self.package_manager.add_orphaned_file(package_dir, "orphan-with-dashes.txt", "content")
 
         # Verification should fail identifying the orphaned file with special chars
         assert_integrity_fails(package_dir, "orphan-with-dashes.txt")
@@ -1336,14 +1218,10 @@ class TestOrphanedFileDetection:
         """
         # Create a package with legitimate files
         files = {"small_file.txt": "small content"}
-        package_dir = self.package_manager.create_test_package(
-            "orphan_large_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("orphan_large_pkg", files)
 
         # Add a large orphaned file
-        large_orphaned_content = "MALICIOUS " * (
-            1024 * 100
-        )  # ~1MB of malicious content
+        large_orphaned_content = "MALICIOUS " * (1024 * 100)  # ~1MB of malicious content
         self.package_manager.add_orphaned_file(
             package_dir, "large_orphan.txt", large_orphaned_content
         )
@@ -1358,14 +1236,10 @@ class TestOrphanedFileDetection:
         """
         # Create a package with legitimate files
         files = {"normal_file.txt": "normal content"}
-        package_dir = self.package_manager.create_test_package(
-            "orphan_unicode_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("orphan_unicode_pkg", files)
 
         # Add orphaned file with Unicode name (if filesystem supports it)
-        self.package_manager.add_orphaned_file(
-            package_dir, "orphan_café.txt", "suspicious content"
-        )
+        self.package_manager.add_orphaned_file(package_dir, "orphan_café.txt", "suspicious content")
 
         # Verification should fail identifying the Unicode-named orphaned file
         assert_integrity_fails(package_dir, "orphan_café.txt")
@@ -1382,9 +1256,7 @@ class TestOrphanedFileDetection:
             "file3.md": "# Header\nContent",
             "file4.xml": "<root>data</root>",
         }
-        package_dir = self.package_manager.create_test_package(
-            "no_false_positive_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("no_false_positive_pkg", files)
 
         # Verification should pass - no legitimate files should be flagged as orphaned
         assert_integrity_passes(package_dir)
@@ -1464,9 +1336,7 @@ class TestDirectoryLevelErrors:
         """
         # Create a package with files first
         files = {"test_file.txt": "test content"}
-        package_dir = self.package_manager.create_test_package(
-            "permission_test_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("permission_test_pkg", files)
 
         try:
             # Remove read permissions from the directory
@@ -1494,9 +1364,7 @@ class TestDirectoryLevelErrors:
         """
         # Create a package with files
         files = {"test_file.txt": "test content"}
-        package_dir = self.package_manager.create_test_package(
-            "hashes_permission_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("hashes_permission_pkg", files)
 
         hashes_file = package_dir / "hashes.json"
 
@@ -1588,9 +1456,7 @@ class TestIOErrorHandling:
             "readable_file.txt": "readable content",
             "restricted_file.txt": "restricted content",
         }
-        package_dir = self.package_manager.create_test_package(
-            "permission_error_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("permission_error_pkg", files)
 
         restricted_file = package_dir / "restricted_file.txt"
 
@@ -1649,9 +1515,7 @@ class TestIOErrorHandling:
         """
         # Create a package with files
         files = {"protected_file.txt": "protected content"}
-        package_dir = self.package_manager.create_test_package(
-            "error_message_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("error_message_pkg", files)
 
         protected_file = package_dir / "protected_file.txt"
 
@@ -1694,9 +1558,7 @@ class TestIOErrorHandling:
         """
         # Create a package with files first
         files = {"test_file.txt": "test content"}
-        package_dir = self.package_manager.create_test_package(
-            "corrupted_hashes_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("corrupted_hashes_pkg", files)
 
         # Corrupt the hashes.json file by truncating it
         hashes_file = package_dir / "hashes.json"
@@ -1713,9 +1575,7 @@ class TestIOErrorHandling:
         """
         # Create a package with binary files
         files = create_binary_test_files()
-        package_dir = self.package_manager.create_test_package(
-            "binary_io_error_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("binary_io_error_pkg", files)
 
         # Mock file reading to simulate I/O error on binary file
         original_open = open
@@ -1744,9 +1604,7 @@ class TestIOErrorHandling:
             "stable_file.txt": "stable content",
             "disappearing_file.txt": "content that will disappear",
         }
-        package_dir = self.package_manager.create_test_package(
-            "disappearing_file_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("disappearing_file_pkg", files)
 
         # Mock the file operations to simulate file disappearing
         original_iterdir = Path.iterdir
@@ -1780,9 +1638,7 @@ class TestIOErrorHandling:
         """
         # Create a package with files
         files = {"error_test_file.txt": "content for error testing"}
-        package_dir = self.package_manager.create_test_package(
-            "io_error_message_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("io_error_message_pkg", files)
 
         # Mock file reading to raise a specific I/O error when reading the test file
         original_open = open
@@ -1815,9 +1671,7 @@ class TestIOErrorHandling:
         """
         # Create a package with a file that will cause Unicode decode issues
         files = {"text_file.txt": "normal text content"}
-        package_dir = self.package_manager.create_test_package(
-            "unicode_error_pkg", files
-        )
+        package_dir = self.package_manager.create_test_package("unicode_error_pkg", files)
 
         # Replace the file content with invalid UTF-8 bytes
         problem_file = package_dir / "text_file.txt"

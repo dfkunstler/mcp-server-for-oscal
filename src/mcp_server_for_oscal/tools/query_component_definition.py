@@ -211,20 +211,14 @@ def _raw(store: OscalStore, child: dict) -> dict:
     if not isinstance(model, ComponentDefinition):
         return {}
     pool: list[Any] = list(
-        (
-            model.capabilities
-            if child.get("element_type") == "capability"
-            else model.components
-        )
+        (model.capabilities if child.get("element_type") == "capability" else model.components)
         or []
     )
     for obj in pool:
         if str(obj.uuid) == child["id"]:
             loaded = json.loads(obj.json(exclude_none=True, by_alias=True))
             return loaded if isinstance(loaded, dict) else {}
-    logger.warning(
-        "Child %s missing from parent %s", child["id"], child["parentDocumentUuid"]
-    )
+    logger.warning("Child %s missing from parent %s", child["id"], child["parentDocumentUuid"])
     return {}
 
 
@@ -235,9 +229,7 @@ def _component_type(raw: dict) -> str:
 
 def _has_prop_value(raw: dict, value: str) -> bool:
     """Return True if any property in the raw OSCAL dict has *value*."""
-    return any(
-        isinstance(p, dict) and p.get("value") == value for p in raw.get("props") or []
-    )
+    return any(isinstance(p, dict) and p.get("value") == value for p in raw.get("props") or [])
 
 
 def _select_component_candidates(
@@ -672,9 +664,7 @@ def list_component_definitions(
 
 
 @tool()
-def list_components(
-    ctx: Context | None = None, offset: int = 0, limit: int = 10
-) -> dict:
+def list_components(ctx: Context | None = None, offset: int = 0, limit: int = 10) -> dict:
     """List loaded Components with summary metadata.
 
     Components are leaf-level elements within a Component Definition that
@@ -699,9 +689,7 @@ def list_components(
 
 
 @tool()
-def list_capabilities(
-    ctx: Context | None = None, offset: int = 0, limit: int = 10
-) -> dict:
+def list_capabilities(ctx: Context | None = None, offset: int = 0, limit: int = 10) -> dict:
     """List loaded Capabilities with summary metadata.
 
     Capabilities sit above Components but are optional in the OSCAL hierarchy.
