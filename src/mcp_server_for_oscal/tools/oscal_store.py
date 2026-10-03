@@ -518,6 +518,33 @@ class OscalStore:
 
         return self._cached_parse(doc_id, raw_json, model_type_str)
 
+    def get_parsed_model_by_uuid(self, doc_uuid: str) -> object | None:
+        """Get a fully parsed Trestle model for the document with *doc_uuid*.
+
+        Resolves ``documents.uuid`` to the row id and delegates to
+        :meth:`get_parsed_model`, so the same LRU cache is used.
+
+        Args:
+            doc_uuid: The OSCAL document UUID (``documents.uuid``).
+
+        Returns:
+            A parsed Trestle Pydantic model instance, or ``None`` when
+            *doc_uuid* is empty or matches no document.
+
+        Raises:
+            ValueError: If the model type has no Trestle mapping.
+            RuntimeError: If parsing fails.
+        """
+        if not doc_uuid:
+            return None
+        row = self._conn.execute(
+            "SELECT id FROM documents WHERE uuid = ?",
+            (doc_uuid,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self.get_parsed_model(row["id"])
+
     @staticmethod
     def _do_parse(raw_json: str, model_type_str: str) -> object:
         """Parse *raw_json* into the Trestle model for *model_type_str*.
@@ -2213,11 +2240,18 @@ class OscalStore:
         element_type: str | None = None,
         offset: int = 0,
         limit: int = 10,
+        *,
+        element_id: str | None = None,
+        title: str | None = None,
+        include_raw_json: bool = False,
     ) -> dict:
         """List child element summaries with parent document info.
 
         Triggers ``_ensure_indexed()`` for relevant parent documents so
         that child elements are available.
+
+        Results are ordered by ``title`` (case-insensitive), then ``uuid``.
+        All filters are combined with AND and bound as SQL parameters.
 
         Args:
             ctx: Optional MCP context (unused, kept for interface consistency).
@@ -2225,9 +2259,20 @@ class OscalStore:
             element_type: Filter to a specific child element type.
             offset: Pagination offset (0-based).
             limit: Maximum number of items to return.
+            element_id: Keyword-only. Exact match on the child's identifier
+                (``ce.uuid``; a UUID or token ID).
+            title: Keyword-only. Exact, case-insensitive match on the
+                child's title (``COLLATE NOCASE``).
+            include_raw_json: Keyword-only. When True, each item also carries
+                a ``"raw_json"`` key holding the child's serialized JSON
+                string (may be ``None`` if serialization failed at index
+                time).
 
         Returns:
             Page_Response dict with keys: items, total, offset, limit, hasMore.
+            Each item has keys ``id``, ``title``, ``element_type``,
+            ``description``, ``parentDocumentTitle``, ``parentDocumentUuid``,
+            plus ``raw_json`` when ``include_raw_json`` is True.
         """
         # Ensure indexing for relevant parent documents
         if parent_doc_uuid is not None:
@@ -2266,6 +2311,15 @@ class OscalStore:
         if element_type is not None:
             where_clauses.append("ce.element_type = ?")
             params.append(element_type)
+        if element_id is not None:
+            where_clauses.append("ce.uuid = ?")
+            params.append(element_id)
+        if title is not None:
+            where_clauses.append("ce.title = ? COLLATE NOCASE")
+            params.append(title)
+
+        # Only fixed column text is interpolated; values stay bound params.
+        raw_json_col = ", ce.raw_json" if include_raw_json else ""
 
         where_sql = ""
         if where_clauses:
@@ -2288,7 +2342,7 @@ class OscalStore:
         rows = self._conn.execute(
             f"""
             SELECT ce.uuid, ce.title, ce.element_type, ce.description,
-                   d.title AS parent_title, d.uuid AS parent_uuid
+                   d.title AS parent_title, d.uuid AS parent_uuid{raw_json_col}
             FROM child_elements ce
             JOIN documents d ON ce.parent_doc_id = d.id
             {where_sql}
@@ -2300,14 +2354,17 @@ class OscalStore:
 
         items: list[dict] = []
         for row in rows:
-            items.append({
+            item = {
                 "id": row["uuid"],
                 "title": row["title"],
                 "element_type": row["element_type"],
                 "description": row["description"],
                 "parentDocumentTitle": row["parent_title"],
                 "parentDocumentUuid": row["parent_uuid"],
-            })
+            }
+            if include_raw_json:
+                item["raw_json"] = row["raw_json"]
+            items.append(item)
 
         return {
             "items": items,

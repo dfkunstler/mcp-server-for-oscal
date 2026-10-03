@@ -6,6 +6,7 @@ Simple OSCAL MCP server using MCPServer.
 # Import configuration
 import argparse
 import logging
+import os
 from importlib.metadata import metadata
 from pathlib import Path
 
@@ -40,6 +41,22 @@ This server provides tools to support evaluation and implementation of NIST's OS
 """,
 )
 
+_DEPRECATED_CDEF_DIR_ENV = "OSCAL_COMPONENT_DEFINITIONS_DIR"
+
+
+def _warn_deprecated_settings() -> None:
+    """Log a warning for each deprecated setting present in the environment.
+
+    Reads os.environ (which includes .env values loaded by Config) rather than
+    Config attributes, so default values never trigger a warning.
+    """
+    if _DEPRECATED_CDEF_DIR_ENV in os.environ:
+        logger.warning(
+            "%s is deprecated, has no effect, and will be removed in a future "
+            "release. Use OSCAL_DOCUMENTS_DIR to load your own OSCAL documents.",
+            _DEPRECATED_CDEF_DIR_ENV,
+        )
+
 
 def _init_oscal_store() -> None:
     """Initialize the OscalStore singleton from the bundled DB.
@@ -49,8 +66,9 @@ def _init_oscal_store() -> None:
     singleton on query_component_definition, query_oscal_models, and
     query_documentation modules.
 
-    If initialization fails, logs a warning and falls back to the
-    legacy ComponentDefinitionStore so the server can still start.
+    If initialization fails, logs a warning and the server still starts,
+    but the Component Definition tools raise ``RuntimeError`` until a
+    store is initialised.
     """
     try:
         from mcp_server_for_oscal.tools.oscal_store import OscalStore
@@ -88,8 +106,8 @@ def _init_oscal_store() -> None:
         logger.info("OscalStore initialized successfully")
     except Exception:
         logger.warning(
-            "Failed to initialize OscalStore; "
-            "falling back to legacy ComponentDefinitionStore",
+            "Failed to initialize OscalStore; Component Definition tools "
+            "will raise until a store is initialised",
             exc_info=True,
         )
 
@@ -161,6 +179,10 @@ def main():
             logging.getLogger(__name__).setLevel(config.log_level)
         except ValueError:
             logger.warning("Failed to set log level to: %s", args.log_level)
+
+    # Warn about deprecated settings once per start, after logging is configured
+    # and before the transport branch so stdio and streamable-http share it
+    _warn_deprecated_settings()
 
     # Validate transport configuration before starting the server
     try:

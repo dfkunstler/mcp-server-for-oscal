@@ -370,7 +370,7 @@ The `query_oscal_models.py` module provides the query/list tool implementations 
 
 ### Configuration
 Tools respect configuration from `config.py`, including:
-- `component_definitions_dir`: Directory for Component Definitions
+- `component_definitions_dir`: deprecated, no effect; use `oscal_documents_dir` (`OSCAL_DOCUMENTS_DIR`)
 - `allow_remote_uris`: Enable/disable remote URI loading
 - `request_timeout`: Timeout for remote requests
 - `knowledge_base_id`: Bedrock Knowledge Base ID

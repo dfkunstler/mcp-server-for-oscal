@@ -28,7 +28,7 @@ export LOG_LEVEL=INFO
 # OSCAL_ALLOW_REMOTE_URIS=false
 # OSCAL_REQUEST_TIMEOUT=30
 # OSCAL_MAX_URI_DEPTH=3
-# OSCAL_COMPONENT_DEFINITIONS_DIR=component_definitions
+# OSCAL_COMPONENT_DEFINITIONS_DIR is deprecated and has no effect; use OSCAL_DOCUMENTS_DIR.
 
 # OSCAL Store configuration
 # Directory containing your own OSCAL JSON files (catalogs, SSPs, profiles, etc.)

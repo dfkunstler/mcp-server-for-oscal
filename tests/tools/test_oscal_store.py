@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from trestle.oscal.component import ComponentDefinition
 
 from mcp_server_for_oscal.config import config
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
@@ -3846,3 +3847,145 @@ class TestPropertyFtsWithModelTypeScoping:
                     )
         finally:
             store.close()
+
+
+# ---------------------------------------------------------------------------
+# Tests for get_parsed_model_by_uuid() and list_child_elements() filters,
+# run against the real ``fixture_store`` (three valid cdef fixtures).
+# ---------------------------------------------------------------------------
+
+_SAMPLE_CDEF_UUID = "a1b2c3d4-5678-4abc-8def-123456789012"
+_MULTI_CDEF_UUID = "f1e2d3c4-1234-4abc-8def-111111111111"
+_CAP_CDEF_UUID = "c1d2e3f4-5678-4abc-8def-aabbccddeeff"
+_API_GATEWAY_UUID = "c2222222-2222-4222-8222-222222222223"
+_TEST_CAPABILITY_UUID = "d1e2f3a4-5678-4abc-9def-112233445566"
+
+
+class TestGetParsedModelByUuid:
+    """Tests for get_parsed_model_by_uuid().
+
+    **Validates: Requirements 6.1, 6.2, 7.6**
+    """
+
+    def test_known_uuid_returns_component_definition(self, fixture_store):
+        model = fixture_store.get_parsed_model_by_uuid(_MULTI_CDEF_UUID)
+        assert isinstance(model, ComponentDefinition)
+        assert str(model.uuid) == _MULTI_CDEF_UUID
+        assert model.metadata.title == "Multi-Component Definition"
+
+    def test_known_uuid_uses_shared_cache(self, fixture_store):
+        first = fixture_store.get_parsed_model_by_uuid(_SAMPLE_CDEF_UUID)
+        second = fixture_store.get_parsed_model_by_uuid(_SAMPLE_CDEF_UUID)
+        assert first is second
+
+    def test_unknown_uuid_returns_none(self, fixture_store):
+        assert (
+            fixture_store.get_parsed_model_by_uuid(
+                "00000000-0000-4000-8000-000000000000"
+            )
+            is None
+        )
+
+    def test_empty_string_returns_none(self, fixture_store):
+        assert fixture_store.get_parsed_model_by_uuid("") is None
+
+
+class TestListChildElementsFilters:
+    """Tests for the element_id, title, and include_raw_json keywords.
+
+    **Validates: Requirements 6.1, 6.2, 7.6**
+    """
+
+    _ITEM_KEYS = frozenset(
+        {
+            "id",
+            "title",
+            "element_type",
+            "description",
+            "parentDocumentTitle",
+            "parentDocumentUuid",
+        }
+    )
+
+    def test_element_id_filter(self, fixture_store):
+        result = fixture_store.list_child_elements(element_id=_API_GATEWAY_UUID)
+        assert result["total"] == 1
+        item = result["items"][0]
+        assert item["id"] == _API_GATEWAY_UUID
+        assert item["title"] == "API Gateway"
+        assert item["element_type"] == "component"
+        assert item["parentDocumentUuid"] == _MULTI_CDEF_UUID
+
+    def test_unknown_element_id_returns_empty(self, fixture_store):
+        result = fixture_store.list_child_elements(element_id="no-such-id")
+        assert result["total"] == 0
+        assert result["items"] == []
+
+    def test_title_filter_is_case_insensitive(self, fixture_store):
+        for title in ("API Gateway", "api gateway", "API GATEWAY"):
+            result = fixture_store.list_child_elements(title=title)
+            assert result["total"] == 1, title
+            assert result["items"][0]["id"] == _API_GATEWAY_UUID
+
+    def test_title_filter_is_exact_match(self, fixture_store):
+        result = fixture_store.list_child_elements(title="API")
+        assert result["total"] == 0
+
+    def test_filters_combine_with_parent_and_element_type(self, fixture_store):
+        # Matching parent + type + id
+        result = fixture_store.list_child_elements(
+            parent_doc_uuid=_CAP_CDEF_UUID,
+            element_type="capability",
+            element_id=_TEST_CAPABILITY_UUID,
+        )
+        assert result["total"] == 1
+        assert result["items"][0]["title"] == "Test Capability"
+
+        # Same id, wrong element_type -> nothing
+        result = fixture_store.list_child_elements(
+            element_type="component", element_id=_TEST_CAPABILITY_UUID
+        )
+        assert result["total"] == 0
+
+        # Title match, wrong parent -> nothing
+        result = fixture_store.list_child_elements(
+            parent_doc_uuid=_SAMPLE_CDEF_UUID, title="api gateway"
+        )
+        assert result["total"] == 0
+
+        # Title match within right parent and type
+        result = fixture_store.list_child_elements(
+            parent_doc_uuid=_MULTI_CDEF_UUID,
+            element_type="component",
+            title="api gateway",
+        )
+        assert result["total"] == 1
+        assert result["items"][0]["id"] == _API_GATEWAY_UUID
+
+    def test_include_raw_json_only_when_requested(self, fixture_store):
+        default = fixture_store.list_child_elements(element_id=_API_GATEWAY_UUID)
+        assert "raw_json" not in default["items"][0]
+
+        with_raw = fixture_store.list_child_elements(
+            element_id=_API_GATEWAY_UUID, include_raw_json=True
+        )
+        item = with_raw["items"][0]
+        assert set(item) == self._ITEM_KEYS | {"raw_json"}
+        raw = json.loads(item["raw_json"])
+        assert raw["uuid"] == _API_GATEWAY_UUID
+        assert raw["title"] == "API Gateway"
+
+    def test_default_call_output_unchanged(self, fixture_store):
+        result = fixture_store.list_child_elements()
+        assert set(result) == {"items", "total", "offset", "limit", "hasMore"}
+        assert result["offset"] == 0
+        assert result["limit"] == 10
+        # 5 components + 1 capability across the three fixtures
+        assert result["total"] == 6
+        assert result["hasMore"] is False
+        for item in result["items"]:
+            assert set(item) == self._ITEM_KEYS
+        explicit = fixture_store.list_child_elements(
+            element_id=None, title=None, include_raw_json=False
+        )
+        assert explicit == result
