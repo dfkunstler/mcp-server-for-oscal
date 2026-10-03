@@ -153,8 +153,9 @@ hatch test tests/tools/test_validate_oscal_content.py::TestValidateOscalContent
 # Type checking
 hatch run typing
 
-# Opinionated linting and formatting using Ruff
-hatch fmt
+# Opinionated formatting and linting using Ruff (drop --fix to check only)
+hatch check fmt --fix
+hatch check code --fix
 ```
 
 ### Updating Bundled Content
@@ -243,8 +244,8 @@ This runs pytest and coverage directly.
 `hatch run typing`
 This runs mypy for static type checking.
 
-`hatch fmt`
-Formats and lints your code using ruff.
+`hatch check fmt --fix` / `hatch check code --fix`
+Formats and lints your code using ruff (replaces the deprecated `hatch fmt`). Omit `--fix` to report without changing files.
 
 `hatch run rehash`
 Regenerates SHA-256 hash manifests for all bundled content directories.

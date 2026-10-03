@@ -25,7 +25,7 @@
 - `hypothesis` — property-based testing
 - `mypy` + `boto3-stubs` — static type checking
 - `bandit` — security scanning
-- `ruff` — linting and formatting (line-length 88, double quotes, space indent)
+- `ruff` — linting and formatting (line-length 100, double quotes, space indent)
 
 ## Common Commands
 
@@ -39,8 +39,9 @@ hatch test tests/tools/test_validate_oscal_content.py::TestValidateOscalContent
 # Type checking only
 hatch run typing
 
-# Lint and format
-hatch fmt
+# Format and lint (drop --fix to check only; `hatch fmt` is deprecated)
+hatch check fmt --fix
+hatch check code --fix
 
 # Run a script within the hatch environment
 hatch run <path/to/script>
@@ -67,6 +68,6 @@ hatch run http-server
 ## Code Quality Settings (ruff)
 
 - Target: Python 3.11
-- Line length: 88
+- Line length: 100
 - Double quotes, space indentation
 - Tests exempt from: magic value checks (PLR2004), assert usage (S101), relative imports (TID252), import placement (PLC0415)

@@ -116,7 +116,7 @@ output = "private/docs/coverage/coverage.xml"
 directory = "private/docs/coverage/"
 
 [tool.ruff]
-line-length = 88
+line-length = 100
 target-version = "py311"
 
 [tool.ruff.format]
