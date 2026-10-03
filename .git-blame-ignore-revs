@@ -1,0 +1,9 @@
+# Bulk formatting commits to skip in `git blame`.
+# GitHub honors this file automatically. Locally, run once:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Only list formatting-only commits, using their commit ID on main (after
+# squash/rebase merge), not the ID from the feature branch.
+
+# Apply ruff format repo-wide at line-length 100 (#11)
+6e265ded4b7ec1763a4f54d52a843aa5b549f5e2
