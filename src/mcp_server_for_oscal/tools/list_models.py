@@ -17,7 +17,7 @@ def list_oscal_models() -> dict:
             in the schema, and value is an object that includes description,
             layer, formal and short names, and release status.
     """
-    models = {
+    return {
         OSCALModelType.CATALOG: {
             "description": "A structured set of controls and control enhancements",
             "layer": "Control",
@@ -75,5 +75,3 @@ def list_oscal_models() -> dict:
             "status": "GA",
         },
     }
-
-    return models

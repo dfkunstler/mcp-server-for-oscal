@@ -157,7 +157,7 @@ def _extract_mcp_name_from_readme(content: str) -> str | None:
 @st.composite
 def mcp_name_string(draw):
     """Generate a valid MCP server name string."""
-    name = draw(
+    return draw(
         st.text(
             min_size=1,
             max_size=80,
@@ -166,7 +166,6 @@ def mcp_name_string(draw):
             ),
         ).filter(lambda t: t.strip() and "-->" not in t)
     )
-    return name
 
 
 class TestProperty3CrossFileNameConsistency:

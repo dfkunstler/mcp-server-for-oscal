@@ -28,10 +28,10 @@ def reset_oscal_store():
     that exercise the unset-store path rely on ``_oscal_store`` being ``None``
     when they start.
     """
-    saved = _qcd_module._oscal_store  # noqa: SLF001
-    _qcd_module._oscal_store = None  # noqa: SLF001
+    saved = _qcd_module._oscal_store
+    _qcd_module._oscal_store = None
     yield
-    _qcd_module._oscal_store = saved  # noqa: SLF001
+    _qcd_module._oscal_store = saved
 
 
 @pytest.fixture

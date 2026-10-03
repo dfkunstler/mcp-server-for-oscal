@@ -130,7 +130,7 @@ class TestProperty1CorrectDelegation:
     """
 
     @pytest.mark.parametrize(
-        "tool_fn, expected_element_type",
+        ("tool_fn", "expected_element_type"),
         LIST_TOOLS_AND_ELEMENT_TYPES,
         ids=[fn.__name__ for fn, _ in LIST_TOOLS_AND_ELEMENT_TYPES],
     )
@@ -250,7 +250,7 @@ class TestProperty3ResponseFormatContract:
     """
 
     @pytest.mark.parametrize(
-        "tool_fn, expected_element_type",
+        ("tool_fn", "expected_element_type"),
         LIST_TOOLS_AND_ELEMENT_TYPES,
         ids=[fn.__name__ for fn, _ in LIST_TOOLS_AND_ELEMENT_TYPES],
     )

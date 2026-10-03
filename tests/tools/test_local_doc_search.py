@@ -4,10 +4,19 @@ Covers schema migration, markdown indexing, documentation-scoped search,
 and query_documentation module refactoring.
 """
 
+import hashlib
+import logging
+import re
 import sqlite3
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
+from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import strategies as st
 
+from mcp_server_for_oscal.tools import query_documentation
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
 
@@ -109,12 +118,7 @@ class TestContentHashSchemaMigration:
 # ---------------------------------------------------------------------------
 # Property-Based Tests (Hypothesis)
 # ---------------------------------------------------------------------------
-import hashlib
-import tempfile
-from pathlib import Path
 
-from hypothesis import assume, given, settings
-from hypothesis import strategies as st
 
 # Strategy: non-empty markdown content (must survive content.strip() check)
 _nonempty_md = st.text(
@@ -251,11 +255,6 @@ class TestSHA256ChangeDetectionProperty:
                 store.close()
 
 
-import re
-
-from hypothesis import given, settings
-from hypothesis import strategies as st
-
 # --- Strategies for Property 2: Title Derivation ---
 
 # Strategy: markdown content that starts with a heading line
@@ -357,10 +356,6 @@ class TestTitleDerivationProperty:
 # ---------------------------------------------------------------------------
 # Property-Based Tests (Hypothesis)
 # ---------------------------------------------------------------------------
-
-
-from hypothesis import HealthCheck, given, settings
-from hypothesis import strategies as st
 
 
 class TestMarkdownIndexingRoundTripProperty:
@@ -914,10 +909,6 @@ class TestDocumentationSearchScopingProperty:
 # ---------------------------------------------------------------------------
 # Unit Tests for query_documentation refactor (Task 5.4)
 # ---------------------------------------------------------------------------
-import logging
-from unittest.mock import MagicMock, patch
-
-from mcp_server_for_oscal.tools import query_documentation
 
 
 class TestInitStore:
@@ -1089,7 +1080,7 @@ class TestQueryOscalDocumentationRouting:
             mock_local.return_value = {"items": [], "total": 0}
 
             fn = query_documentation.query_oscal_documentation
-            result = fn(query="hello", ctx=None)
+            fn(query="hello", ctx=None)
 
             mock_local.assert_called_once()
 

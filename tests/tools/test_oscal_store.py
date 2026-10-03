@@ -5,16 +5,19 @@ Tests for OscalStore.scan_directory() and _detect_model_type().
 import json
 import os
 import sqlite3
+import uuid as uuid_mod
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 from trestle.oscal.component import ComponentDefinition
 
 from mcp_server_for_oscal.config import config
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
-from mcp_server_for_oscal.tools.utils import OSCALModelType
+from mcp_server_for_oscal.tools.utils import ROOT_KEY_TO_MODEL_TYPE, OSCALModelType
 
 
 @pytest.fixture
@@ -788,11 +791,6 @@ class TestExtractChildElements:
 # Property-Based Tests (Hypothesis)
 # ---------------------------------------------------------------------------
 
-import uuid as uuid_mod
-
-from hypothesis import HealthCheck, given, settings
-from hypothesis import strategies as st
-
 
 def _uuid4_hex() -> str:
     """Generate a valid UUID4 string."""
@@ -943,10 +941,6 @@ class TestIncrementalReindexingProperty:
 # Property-based tests (Hypothesis)
 # ---------------------------------------------------------------------------
 
-from hypothesis import given, settings
-from hypothesis import strategies as st
-
-from mcp_server_for_oscal.tools.utils import ROOT_KEY_TO_MODEL_TYPE
 
 # Strategy: pick a valid root key from ROOT_KEY_TO_MODEL_TYPE
 _valid_root_keys = st.sampled_from(sorted(ROOT_KEY_TO_MODEL_TYPE.keys()))
@@ -1550,8 +1544,6 @@ class TestTextSearch:
         result = store.text_search("(Sample")
         # LIKE fallback should find "Sample Component" in title
         assert isinstance(result, dict)
-        # The LIKE pattern will be "%(Sample%" which should match
-        titles = [i["title"] for i in result["items"]]
         # At minimum, the result should be a valid Page_Response
         assert "items" in result
         assert "total" in result
@@ -2899,7 +2891,7 @@ def oscal_document_set_for_bundled_db(draw):
     Returns a list of (filename, json_data, uuid, title, maker_name) tuples.
     """
     # Use makers that produce child elements for meaningful completeness checks
-    _MAKERS_WITH_CHILDREN = [
+    makers_with_children = [
         ("component-definition-with-children", _make_component_definition_with_children),
         ("catalog-with-controls", _make_catalog_with_controls),
         ("poam", _make_poam),
@@ -2908,7 +2900,7 @@ def oscal_document_set_for_bundled_db(draw):
     docs = []
     used_uuids = set()
     for i in range(count):
-        maker_name, maker_fn = draw(st.sampled_from(_MAKERS_WITH_CHILDREN))
+        maker_name, maker_fn = draw(st.sampled_from(makers_with_children))
         doc_uuid = _uuid4_hex()
         while doc_uuid in used_uuids:
             doc_uuid = _uuid4_hex()
@@ -2992,7 +2984,7 @@ class TestPropertyBundledDatabaseCompleteness:
                     assert child["parentDocumentUuid"] == doc_uuid
 
             # 3. Verify FTS entries exist (text_search returns results)
-            for _filename, _data, doc_uuid, title, _maker in doc_set:
+            for _filename, _data, _doc_uuid, title, _maker in doc_set:
                 # Search for a word from the document title
                 search_term = title.split("-")[0]  # "BundledDoc"
                 fts_result = store.text_search(search_term)
@@ -3302,15 +3294,9 @@ class TestPropertyChildElementMetadataPersistence:
 
                 for child in children_result["items"]:
                     # Each child has required fields
-                    assert child["id"] is not None and len(child["id"]) > 0, (
-                        "Child id should be non-empty"
-                    )
-                    assert child["title"] is not None and len(child["title"]) > 0, (
-                        "Child title should be non-empty"
-                    )
-                    assert child["element_type"] is not None and len(child["element_type"]) > 0, (
-                        "Child element_type should be non-empty"
-                    )
+                    for field in ("id", "title", "element_type"):
+                        assert child[field] is not None, f"Child {field} should not be None"
+                        assert len(child[field]) > 0, f"Child {field} should be non-empty"
 
                     # parent_doc_id references a valid document
                     assert child["parentDocumentUuid"] == doc_uuid, (
@@ -3455,9 +3441,6 @@ class TestPropertyChildElementParentInfo:
             count = store.scan_directory(doc_dir)
             assert count == len(doc_set)
 
-            # Build a lookup of doc UUID -> title from the input
-            doc_lookup = {doc_uuid: title for _, _, doc_uuid, title in doc_set}
-
             for _filename, _data, doc_uuid, doc_title in doc_set:
                 children_result = store.list_child_elements(parent_doc_uuid=doc_uuid, limit=100)
 
@@ -3496,7 +3479,7 @@ def oscal_mixed_type_set_for_fts(draw):
     Returns a list of (filename, json_data, uuid, title, model_type_value, unique_word) tuples.
     """
     # Use makers that produce children (so FTS has child content too)
-    _FTS_MAKERS = [
+    fts_makers = [
         (
             "component-definition-with-children",
             _make_component_definition_with_children,
@@ -3506,7 +3489,7 @@ def oscal_mixed_type_set_for_fts(draw):
         ("poam", _make_poam, "plan-of-action-and-milestones"),
     ]
     # Unique words that are unlikely to collide with other content
-    _UNIQUE_WORDS = [
+    unique_words = [
         "Xylophone",
         "Quasar",
         "Zephyr",
@@ -3522,12 +3505,12 @@ def oscal_mixed_type_set_for_fts(draw):
     docs = []
     used_uuids = set()
     for i in range(count):
-        maker_name, maker_fn, model_type_val = draw(st.sampled_from(_FTS_MAKERS))
+        maker_name, maker_fn, model_type_val = draw(st.sampled_from(fts_makers))
         doc_uuid = _uuid4_hex()
         while doc_uuid in used_uuids:
             doc_uuid = _uuid4_hex()
         used_uuids.add(doc_uuid)
-        unique_word = _UNIQUE_WORDS[i]
+        unique_word = unique_words[i]
         title = f"Searchable {unique_word} Document"
         data = maker_fn(uuid=doc_uuid, title=title)
         filename = f"fts_{i}_{maker_name}.json"
@@ -3582,7 +3565,7 @@ class TestPropertyFtsWithModelTypeScoping:
             assert result["total"] > 0, "FTS search for 'Searchable' should find results"
 
             # 2. For each document, search for its unique word
-            for _filename, _data, doc_uuid, title, _mt, unique_word in doc_set:
+            for _filename, _data, _doc_uuid, _title, _mt, unique_word in doc_set:
                 result = store.text_search(unique_word, limit=100)
                 assert result["total"] >= 1, (
                     f"FTS search for '{unique_word}' should find at least 1 result"

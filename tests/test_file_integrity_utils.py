@@ -288,7 +288,7 @@ def assert_integrity_passes(package_dir: Path) -> None:
     try:
         verify_package_integrity(package_dir)
     except Exception as e:
-        raise AssertionError(f"Expected integrity verification to pass, but got: {e}")
+        raise AssertionError(f"Expected integrity verification to pass, but got: {e}") from e
 
 
 def assert_integrity_fails(package_dir: Path, expected_error_pattern: str) -> None:
@@ -310,16 +310,18 @@ def assert_integrity_fails(package_dir: Path, expected_error_pattern: str) -> No
         if expected_error_pattern not in str(e):
             raise AssertionError(
                 f"Expected error containing '{expected_error_pattern}', but got: {e}"
-            )
+            ) from e
     except KeyError as e:
         # Handle orphaned file detection which currently raises KeyError
         # The key name should match the expected error pattern (filename)
         if expected_error_pattern not in str(e):
             raise AssertionError(
                 f"Expected error containing '{expected_error_pattern}', but got KeyError: {e}"
-            )
+            ) from e
     except Exception as e:
-        raise AssertionError(f"Expected RuntimeError or KeyError, but got {type(e).__name__}: {e}")
+        raise AssertionError(
+            f"Expected RuntimeError or KeyError, but got {type(e).__name__}: {e}"
+        ) from e
 
 
 def assert_file_exists(package_dir: Path, filename: str) -> None:
@@ -369,10 +371,10 @@ def assert_hash_manifest_valid(package_dir: Path) -> None:
         with open(manifest_path, encoding="utf-8") as f:
             manifest = json.load(f)
     except json.JSONDecodeError as e:
-        raise AssertionError(f"Hash manifest is not valid JSON: {e}")
+        raise AssertionError(f"Hash manifest is not valid JSON: {e}") from e
 
     if "file_hashes" not in manifest:
         raise AssertionError("Hash manifest missing 'file_hashes' section")
 
     if not isinstance(manifest["file_hashes"], dict):
-        raise AssertionError("'file_hashes' section must be a dictionary")
+        raise AssertionError("'file_hashes' section must be a dictionary")  # noqa: TRY004 - assertion helper

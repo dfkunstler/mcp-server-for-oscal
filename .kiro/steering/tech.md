@@ -70,4 +70,6 @@ hatch run http-server
 - Target: Python 3.11
 - Line length: 100
 - Double quotes, space indentation
-- Tests exempt from: magic value checks (PLR2004), assert usage (S101), relative imports (TID252), import placement (PLC0415)
+- Lint rules are hatch's default ruleset plus the ignores in `[tool.ruff.lint]`; each ignore has a rationale comment in `pyproject.toml`
+- Tests additionally exempt from: magic values, asserts, relative imports, private access, unused fixture args, and a few pytest-style rules (see `per-file-ignores`)
+- Prefer a targeted `# noqa: RULE - reason` over a new global ignore

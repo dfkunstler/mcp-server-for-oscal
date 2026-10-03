@@ -1446,7 +1446,7 @@ class TestProperty4SessionIDPropagation:
             session_s3_prefix="oscal-agent-sessions/",
         )
 
-        sm, returned_sid = _build_session_manager(args, cfg)
+        _sm, returned_sid = _build_session_manager(args, cfg)
 
         # The returned session_id must be the exact string provided
         assert returned_sid == session_id, (

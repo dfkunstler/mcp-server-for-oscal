@@ -205,7 +205,8 @@ class TestListModels:
 
         for model_name, model_info in result.items():
             description = model_info["description"]
-            assert description and description.strip(), f"Model {model_name} has empty description"
+            assert description, f"Model {model_name} has empty description"
+            assert description.strip(), f"Model {model_name} has empty description"
             assert len(description) > 10, (
                 f"Model {model_name} has very short description: {description}"
             )

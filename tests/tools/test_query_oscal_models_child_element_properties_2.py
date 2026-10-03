@@ -35,7 +35,7 @@ ALL_LIST_TOOLS = [
     query_oscal_models.list_mapping_collection_mappings,
 ]
 
-ALL_TOOLS = ALL_LIST_TOOLS + [query_oscal_models.get_child_element]
+ALL_TOOLS = [*ALL_LIST_TOOLS, query_oscal_models.get_child_element]
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +153,7 @@ class TestGetToolAmbiguityDetection:
     def test_ambiguous_element_returns_error_dict(self, ambiguous_store):
         """Calling get_child_element without parent on an overlapping ID
         returns an ambiguity error listing both parent UUIDs."""
-        store, cat1_uuid, cat2_uuid = ambiguous_store
+        _store, cat1_uuid, cat2_uuid = ambiguous_store
 
         result = query_oscal_models.get_child_element(element_id="ac-1")
 
@@ -165,7 +165,7 @@ class TestGetToolAmbiguityDetection:
     def test_unique_element_returns_element(self, ambiguous_store):
         """Calling get_child_element without parent on a unique ID
         returns the element (not an error)."""
-        store, cat1_uuid, cat2_uuid = ambiguous_store
+        _store, _cat1_uuid, cat2_uuid = ambiguous_store
 
         result = query_oscal_models.get_child_element(element_id="sc-1")
 
@@ -177,7 +177,7 @@ class TestGetToolAmbiguityDetection:
 
     def test_disambiguated_with_parent_returns_element(self, ambiguous_store):
         """Providing parent_doc_uuid resolves ambiguity for overlapping IDs."""
-        store, cat1_uuid, cat2_uuid = ambiguous_store
+        _store, cat1_uuid, _cat2_uuid = ambiguous_store
 
         result = query_oscal_models.get_child_element(element_id="ac-1", parent_doc_uuid=cat1_uuid)
 

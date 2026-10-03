@@ -8,6 +8,9 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -218,9 +221,6 @@ class TestUpdateHashesJson:
 # ---------------------------------------------------------------------------
 # Property-Based Tests (Hypothesis)
 # ---------------------------------------------------------------------------
-
-from hypothesis import given, settings
-from hypothesis import strategies as st
 
 
 class TestBugConditionExploration:

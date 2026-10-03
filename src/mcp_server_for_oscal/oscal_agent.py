@@ -192,7 +192,7 @@ class AgentObservabilityHook(HookProvider):
     def __init__(self) -> None:
         self._logger = logging.getLogger(__name__)
 
-    def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
+    def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:  # noqa: ARG002 - HookProvider interface
         """Register callbacks for agent lifecycle events."""
         registry.add_callback(BeforeToolCallEvent, self._on_before_tool_call)
         registry.add_callback(AfterModelCallEvent, self._on_after_model_call)
@@ -399,10 +399,7 @@ def main() -> None:
 
     # In single-query mode, suppress all logs except errors
     # so only the agent response goes to stdout.
-    if args.query:
-        log_level = "ERROR"
-    else:
-        log_level = args.log_level
+    log_level = "ERROR" if args.query else args.log_level
 
     # Update configuration with CLI arguments
     config.update_from_args(
@@ -451,7 +448,7 @@ def main() -> None:
         logger.exception("Failed to create OSCAL agent")
         raise SystemExit(1) from err
 
-    # Log session ID for discoverability (Req 9.1–9.4)
+    # Log session ID for discoverability (Req 9.1-9.4)
     if session_manager is not None:
         if args.query:
             logger.debug("Session ID: %s", session_id)

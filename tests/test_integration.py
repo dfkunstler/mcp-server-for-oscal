@@ -151,7 +151,7 @@ class TestIntegration:
         assert len(result) > 0
 
         # Verify each model has expected structure
-        for model_name, model_info in result.items():
+        for model_info in result.values():
             assert isinstance(model_info, dict)
             assert "description" in model_info
             assert "layer" in model_info

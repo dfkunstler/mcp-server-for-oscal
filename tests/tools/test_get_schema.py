@@ -171,7 +171,7 @@ class TestGetSchema:
         mock_open_schema_file.side_effect = FileNotFoundError("File not found")
 
         # Execute test and verify exception
-        with pytest.raises(Exception):
+        with pytest.raises(FileNotFoundError):
             get_oscal_schema(mock_context, model_name="catalog", schema_type="json")
 
         # Verify error handling
@@ -189,7 +189,7 @@ class TestGetSchema:
         mock_json_load.side_effect = json.JSONDecodeError("Invalid JSON", "doc", 0)
 
         # Execute test and verify exception
-        with pytest.raises(Exception):
+        with pytest.raises(json.JSONDecodeError):
             get_oscal_schema(mock_context, model_name="catalog", schema_type="json")
 
         # Verify error handling
