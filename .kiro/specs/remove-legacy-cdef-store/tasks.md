@@ -181,7 +181,7 @@ Make `OscalStore` the only backend for the Component Definition tools. Steps: ad
     - **Property 8: `get_capability` is position-independent**
     - **Validates: Requirements 5.3, 5.4**
 
-- [-] 10. Final checkpoint - Full suite, format, commit
+- [x] 10. Final checkpoint - Full suite, format, commit
   - Run `hatch run tests` (mypy, pytest, coverage, bandit) and `hatch fmt`; ensure zero failures, zero mypy errors, no new bandit findings, and a clean tree after formatting. Ask the user if questions arise.
   - Commit only the files changed in task 9 plus the updated `tasks.md`: `test: add Fixture_Store property tests for cdef tools (#8) - tests passing`
   - Do not push or open a PR without explicit user approval.
