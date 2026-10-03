@@ -4,13 +4,22 @@ name: CI
 
 # Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
+  # Build on pushes to main and on release tags only. Feature branches are
+  # covered by the pull_request trigger, which avoids duplicate push + PR runs.
   push:
+    branches: ["main"]
+    tags: ["v*"]
   pull_request:
     branches: ["main"]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+
+# Cancel superseded runs for the same PR/branch. Never cancel runs on main or
+# tags so every merged commit and release build completes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:

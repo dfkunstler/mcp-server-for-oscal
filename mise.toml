@@ -1,3 +1,4 @@
 [tools]
 python = "3.12"
 uv = "latest"
+"pypi:hatch" = "1.18.1"

@@ -11,7 +11,7 @@ dependencies = [
   "boto3>=1.42.7",
   "mcp>=2.1.1",
   "strands-agents>=1.55.0",
-  "compliance-trestle>=4.0.1",
+  "compliance-trestle>=5.1.0",
   "regex>=2024.0.0",
 ]
 requires-python = ">=3.11"
@@ -37,7 +37,19 @@ classifiers = [
 ]
 
 [dependency-groups]
-devtest = ["pytest", "mypy", "boto3-stubs", "bandit", "pytest-asyncio", "hypothesis", "bedrock-agentcore-starter-toolkit"]
+devtest = [
+  "pytest",
+  "mypy",
+  "boto3-stubs",
+  "types-requests",
+  "types-PyYAML",
+  "types-regex",
+  "types-jsonschema",
+  "bandit",
+  "pytest-asyncio",
+  "hypothesis",
+  "bedrock-agentcore-starter-toolkit",
+]
 
 [project.scripts]
 server = "mcp_server_for_oscal.main:main"
@@ -67,6 +79,13 @@ version-file = "_version.py"
 # or do general development. 
 python = "3.12"
 dependency-groups = ["devtest"]
+installer = "uv"
+
+# Pin every hatch env to the versions locked in requirements.txt.
+# pyproject.toml declares minimum versions (for PyPI consumers); requirements.txt
+# is the lock. Without this, hatch resolves the newest versions satisfying >=.
+[tool.hatch.envs.default.env-vars]
+UV_CONSTRAINT = "{root}/requirements.txt"
 
 [tool.pytest.ini_options]
 addopts = ["--durations=5", "--color=yes"]
@@ -119,16 +138,14 @@ directory = "./build"
 packages = ["src/mcp_server_for_oscal"]
 artifacts = ["src/mcp_server_for_oscal/oscal_store.db", "src/mcp_server_for_oscal/hashes.json"]
 
-[tool.hatch.env]
-python = "3.12"
-
 [tool.hatch.envs.default.scripts]
 # These are scripts you can run using `hatch run <script-name>`
 update = [
-  # Update project dependencies in this file, then compile to requirements.txt
-  # to ensure deterministic/reproducible builds.
-  "uv pip install -U -r pyproject.toml",
-  "uv pip compile --upgrade -o requirements.txt pyproject.toml"
+  # Re-lock requirements.txt to the latest versions allowed by pyproject.toml,
+  # then sync this env to the new lock. UV_CONSTRAINT is unset for the compile
+  # step, otherwise the existing lock would prevent any upgrade.
+  "env -u UV_CONSTRAINT uv pip compile --upgrade --universal --python-version 3.11 --group devtest -o requirements.txt pyproject.toml",
+  "uv pip install -r requirements.txt",
 ]
 
 rehash = [
@@ -159,7 +176,8 @@ release = ["hatch run tests", "git status", "./bin/refresh-nist-docs.sh", "build
 typing = [
   # Type checking using mypy
   "rm -rf .mypy_cache && mkdir -p .mypy_cache",
-  "mypy --install-types --non-interactive src/mcp_server_for_oscal tests",
+  # Stub packages are declared (and locked) in the devtest group.
+  "mypy src/mcp_server_for_oscal tests",
 ]
 
 # Start the MCP server for remote testing/development
@@ -197,7 +215,11 @@ build-agentcore-container = [
 
 [tool.hatch.envs.hatch-test]
 parallel = true
+installer = "uv"
 extra-dependencies = ["pytest-asyncio", "hypothesis"]
+
+[tool.hatch.envs.hatch-test.env-vars]
+UV_CONSTRAINT = "{root}/requirements.txt"
 
 [tool.hatch.envs.hatch-test.scripts]
 run = "pytest{env:HATCH_TEST_ARGS:} {args}"

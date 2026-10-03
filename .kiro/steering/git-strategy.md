@@ -22,7 +22,5 @@ inclusion: always
 
 - Only add, stage, or commit files that you created or modified for this feature. Do not add, stage, or commit unrelated files.
 
-- This git-strategy is in addition to the rules in amazon-builder-git global steering. In case there is a conflict between the two, stop immediately and ask the user what to do next.
-
 NEVER commit to the main branch without approval.
 NEVER PUSH CODE TO A REMOTE/ORIGIN SERVER WITHOUT EXPLICIT APPROVAL FROM THE USER.
