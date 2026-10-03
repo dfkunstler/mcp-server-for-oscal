@@ -27,14 +27,11 @@ class TestReadmeVerificationTag:
 
     def test_readme_contains_mcp_name_comment(self, readme_content):
         match = MCP_NAME_PATTERN.search(readme_content)
-        assert match is not None, (
-            "README.md must contain an <!-- mcp-name: ... --> HTML comment"
-        )
+        assert match is not None, "README.md must contain an <!-- mcp-name: ... --> HTML comment"
 
     def test_mcp_name_matches_expected_value(self, readme_content):
         match = MCP_NAME_PATTERN.search(readme_content)
         assert match is not None
         assert match.group(1) == EXPECTED_MCP_NAME, (
-            f"Expected mcp-name '{EXPECTED_MCP_NAME}', "
-            f"got '{match.group(1)}'"
+            f"Expected mcp-name '{EXPECTED_MCP_NAME}', got '{match.group(1)}'"
         )

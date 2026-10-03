@@ -57,9 +57,7 @@ schema_names = {
 
 # Maps the root JSON key in an OSCAL document to its model type.
 # Used for auto-detecting the model type from document content.
-ROOT_KEY_TO_MODEL_TYPE: dict[str, OSCALModelType] = {
-    mt.value: mt for mt in OSCALModelType
-}
+ROOT_KEY_TO_MODEL_TYPE: dict[str, OSCALModelType] = {mt.value: mt for mt in OSCALModelType}
 
 
 def load_oscal_json_schema(model_type: OSCALModelType) -> dict:
@@ -129,6 +127,7 @@ def safe_log_mcp(
         # Not in async context - safe to use asyncio.run()
         asyncio.run(log_fn(msg))
 
+
 def verify_package_integrity(directory: Path) -> None:
     """Verify all files in a package directory match their expected SHA-256 hashes.
 
@@ -175,7 +174,7 @@ def verify_package_integrity(directory: Path) -> None:
         >>> from pathlib import Path
         >>> verify_package_integrity(Path("src/mcp_server_for_oscal/oscal_schemas"))
         # Completes silently if all files are valid
-        
+
         >>> verify_package_integrity(Path("tampered_directory"))
         RuntimeError: File schema.json has been modified; expected hash abc123 != def456
 
@@ -223,9 +222,7 @@ def verify_package_integrity(directory: Path) -> None:
                         f"File {fn.name} has been modified; expected hash {state['file_hashes'][fn.name]} != {h}"
                     )
             except KeyError:
-                logger.exception(
-                    f"Unexpected file {fn.name} in directory {directory.name}"
-                )
+                logger.exception(f"Unexpected file {fn.name} in directory {directory.name}")
                 raise
             logger.debug("Hash for file %s matches", fn.name)
 

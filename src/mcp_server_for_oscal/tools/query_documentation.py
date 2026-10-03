@@ -34,8 +34,7 @@ def _get_store() -> OscalStore:
     """Return the module-level store, raising if not yet initialised."""
     if _store is None:
         raise RuntimeError(
-            "OscalStore has not been initialised. "
-            "Call init_store() during server startup."
+            "OscalStore has not been initialised. Call init_store() during server startup."
         )
     return _store
 
@@ -56,9 +55,7 @@ def query_oscal_documentation(query: str, ctx: Context | None = None) -> Any:
         try:
             return query_kb(query, ctx)
         except Exception:
-            logger.warning(
-                "Knowledge Base query failed; falling back to local search"
-            )
+            logger.warning("Knowledge Base query failed; falling back to local search")
             return query_local(query, ctx)
 
     logger.info("Using local documentation search path")

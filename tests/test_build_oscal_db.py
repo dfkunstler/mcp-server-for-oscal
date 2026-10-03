@@ -15,7 +15,10 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _write_minimal_component_def(directory: Path, uuid: str = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d") -> Path:
+
+def _write_minimal_component_def(
+    directory: Path, uuid: str = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+) -> Path:
     """Write a minimal valid OSCAL component-definition JSON file."""
     doc = {
         "component-definition": {
@@ -44,6 +47,7 @@ def _write_minimal_component_def(directory: Path, uuid: str = "a1b2c3d4-e5f6-4a7
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestPathConstants:
     """Tests for module-level path constants."""
@@ -321,9 +325,9 @@ class TestPreservationDefaultSeeding:
 
             store = OscalStore(db_path=str(db_path))
             try:
-                doc_count = store._conn.execute(
-                    "SELECT COUNT(*) AS cnt FROM documents"
-                ).fetchone()["cnt"]
+                doc_count = store._conn.execute("SELECT COUNT(*) AS cnt FROM documents").fetchone()[
+                    "cnt"
+                ]
 
                 assert store._db_mode == "persistent", (
                     f"Expected db_mode='persistent', got '{store._db_mode}'"
@@ -383,12 +387,11 @@ class TestPreservationDefaultSeeding:
                     f"Scanning behavior must be preserved."
                 )
 
-                doc_count = store._conn.execute(
-                    "SELECT COUNT(*) AS cnt FROM documents"
-                ).fetchone()["cnt"]
+                doc_count = store._conn.execute("SELECT COUNT(*) AS cnt FROM documents").fetchone()[
+                    "cnt"
+                ]
                 assert doc_count == 1, (
-                    f"Expected doc_count=1 after scanning one document, "
-                    f"got doc_count={doc_count}."
+                    f"Expected doc_count=1 after scanning one document, got doc_count={doc_count}."
                 )
             finally:
                 store.close()

@@ -34,6 +34,7 @@ from mcp_server_for_oscal.tools.utils import verify_package_integrity
 
 logger = logging.getLogger(__name__)
 
+
 def _build_system_prompt(tools: list[Any]) -> str:
     """Build the system prompt with dynamically injected tool names.
 
@@ -100,9 +101,7 @@ def _truncate_args(args: Any, max_len: int = 200) -> str:
     return text
 
 
-def _build_session_manager(
-    args: argparse.Namespace, cfg: Any
-) -> tuple[Any | None, str | None]:
+def _build_session_manager(args: argparse.Namespace, cfg: Any) -> tuple[Any | None, str | None]:
     """Build a session manager from CLI args and config defaults.
 
     CLI arguments take precedence over config (environment variable) defaults.
@@ -136,9 +135,7 @@ def _build_session_manager(
     elif storage == "s3":
         bucket = args.session_s3_bucket or cfg.session_s3_bucket
         if not bucket:
-            logger.error(
-                "--session-s3-bucket is required when --session-storage=s3"
-            )
+            logger.error("--session-s3-bucket is required when --session-storage=s3")
             raise SystemExit(1)
         prefix = args.session_s3_prefix or cfg.session_s3_prefix
         return S3SessionManager(
@@ -150,9 +147,7 @@ def _build_session_manager(
     return None, None
 
 
-def _build_conversation_manager(
-    args: argparse.Namespace, cfg: Any
-) -> Any | None:
+def _build_conversation_manager(args: argparse.Namespace, cfg: Any) -> Any | None:
     """Build a conversation manager from CLI args and config defaults.
 
     CLI arguments take precedence over config (environment variable) defaults.
@@ -285,10 +280,7 @@ def create_oscal_agent(
             max_tokens=config.agent_max_tokens,
         )
     except Exception as e:
-        msg = (
-            f"Failed to create BedrockModel with model_id "
-            f"'{config.bedrock_model_id}': {e}"
-        )
+        msg = f"Failed to create BedrockModel with model_id '{config.bedrock_model_id}': {e}"
         logger.exception(msg)
         raise ValueError(msg) from e
 

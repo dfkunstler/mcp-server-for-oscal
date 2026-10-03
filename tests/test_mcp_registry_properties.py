@@ -30,6 +30,7 @@ def _load_server_json() -> dict:
 # Hypothesis strategies
 # ---------------------------------------------------------------------------
 
+
 @st.composite
 def semver_string(draw):
     """Generate a valid semantic version string (major.minor.patch)."""
@@ -120,19 +121,14 @@ class TestProperty2EnvironmentVariableEntryCompleteness:
         non-empty description, and a boolean required field.
         """
         server_data = _load_server_json()
-        pypi_entry = next(
-            p for p in server_data["packages"]
-            if p.get("registryType") == "pypi"
-        )
+        pypi_entry = next(p for p in server_data["packages"] if p.get("registryType") == "pypi")
         env_vars = pypi_entry["environmentVariables"]
         assert len(env_vars) > 0, "environmentVariables must not be empty"
 
         entry = data.draw(st.sampled_from(env_vars))
 
         # name must be a non-empty string
-        assert isinstance(entry["name"], str), (
-            f"name must be a string, got {type(entry['name'])}"
-        )
+        assert isinstance(entry["name"], str), f"name must be a string, got {type(entry['name'])}"
         assert len(entry["name"]) > 0, "name must not be empty"
 
         # description must be a non-empty string
@@ -194,9 +190,7 @@ class TestProperty3CrossFileNameConsistency:
         """
         comment = f"<!-- mcp-name: {name} -->"
         extracted = _extract_mcp_name_from_readme(comment)
-        assert extracted == name, (
-            f"Extracted name '{extracted}' != generated name '{name}'"
-        )
+        assert extracted == name, f"Extracted name '{extracted}' != generated name '{name}'"
 
     def test_actual_readme_and_server_json_names_match(self):
         """
@@ -208,10 +202,7 @@ class TestProperty3CrossFileNameConsistency:
         readme_content = README_PATH.read_text(encoding="utf-8")
 
         readme_name = _extract_mcp_name_from_readme(readme_content)
-        assert readme_name is not None, (
-            "README.md must contain an <!-- mcp-name: ... --> comment"
-        )
+        assert readme_name is not None, "README.md must contain an <!-- mcp-name: ... --> comment"
         assert readme_name == server_data["name"], (
-            f"README mcp-name '{readme_name}' != "
-            f"server.json name '{server_data['name']}'"
+            f"README mcp-name '{readme_name}' != server.json name '{server_data['name']}'"
         )

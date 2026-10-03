@@ -107,9 +107,7 @@ def cdef_stores(
             }
             props = draw(
                 st.lists(
-                    st.tuples(
-                        st.sampled_from(PROP_NAMES), st.sampled_from(PROP_VALUES)
-                    ),
+                    st.tuples(st.sampled_from(PROP_NAMES), st.sampled_from(PROP_VALUES)),
                     max_size=3,
                 )
             )
@@ -133,8 +131,7 @@ def cdef_stores(
                 )
                 if incorporated:
                     cap["incorporates-components"] = [
-                        {"component-uuid": u, "description": "Incorporated"}
-                        for u in incorporated
+                        {"component-uuid": u, "description": "Incorporated"} for u in incorporated
                     ]
             capabilities.append(cap)
         body: dict = {
@@ -162,9 +159,7 @@ def parse_cdefs(cdefs: list[dict]) -> list[ComponentDefinition]:
 def case_variant(draw: st.DrawFn, text: str) -> str:
     """Draw an arbitrary per-character letter-case variant of *text*."""
     flips = draw(st.lists(st.booleans(), min_size=len(text), max_size=len(text)))
-    return "".join(
-        ch.swapcase() if f else ch for ch, f in zip(text, flips, strict=True)
-    )
+    return "".join(ch.swapcase() if f else ch for ch, f in zip(text, flips, strict=True))
 
 
 @contextmanager
@@ -217,9 +212,7 @@ def collect_pages(
         assert len(responses) <= 1000, "pagination did not terminate"
 
 
-def collect_list_pages(
-    list_fn: Callable[..., dict], limit: int
-) -> tuple[list[dict], list[dict]]:
+def collect_list_pages(list_fn: Callable[..., dict], limit: int) -> tuple[list[dict], list[dict]]:
     """Page a ``list_*`` helper until ``hasMore`` is false.
 
     Returns:
@@ -273,9 +266,7 @@ class TestRemoveLegacyCdefStoreProperties:
         limit = data.draw(st.integers(1, 10), label="limit")
 
         expected = {
-            str(c.uuid): c.dict(exclude_none=True)
-            for m in in_scope
-            for c in m.components or []
+            str(c.uuid): c.dict(exclude_none=True) for m in in_scope for c in m.components or []
         }
 
         with installed_store(cdefs):
@@ -381,9 +372,7 @@ class TestRemoveLegacyCdefStoreProperties:
         # end in " <n>"), so the fallback path is the only way to match.
         value = data.draw(st.sampled_from(PROP_VALUES), label="value")
         pad = st.text(alphabet=" \t\n", max_size=3)
-        query_value = (
-            data.draw(pad, label="lpad") + value + data.draw(pad, label="rpad")
-        )
+        query_value = data.draw(pad, label="lpad") + value + data.draw(pad, label="rpad")
 
         candidates = {
             str(c.uuid): c.dict(exclude_none=True)
@@ -439,9 +428,7 @@ class TestRemoveLegacyCdefStoreProperties:
                 if mode == "uuid"
                 else case_variant(data.draw, target.metadata.title)
             )
-        type_value = data.draw(
-            st.sampled_from((*COMPONENT_TYPES, "interconnection")), label="type"
-        )
+        type_value = data.draw(st.sampled_from((*COMPONENT_TYPES, "interconnection")), label="type")
         limit = data.draw(st.integers(1, 10), label="limit")
 
         # Reference model: computed from the raw source dicts, independent of
@@ -513,9 +500,7 @@ class TestRemoveLegacyCdefStoreProperties:
             query_value = data.draw(st.sampled_from(keys), label="value")
         mode = data.draw(st.sampled_from(["none", "uuid"]), label="mode")
         cdef_filter = (
-            None
-            if mode == "none"
-            else str(data.draw(st.sampled_from(models), label="target").uuid)
+            None if mode == "none" else str(data.draw(st.sampled_from(models), label="target").uuid)
         )
         # Stores hold at most 20 Components, so offsets up to 30 cover
         # in-range, boundary, and beyond-the-end pages.
@@ -571,9 +556,7 @@ class TestRemoveLegacyCdefStoreProperties:
 
         query_type = data.draw(st.sampled_from(["by_uuid", "by_title"]), label="qt")
         query_value = (
-            str(cap.uuid)
-            if query_type == "by_uuid"
-            else case_variant(data.draw, cap.name)
+            str(cap.uuid) if query_type == "by_uuid" else case_variant(data.draw, cap.name)
         )
 
         others = [m for m in models if m.uuid != cdef_a.uuid]
@@ -598,9 +581,7 @@ class TestRemoveLegacyCdefStoreProperties:
 
         assert resp["query_type"] == query_type
         assert resp["filtered_by"] == cdef_filter
-        assert resp["component_definitions_searched"] == (
-            len(models) if cdef_filter is None else 1
-        )
+        assert resp["component_definitions_searched"] == (len(models) if cdef_filter is None else 1)
         if scope == "other":
             # Capability keys never collide with Component keys or prop
             # values, so the component fallback finds nothing either.

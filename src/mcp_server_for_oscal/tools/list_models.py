@@ -13,7 +13,7 @@ def list_oscal_models() -> dict:
     List all available OSCAL model types with metadata.
 
     Returns:
-        dict: List of OSCAL models where the key is model's name as used 
+        dict: List of OSCAL models where the key is model's name as used
             in the schema, and value is an object that includes description,
             layer, formal and short names, and release status.
     """

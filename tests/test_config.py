@@ -16,9 +16,7 @@ class TestConfig:
         with patch.dict(os.environ, {"PYTHON_DOTENV_DISABLED": "1"}, clear=True):
             config = Config()
 
-            assert (
-                config.bedrock_model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
-            )
+            assert config.bedrock_model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
             assert config.knowledge_base_id == ""
             assert config.aws_profile is None
             assert config.aws_region is None
@@ -82,9 +80,7 @@ class TestConfig:
         original_kb_id = config.knowledge_base_id
         original_log_level = config.log_level
 
-        config.update_from_args(
-            bedrock_model_id=None, knowledge_base_id=None, log_level=None
-        )
+        config.update_from_args(bedrock_model_id=None, knowledge_base_id=None, log_level=None)
 
         assert config.bedrock_model_id == original_model_id
         assert config.knowledge_base_id == original_kb_id
@@ -184,9 +180,7 @@ class TestConfig:
         original_transport = config.transport
 
         config.update_from_args(transport="")
-        assert (
-            config.transport == original_transport
-        )  # Should NOT update with empty string
+        assert config.transport == original_transport  # Should NOT update with empty string
 
         # Original transport should still be valid
         config.validate_transport()  # Should not raise
@@ -251,9 +245,7 @@ class TestProperty3AgentConfigEnvVarParsing:
         initial_delay=st.integers(min_value=1, max_value=10000),
         max_delay=st.integers(min_value=1, max_value=10000),
     )
-    def test_agent_env_vars_parsed_correctly(
-        self, max_tokens, max_retry, initial_delay, max_delay
-    ):
+    def test_agent_env_vars_parsed_correctly(self, max_tokens, max_retry, initial_delay, max_delay):
         """
         Feature: oscal-agent-production, Property 3: Agent config env var parsing
 

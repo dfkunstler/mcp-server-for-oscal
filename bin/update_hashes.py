@@ -26,6 +26,7 @@ The generated hashes.json can then be verified at runtime using:
     from mcp_server_for_oscal.tools.utils import verify_package_integrity
     verify_package_integrity(Path("src/mcp_server_for_oscal/oscal_schemas"))
 """
+
 import argparse
 import hashlib
 import json
@@ -79,7 +80,7 @@ def capture_file_state(directory=".", outdir: str = "."):
     # Resolve the absolute path
     directory = os.path.abspath(directory)
     """Capture current Git state for verification"""
-    
+
     try:
         commit = subprocess.run(
             ["git", "log", "-1", "--format='%H'", "--", directory],
@@ -145,9 +146,7 @@ def main():
         "directory",
         help="Path to the directory containing the directory to process",
     )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Enable verbose output"
-    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument(
         "-o", "--outdir", help="Path to directory where output file will be written"
     )
@@ -176,9 +175,7 @@ def main():
 
     try:
         if args.verbose:
-            logger.info(
-                f"Processing git repository at: {os.path.abspath(args.directory)}"
-            )
+            logger.info(f"Processing git repository at: {os.path.abspath(args.directory)}")
 
         state, output_file = capture_file_state(args.directory, args.outdir)
 

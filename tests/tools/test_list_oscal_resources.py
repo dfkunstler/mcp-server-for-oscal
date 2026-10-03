@@ -57,8 +57,7 @@ class TestListOscalResources:
 
         # Check for some specific resources mentioned in the file
         assert (
-            "Australian Cyber Security Centre" in result
-            or "Center for Internet Security" in result
+            "Australian Cyber Security Centre" in result or "Center for Internet Security" in result
         )
 
     def test_list_oscal_resources_preserves_markdown_formatting(self):
@@ -148,9 +147,7 @@ class TestListOscalResources:
         old_store = lr_module._store
         lr_module._store = None
         try:
-            mock_open.side_effect = UnicodeDecodeError(
-                "utf-8", b"", 0, 1, "invalid start byte"
-            )
+            mock_open.side_effect = UnicodeDecodeError("utf-8", b"", 0, 1, "invalid start byte")
 
             ctx = AsyncMock()
             ctx.session.client_params = {}
@@ -183,9 +180,7 @@ class TestListOscalResources:
 
         try:
             # Patch the path resolution to use our temporary file
-            with patch(
-                "mcp_server_for_oscal.tools.list_oscal_resources.Path"
-            ) as mock_path:
+            with patch("mcp_server_for_oscal.tools.list_oscal_resources.Path") as mock_path:
                 mock_path_instance = Mock()
                 mock_path_instance.parent = Mock()
                 mock_path_instance.parent.parent = Mock()
@@ -196,13 +191,12 @@ class TestListOscalResources:
                 mock_path.return_value = mock_path_instance
 
                 # Mock the final path resolution
-                with patch("builtins.open", open), patch(
-                    "mcp_server_for_oscal.tools.list_oscal_resources.Path"
-                ) as mock_path2:
+                with (
+                    patch("builtins.open", open),
+                    patch("mcp_server_for_oscal.tools.list_oscal_resources.Path") as mock_path2,
+                ):
                     mock_docs_path = Mock()
-                    mock_docs_path.__truediv__ = Mock(
-                        return_value=Path(temp_file_path)
-                    )
+                    mock_docs_path.__truediv__ = Mock(return_value=Path(temp_file_path))
                     mock_path2.return_value.parent.parent.__truediv__ = Mock(
                         return_value=mock_docs_path
                     )
@@ -225,17 +219,16 @@ class TestListOscalResources:
             temp_file_path = temp_file.name
 
         try:
-            with patch(
-                "mcp_server_for_oscal.tools.list_oscal_resources.Path"
-            ) as mock_path:
+            with patch("mcp_server_for_oscal.tools.list_oscal_resources.Path") as mock_path:
                 mock_path_instance = Mock()
                 mock_path_instance.parent = Mock()
                 mock_path_instance.parent.parent = Mock()
 
                 # Mock the final path to point to our empty temp file
-                with patch("builtins.open", open), patch(
-                    "mcp_server_for_oscal.tools.list_oscal_resources.logger"
-                ) as mock_logger:
+                with (
+                    patch("builtins.open", open),
+                    patch("mcp_server_for_oscal.tools.list_oscal_resources.logger") as mock_logger,
+                ):
                     # Direct file read test
                     with open(temp_file_path, encoding="utf-8") as f:
                         content = f.read()
@@ -256,9 +249,7 @@ class TestListOscalResources:
         # Create a file with latin-1 encoding
         test_content_latin1 = "Test content with special char: \xe9"  # é in latin-1
 
-        with tempfile.NamedTemporaryFile(
-            mode="wb", suffix=".md", delete=False
-        ) as temp_file:
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".md", delete=False) as temp_file:
             temp_file.write(test_content_latin1.encode("latin-1"))
             temp_file_path = temp_file.name
 
@@ -287,9 +278,7 @@ class TestListOscalResources:
         ctx = AsyncMock()
         ctx.session.client_params = {}
 
-        with patch(
-            "mcp_server_for_oscal.tools.list_oscal_resources.logger"
-        ) as mock_logger:
+        with patch("mcp_server_for_oscal.tools.list_oscal_resources.logger") as mock_logger:
             result = list_oscal_resources(ctx)
 
             # Verify debug logging calls were made

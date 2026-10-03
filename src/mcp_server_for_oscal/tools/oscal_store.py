@@ -131,9 +131,7 @@ class OscalStore:
         try:
             self._conn.execute("PRAGMA journal_mode=WAL")
         except sqlite3.Error as exc:
-            raise RuntimeError(
-                f"Cannot open SQLite database at {resolved_path}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Cannot open SQLite database at {resolved_path}: {exc}") from exc
 
         self._init_schema()
         logger.info(
@@ -187,9 +185,7 @@ class OscalStore:
                     if expected_hash:
                         self._verify_file_hash(p, expected_hash)
                     self._db_mode = "persistent"
-                    logger.info(
-                        "Seeded persistent DB from bundled DB at %s", db_path
-                    )
+                    logger.info("Seeded persistent DB from bundled DB at %s", db_path)
                     return db_path
 
         # Create a new empty persistent DB
@@ -203,10 +199,7 @@ class OscalStore:
         if BUNDLED_DB_PATH.exists():
             if self._verify_bundled_db():
                 return self._copy_bundled_to_temp()
-            logger.warning(
-                "Bundled DB failed integrity check; "
-                "falling back to ephemeral DB"
-            )
+            logger.warning("Bundled DB failed integrity check; falling back to ephemeral DB")
             return self._create_ephemeral()
 
         # No bundled DB — create ephemeral
@@ -214,16 +207,12 @@ class OscalStore:
 
     def _copy_bundled_to_temp(self) -> str:
         """Copy the bundled DB to a temporary directory."""
-        self._temp_dir = tempfile.TemporaryDirectory(
-            prefix="oscal_store_"
-        )
+        self._temp_dir = tempfile.TemporaryDirectory(prefix="oscal_store_")
         dest = Path(self._temp_dir.name) / "oscal_store.db"
         try:
             shutil.copy2(BUNDLED_DB_PATH, dest)
         except OSError:
-            logger.warning(
-                "Failed to copy bundled DB; falling back to ephemeral"
-            )
+            logger.warning("Failed to copy bundled DB; falling back to ephemeral")
             return self._create_ephemeral()
 
         expected_hash = self._get_expected_db_hash()
@@ -236,9 +225,7 @@ class OscalStore:
     def _create_ephemeral(self) -> str:
         """Create an ephemeral DB in a temporary directory."""
         if self._temp_dir is None:
-            self._temp_dir = tempfile.TemporaryDirectory(
-                prefix="oscal_store_"
-            )
+            self._temp_dir = tempfile.TemporaryDirectory(prefix="oscal_store_")
         dest = Path(self._temp_dir.name) / "oscal_store.db"
         self._db_mode = "ephemeral"
         logger.info("Creating ephemeral DB at %s", dest)
@@ -326,8 +313,7 @@ class OscalStore:
         actual_hash = h.hexdigest()
         if actual_hash != expected_hash:
             logger.warning(
-                "Bundled DB integrity check failed: "
-                "expected %s, got %s",
+                "Bundled DB integrity check failed: expected %s, got %s",
                 expected_hash,
                 actual_hash,
             )
@@ -368,23 +354,16 @@ class OscalStore:
 
             # -- migration: add content_hash for existing DBs --
             try:
-                cur.execute(
-                    "ALTER TABLE documents ADD COLUMN content_hash TEXT"
-                )
+                cur.execute("ALTER TABLE documents ADD COLUMN content_hash TEXT")
             except sqlite3.OperationalError:
                 pass  # column already exists
 
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_uuid ON documents(uuid)")
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_documents_uuid "
-                "ON documents(uuid)"
+                "CREATE INDEX IF NOT EXISTS idx_documents_title ON documents(title COLLATE NOCASE)"
             )
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_documents_title "
-                "ON documents(title COLLATE NOCASE)"
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_documents_model_type "
-                "ON documents(model_type)"
+                "CREATE INDEX IF NOT EXISTS idx_documents_model_type ON documents(model_type)"
             )
 
             # -- child_elements table --
@@ -402,21 +381,13 @@ class OscalStore:
                 )
             """)
 
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_child_uuid ON child_elements(uuid)")
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_child_uuid "
-                "ON child_elements(uuid)"
+                "CREATE INDEX IF NOT EXISTS idx_child_title ON child_elements(title COLLATE NOCASE)"
             )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_child_type ON child_elements(element_type)")
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_child_title "
-                "ON child_elements(title COLLATE NOCASE)"
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_child_type "
-                "ON child_elements(element_type)"
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_child_parent "
-                "ON child_elements(parent_doc_id)"
+                "CREATE INDEX IF NOT EXISTS idx_child_parent ON child_elements(parent_doc_id)"
             )
 
             # -- FTS5 virtual table --
@@ -433,9 +404,7 @@ class OscalStore:
             self._conn.commit()
         except sqlite3.Error as exc:
             self._conn.rollback()
-            raise RuntimeError(
-                f"Failed to initialize database schema: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to initialize database schema: {exc}") from exc
 
     # ------------------------------------------------------------------
     # Lifecycle helpers
@@ -555,14 +524,10 @@ class OscalStore:
         try:
             model_type = OSCALModelType(model_type_str)
         except ValueError as exc:
-            raise ValueError(
-                f"Unknown model type '{model_type_str}'"
-            ) from exc
+            raise ValueError(f"Unknown model type '{model_type_str}'") from exc
 
         if model_type not in TRESTLE_MODEL_MAP:
-            raise ValueError(
-                f"No Trestle model mapping for type '{model_type_str}'"
-            )
+            raise ValueError(f"No Trestle model mapping for type '{model_type_str}'")
 
         module_name, class_name = TRESTLE_MODEL_MAP[model_type]
         try:
@@ -579,9 +544,7 @@ class OscalStore:
         try:
             return model_class.parse_obj(root_data)
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to parse document as {class_name}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to parse document as {class_name}: {exc}") from exc
 
     def _build_cached_parse(self) -> "functools._lru_cache_wrapper":
         """Build an LRU-cached wrapper around ``_do_parse``.
@@ -593,9 +556,7 @@ class OscalStore:
         """
 
         @functools.lru_cache(maxsize=self._cache_size)
-        def _cached_parse(
-            doc_id: int, raw_json: str, model_type_str: str
-        ) -> object:
+        def _cached_parse(doc_id: int, raw_json: str, model_type_str: str) -> object:
             return OscalStore._do_parse(raw_json, model_type_str)
 
         return _cached_parse
@@ -722,9 +683,7 @@ class OscalStore:
             )
         except sqlite3.Error as exc:
             self._conn.rollback()
-            raise RuntimeError(
-                f"Failed to index document {doc_id}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to index document {doc_id}: {exc}") from exc
 
     def _extract_child_elements(
         self,
@@ -748,42 +707,50 @@ class OscalStore:
         if model_type == OSCALModelType.COMPONENT_DEFINITION:
             # components
             for comp in getattr(parsed_model, "components", None) or []:
-                children.append(self._child_dict(
-                    uuid=str(comp.uuid),
-                    title=str(comp.title),
-                    element_type="component",
-                    description=str(comp.description) if comp.description else None,
-                    obj=comp,
-                ))
+                children.append(
+                    self._child_dict(
+                        uuid=str(comp.uuid),
+                        title=str(comp.title),
+                        element_type="component",
+                        description=str(comp.description) if comp.description else None,
+                        obj=comp,
+                    )
+                )
             # capabilities
             for cap in getattr(parsed_model, "capabilities", None) or []:
-                children.append(self._child_dict(
-                    uuid=str(cap.uuid),
-                    title=str(cap.name),
-                    element_type="capability",
-                    description=str(cap.description) if cap.description else None,
-                    obj=cap,
-                ))
+                children.append(
+                    self._child_dict(
+                        uuid=str(cap.uuid),
+                        title=str(cap.name),
+                        element_type="capability",
+                        description=str(cap.description) if cap.description else None,
+                        obj=cap,
+                    )
+                )
 
         elif model_type == OSCALModelType.CATALOG:
             # controls (top-level)
             for ctrl in getattr(parsed_model, "controls", None) or []:
-                children.append(self._child_dict(
-                    uuid=str(ctrl.id),
-                    title=str(ctrl.title),
-                    element_type="control",
-                    description=None,
-                    obj=ctrl,
-                ))
+                children.append(
+                    self._child_dict(
+                        uuid=str(ctrl.id),
+                        title=str(ctrl.title),
+                        element_type="control",
+                        description=None,
+                        obj=ctrl,
+                    )
+                )
             # groups
             for grp in getattr(parsed_model, "groups", None) or []:
-                children.append(self._child_dict(
-                    uuid=str(grp.id),
-                    title=str(grp.title),
-                    element_type="group",
-                    description=None,
-                    obj=grp,
-                ))
+                children.append(
+                    self._child_dict(
+                        uuid=str(grp.id),
+                        title=str(grp.title),
+                        element_type="group",
+                        description=None,
+                        obj=grp,
+                    )
+                )
             # controls nested inside groups (recursive)
             self._extract_controls_from_groups(
                 getattr(parsed_model, "groups", None) or [], children
@@ -791,132 +758,120 @@ class OscalStore:
 
         elif model_type == OSCALModelType.PROFILE:
             # imports
-            for idx, imp in enumerate(
-                getattr(parsed_model, "imports", None) or []
-            ):
+            for idx, imp in enumerate(getattr(parsed_model, "imports", None) or []):
                 href = str(getattr(imp, "href", ""))
-                children.append(self._child_dict(
-                    uuid=f"import-{idx}",
-                    title=href or f"import-{idx}",
-                    element_type="import",
-                    description=href,
-                    obj=imp,
-                ))
+                children.append(
+                    self._child_dict(
+                        uuid=f"import-{idx}",
+                        title=href or f"import-{idx}",
+                        element_type="import",
+                        description=href,
+                        obj=imp,
+                    )
+                )
             # modify
             modify = getattr(parsed_model, "modify", None)
             if modify is not None:
-                children.append(self._child_dict(
-                    uuid="modify",
-                    title="modify",
-                    element_type="modify",
-                    description=None,
-                    obj=modify,
-                ))
+                children.append(
+                    self._child_dict(
+                        uuid="modify",
+                        title="modify",
+                        element_type="modify",
+                        description=None,
+                        obj=modify,
+                    )
+                )
 
         elif model_type == OSCALModelType.SYSTEM_SECURITY_PLAN:
             # control-implementation
             ctrl_impl = getattr(parsed_model, "control_implementation", None)
             if ctrl_impl is not None:
-                desc = (
-                    str(ctrl_impl.description)
-                    if ctrl_impl.description
-                    else None
+                desc = str(ctrl_impl.description) if ctrl_impl.description else None
+                children.append(
+                    self._child_dict(
+                        uuid="control-implementation",
+                        title="control-implementation",
+                        element_type="control-implementation",
+                        description=desc,
+                        obj=ctrl_impl,
+                    )
                 )
-                children.append(self._child_dict(
-                    uuid="control-implementation",
-                    title="control-implementation",
-                    element_type="control-implementation",
-                    description=desc,
-                    obj=ctrl_impl,
-                ))
             # system-components from system_implementation
             sys_impl = getattr(parsed_model, "system_implementation", None)
             if sys_impl is not None:
                 for comp in getattr(sys_impl, "components", None) or []:
-                    children.append(self._child_dict(
-                        uuid=str(comp.uuid),
-                        title=str(comp.title),
-                        element_type="system-component",
-                        description=(
-                            str(comp.description)
-                            if comp.description
-                            else None
-                        ),
-                        obj=comp,
-                    ))
+                    children.append(
+                        self._child_dict(
+                            uuid=str(comp.uuid),
+                            title=str(comp.title),
+                            element_type="system-component",
+                            description=(str(comp.description) if comp.description else None),
+                            obj=comp,
+                        )
+                    )
 
         elif model_type == OSCALModelType.ASSESSMENT_PLAN:
             # tasks
             for task in getattr(parsed_model, "tasks", None) or []:
-                children.append(self._child_dict(
-                    uuid=str(task.uuid),
-                    title=str(task.title),
-                    element_type="task",
-                    description=(
-                        str(task.description)
-                        if task.description
-                        else None
-                    ),
-                    obj=task,
-                ))
+                children.append(
+                    self._child_dict(
+                        uuid=str(task.uuid),
+                        title=str(task.title),
+                        element_type="task",
+                        description=(str(task.description) if task.description else None),
+                        obj=task,
+                    )
+                )
             # activities from local_definitions
             local_defs = getattr(parsed_model, "local_definitions", None)
             if local_defs is not None:
                 for act in getattr(local_defs, "activities", None) or []:
-                    children.append(self._child_dict(
-                        uuid=str(act.uuid),
-                        title=str(act.title) if act.title else str(act.uuid),
-                        element_type="activity",
-                        description=(
-                            str(act.description)
-                            if act.description
-                            else None
-                        ),
-                        obj=act,
-                    ))
+                    children.append(
+                        self._child_dict(
+                            uuid=str(act.uuid),
+                            title=str(act.title) if act.title else str(act.uuid),
+                            element_type="activity",
+                            description=(str(act.description) if act.description else None),
+                            obj=act,
+                        )
+                    )
 
         elif model_type == OSCALModelType.ASSESSMENT_RESULTS:
             # results
             for result in getattr(parsed_model, "results", None) or []:
-                children.append(self._child_dict(
-                    uuid=str(result.uuid),
-                    title=str(result.title),
-                    element_type="result",
-                    description=(
-                        str(result.description)
-                        if result.description
-                        else None
-                    ),
-                    obj=result,
-                ))
+                children.append(
+                    self._child_dict(
+                        uuid=str(result.uuid),
+                        title=str(result.title),
+                        element_type="result",
+                        description=(str(result.description) if result.description else None),
+                        obj=result,
+                    )
+                )
                 # findings within each result
                 for finding in getattr(result, "findings", None) or []:
-                    children.append(self._child_dict(
-                        uuid=str(finding.uuid),
-                        title=str(finding.title),
-                        element_type="finding",
-                        description=(
-                            str(finding.description)
-                            if finding.description
-                            else None
-                        ),
-                        obj=finding,
-                    ))
+                    children.append(
+                        self._child_dict(
+                            uuid=str(finding.uuid),
+                            title=str(finding.title),
+                            element_type="finding",
+                            description=(str(finding.description) if finding.description else None),
+                            obj=finding,
+                        )
+                    )
 
         elif model_type == OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES:
             # poam-items
             for item in getattr(parsed_model, "poam_items", None) or []:
-                children.append(self._child_dict(
-                    uuid=str(item.uuid),
-                    title=str(item.title),
-                    element_type="poam-item",
-                    description=(
-                        str(item.description)
-                        if item.description
-                        else None
-                    ),
-                    obj=item,
-                ))
+                children.append(
+                    self._child_dict(
+                        uuid=str(item.uuid),
+                        title=str(item.title),
+                        element_type="poam-item",
+                        description=(str(item.description) if item.description else None),
+                        obj=item,
+                    )
+                )
 
         elif model_type == OSCALModelType.MAPPING:
             # mappings
@@ -926,16 +881,16 @@ class OscalStore:
                 if not isinstance(mappings, list):
                     mappings = [mappings]
                 for m in mappings:
-                    title = str(
-                        getattr(m, "matching_rationale", None) or m.uuid
+                    title = str(getattr(m, "matching_rationale", None) or m.uuid)
+                    children.append(
+                        self._child_dict(
+                            uuid=str(m.uuid),
+                            title=title,
+                            element_type="mapping",
+                            description=None,
+                            obj=m,
+                        )
                     )
-                    children.append(self._child_dict(
-                        uuid=str(m.uuid),
-                        title=title,
-                        element_type="mapping",
-                        description=None,
-                        obj=m,
-                    ))
 
         return children
 
@@ -956,16 +911,16 @@ class OscalStore:
         """
         for grp in groups:
             for ctrl in getattr(grp, "controls", None) or []:
-                children.append(self._child_dict(
-                    uuid=str(ctrl.id),
-                    title=str(ctrl.title),
-                    element_type="control",
-                    description=None,
-                    obj=ctrl,
-                ))
-            self._extract_controls_from_groups(
-                getattr(grp, "groups", None) or [], children
-            )
+                children.append(
+                    self._child_dict(
+                        uuid=str(ctrl.id),
+                        title=str(ctrl.title),
+                        element_type="control",
+                        description=None,
+                        obj=ctrl,
+                    )
+                )
+            self._extract_controls_from_groups(getattr(grp, "groups", None) or [], children)
 
     @staticmethod
     def _child_dict(
@@ -982,9 +937,7 @@ class OscalStore:
             if json_method is not None:
                 raw_json = json_method(exclude_none=True, by_alias=True)
         except Exception:
-            logger.debug(
-                "Could not serialize %s child to JSON", element_type
-            )
+            logger.debug("Could not serialize %s child to JSON", element_type)
         return {
             "uuid": uuid,
             "title": title,
@@ -1025,9 +978,7 @@ class OscalStore:
             ValueError: If query_value is missing when required.
         """
         if query_type in ("by_uuid", "by_title", "by_type") and not query_value:
-            raise ValueError(
-                f"query_value is required for query_type '{query_type}'"
-            )
+            raise ValueError(f"query_value is required for query_type '{query_type}'")
 
         if query_type == "by_uuid":
             # query_value validated above; cast for type checker
@@ -1055,7 +1006,8 @@ class OscalStore:
             params.append(oscal_model_type.value)
 
         total = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM documents d {where}", params  # nosec B608
+            f"SELECT COUNT(*) as cnt FROM documents d {where}",
+            params,  # nosec B608
         ).fetchone()["cnt"]
 
         rows = self._conn.execute(
@@ -1083,7 +1035,8 @@ class OscalStore:
             params.append(oscal_model_type.value)
 
         total = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM documents d {where}", params  # nosec B608
+            f"SELECT COUNT(*) as cnt FROM documents d {where}",
+            params,  # nosec B608
         ).fetchone()["cnt"]
 
         if total > 0:
@@ -1169,7 +1122,8 @@ class OscalStore:
             params.append(oscal_model_type.value)
 
         total = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM documents d {where}", params  # nosec B608
+            f"SELECT COUNT(*) as cnt FROM documents d {where}",
+            params,  # nosec B608
         ).fetchone()["cnt"]
 
         rows = self._conn.execute(
@@ -1195,7 +1149,8 @@ class OscalStore:
             params.append(oscal_model_type.value)
 
         total = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM documents d {where}", params  # nosec B608
+            f"SELECT COUNT(*) as cnt FROM documents d {where}",
+            params,  # nosec B608
         ).fetchone()["cnt"]
 
         rows = self._conn.execute(
@@ -1232,20 +1187,20 @@ class OscalStore:
                 for c in children
             ]
 
-            items.append({
-                "uuid": row["uuid"],
-                "title": row["title"],
-                "model_type": row["model_type"],
-                "file_path": row["file_path"],
-                "sizeInBytes": row["file_size"],
-                "children": child_list,
-            })
+            items.append(
+                {
+                    "uuid": row["uuid"],
+                    "title": row["title"],
+                    "model_type": row["model_type"],
+                    "file_path": row["file_path"],
+                    "sizeInBytes": row["file_size"],
+                    "children": child_list,
+                }
+            )
         return items
 
     @staticmethod
-    def _page_response(
-        items: list[dict], total: int, offset: int, limit: int
-    ) -> dict:
+    def _page_response(items: list[dict], total: int, offset: int, limit: int) -> dict:
         """Build a Page_Response dict."""
         return {
             "items": items,
@@ -1286,9 +1241,7 @@ class OscalStore:
                 return ROOT_KEY_TO_MODEL_TYPE[key]
         return None
 
-    def _detect_model_type_from_data(
-        self, data: dict
-    ) -> OSCALModelType | None:
+    def _detect_model_type_from_data(self, data: dict) -> OSCALModelType | None:
         """Detect model type from already-parsed JSON data.
 
         Args:
@@ -1308,9 +1261,7 @@ class OscalStore:
     # Trestle validation
     # ------------------------------------------------------------------
 
-    def _validate_with_trestle(
-        self, data: dict, model_type: OSCALModelType
-    ) -> bool:
+    def _validate_with_trestle(self, data: dict, model_type: OSCALModelType) -> bool:
         """Validate document data using the corresponding Trestle model.
 
         Args:
@@ -1368,9 +1319,7 @@ class OscalStore:
             Number of new or updated files ingested.
         """
         if not directory.exists():
-            logger.info(
-                "Directory does not exist, skipping: %s", directory
-            )
+            logger.info("Directory does not exist, skipping: %s", directory)
             return 0
 
         if not directory.is_dir():
@@ -1400,9 +1349,7 @@ class OscalStore:
                 count += 1
 
         if count == 0:
-            logger.info(
-                "No new or updated OSCAL documents found in %s", directory
-            )
+            logger.info("No new or updated OSCAL documents found in %s", directory)
         else:
             logger.info(
                 "Ingested %d new/updated document(s) from %s",
@@ -1412,17 +1359,14 @@ class OscalStore:
 
         return count
 
-    def _file_unchanged(
-        self, file_path: str, content_hash: str
-    ) -> bool:
+    def _file_unchanged(self, file_path: str, content_hash: str) -> bool:
         """Check if a file's SHA-256 content hash matches the stored value.
 
         When ``content_hash`` is NULL (pre-migration rows), always returns
         ``False`` so the file is re-indexed and the hash gets populated.
         """
         row = self._conn.execute(
-            "SELECT content_hash FROM documents "
-            "WHERE file_path = ?",
+            "SELECT content_hash FROM documents WHERE file_path = ?",
             (file_path,),
         ).fetchone()
         if row is None:
@@ -1432,9 +1376,7 @@ class OscalStore:
             return False
         return row["content_hash"] == content_hash
 
-    def _extract_metadata(
-        self, data: dict, model_type: OSCALModelType
-    ) -> tuple[str, str] | None:
+    def _extract_metadata(self, data: dict, model_type: OSCALModelType) -> tuple[str, str] | None:
         """Extract UUID and title from parsed OSCAL JSON data.
 
         Args:
@@ -1489,8 +1431,14 @@ class OscalStore:
                     updated_at = datetime('now')
                 """,
                 (
-                    uuid, title, model_type, file_path,
-                    file_size, file_mtime, raw_json, content_hash,
+                    uuid,
+                    title,
+                    model_type,
+                    file_path,
+                    file_size,
+                    file_mtime,
+                    raw_json,
+                    content_hash,
                 ),
             )
             self._conn.commit()
@@ -1553,23 +1501,24 @@ class OscalStore:
 
         # Validate with Trestle
         if not self._validate_with_trestle(data, model_type):
-            logger.warning(
-                "Skipping invalid document: %s", json_file
-            )
+            logger.warning("Skipping invalid document: %s", json_file)
             return False
 
         # Extract metadata
         meta = self._extract_metadata(data, model_type)
         if meta is None:
-            logger.debug(
-                "Cannot extract UUID/title from %s", json_file
-            )
+            logger.debug("Cannot extract UUID/title from %s", json_file)
             return False
 
         uuid, title = meta
         return self._upsert_document(
-            uuid, title, model_type.value, file_path_str,
-            file_size, file_mtime, raw_json,
+            uuid,
+            title,
+            model_type.value,
+            file_path_str,
+            file_size,
+            file_mtime,
+            raw_json,
             content_hash=content_hash,
         )
 
@@ -1603,7 +1552,9 @@ class OscalStore:
                     except (KeyError, OSError) as exc:
                         logger.debug(
                             "Cannot read %s from %s: %s",
-                            inner_name, zip_path, exc,
+                            inner_name,
+                            zip_path,
+                            exc,
                         )
                         continue
 
@@ -1623,7 +1574,9 @@ class OscalStore:
                     except json.JSONDecodeError as exc:
                         logger.debug(
                             "Invalid JSON in %s/%s: %s",
-                            zip_path, inner_name, exc,
+                            zip_path,
+                            inner_name,
+                            exc,
                         )
                         continue
 
@@ -1631,17 +1584,15 @@ class OscalStore:
                     if model_type is None:
                         continue
 
-                    if (
-                        model_type_filter is not None
-                        and model_type != model_type_filter
-                    ):
+                    if model_type_filter is not None and model_type != model_type_filter:
                         continue
 
                     # Validate with Trestle
                     if not self._validate_with_trestle(data, model_type):
                         logger.warning(
                             "Skipping invalid document in zip: %s/%s",
-                            zip_path, inner_name,
+                            zip_path,
+                            inner_name,
                         )
                         continue
 
@@ -1651,8 +1602,13 @@ class OscalStore:
 
                     uuid, title = meta
                     if self._upsert_document(
-                        uuid, title, model_type.value, file_path_str,
-                        file_size, file_mtime, raw_json,
+                        uuid,
+                        title,
+                        model_type.value,
+                        file_path_str,
+                        file_size,
+                        file_mtime,
+                        raw_json,
                         content_hash=content_hash,
                     ):
                         count += 1
@@ -1747,8 +1703,7 @@ class OscalStore:
         try:
             # Remove any stale FTS entries for this document
             self._conn.execute(
-                "DELETE FROM fts_index WHERE entity_type = 'documentation' "
-                "AND entity_id = ?",
+                "DELETE FROM fts_index WHERE entity_type = 'documentation' AND entity_id = ?",
                 (str(doc_id),),
             )
             self._conn.execute(
@@ -1772,9 +1727,7 @@ class OscalStore:
             )
             self._conn.commit()
         except sqlite3.Error as exc:
-            logger.error(
-                "Failed to index documentation %s: %s", md_file, exc
-            )
+            logger.error("Failed to index documentation %s: %s", md_file, exc)
             self._conn.rollback()
             return False
 
@@ -1855,13 +1808,15 @@ class OscalStore:
                 "SELECT COUNT(*) as cnt FROM child_elements WHERE parent_doc_id = ?",
                 (row["id"],),
             ).fetchone()
-            items.append({
-                "uuid": row["uuid"],
-                "title": row["title"],
-                "model_type": row["model_type"],
-                "childCount": child_count_row["cnt"],
-                "sizeInBytes": row["file_size"],
-            })
+            items.append(
+                {
+                    "uuid": row["uuid"],
+                    "title": row["title"],
+                    "model_type": row["model_type"],
+                    "childCount": child_count_row["cnt"],
+                    "sizeInBytes": row["file_size"],
+                }
+            )
 
         return {
             "items": items,
@@ -1911,17 +1866,13 @@ class OscalStore:
             }
 
         try:
-            return self._fts_search(
-                query_text, oscal_model_type, offset, limit
-            )
+            return self._fts_search(query_text, oscal_model_type, offset, limit)
         except sqlite3.OperationalError:
             logger.warning(
                 "FTS MATCH failed for query '%s'; falling back to LIKE",
                 query_text,
             )
-            return self._like_search(
-                query_text, oscal_model_type, offset, limit
-            )
+            return self._like_search(query_text, oscal_model_type, offset, limit)
 
     def _fts_search(
         self,
@@ -2093,9 +2044,7 @@ class OscalStore:
 
         May raise ``sqlite3.OperationalError`` on bad FTS syntax.
         """
-        where_sql = (
-            "fts_index MATCH ? AND entity_type = 'documentation'"
-        )
+        where_sql = "fts_index MATCH ? AND entity_type = 'documentation'"
         params: list = [query_text]
 
         # Total count
@@ -2156,10 +2105,7 @@ class OscalStore:
         params: list = [like_pattern, like_pattern]
 
         # Total count — use a simple subquery on fts_index only
-        count_where = (
-            "(title LIKE ? OR description LIKE ?) "
-            "AND entity_type = 'documentation'"
-        )
+        count_where = "(title LIKE ? OR description LIKE ?) AND entity_type = 'documentation'"
         total_row = self._conn.execute(
             f"SELECT COUNT(*) as cnt FROM fts_index "  # nosec B608
             f"WHERE {count_where}",
@@ -2189,9 +2135,7 @@ class OscalStore:
         query_lower = query_text.lower()
         for row in rows:
             description = row["description"] or ""
-            snippet = self._extract_like_snippet(
-                description, query_lower, 200
-            )
+            snippet = self._extract_like_snippet(description, query_lower, 200)
             items.append(
                 {
                     "title": row["title"],
@@ -2209,9 +2153,7 @@ class OscalStore:
         }
 
     @staticmethod
-    def _extract_like_snippet(
-        text: str, query_lower: str, max_len: int = 200
-    ) -> str:
+    def _extract_like_snippet(text: str, query_lower: str, max_len: int = 200) -> str:
         """Extract a snippet around the first case-insensitive match."""
         if not text:
             return ""
@@ -2290,9 +2232,7 @@ class OscalStore:
                     )
         else:
             # Ensure all unindexed documents are indexed
-            unindexed = self._conn.execute(
-                "SELECT id FROM documents WHERE indexed = 0"
-            ).fetchall()
+            unindexed = self._conn.execute("SELECT id FROM documents WHERE indexed = 0").fetchall()
             for row in unindexed:
                 try:
                     self._ensure_indexed(row["id"])
@@ -2420,9 +2360,7 @@ class OscalStore:
                     )
         else:
             # Ensure all unindexed documents are indexed
-            unindexed = self._conn.execute(
-                "SELECT id FROM documents WHERE indexed = 0"
-            ).fetchall()
+            unindexed = self._conn.execute("SELECT id FROM documents WHERE indexed = 0").fetchall()
             for row in unindexed:
                 try:
                     self._ensure_indexed(row["id"])
@@ -2504,7 +2442,9 @@ class OscalStore:
     # ------------------------------------------------------------------
 
     def load_external_component_definition(
-        self, source: str, ctx: object | None = None,
+        self,
+        source: str,
+        ctx: object | None = None,
     ) -> None:
         """Load an OSCAL Component Definition from a local zip or remote URI.
 
@@ -2534,13 +2474,9 @@ class OscalStore:
         if uri.scheme in ("", "file"):
             lf = Path(source)
             if lf.is_dir():
-                raise ValueError(
-                    "URI must point to a zip file or JSON component definition"
-                )
+                raise ValueError("URI must point to a zip file or JSON component definition")
             if lf.is_file() and lf.name.endswith("zip"):
-                self._process_zip_file(
-                    lf, OSCALModelType.COMPONENT_DEFINITION
-                )
+                self._process_zip_file(lf, OSCALModelType.COMPONENT_DEFINITION)
             return
 
         if not config.allow_remote_uris:
@@ -2552,9 +2488,7 @@ class OscalStore:
             _notify(msg)
             raise ValueError(msg)
 
-        logger.debug(
-            "Fetching remote Component Definition from: %s", source
-        )
+        logger.debug("Fetching remote Component Definition from: %s", source)
 
         try:
             response = _requests.get(source, timeout=config.request_timeout)
@@ -2566,20 +2500,14 @@ class OscalStore:
 
             model_type = self._detect_model_type_from_data(data)
             if model_type != OSCALModelType.COMPONENT_DEFINITION:
-                raise ValueError(
-                    "Remote document is not a Component Definition"
-                )
+                raise ValueError("Remote document is not a Component Definition")
 
             if not self._validate_with_trestle(data, model_type):
-                raise ValueError(
-                    "Remote Component Definition failed validation"
-                )
+                raise ValueError("Remote Component Definition failed validation")
 
             meta = self._extract_metadata(data, model_type)
             if meta is None:
-                raise ValueError(
-                    "Cannot extract UUID/title from remote document"
-                )
+                raise ValueError("Cannot extract UUID/title from remote document")
 
             uuid_val, title = meta
             raw_json = json.dumps(data)
@@ -2624,10 +2552,7 @@ class OscalStore:
             raise
 
         except Exception as e:
-            msg = (
-                "Failed to load or validate remote "
-                f"Component Definition: {e}"
-            )
+            msg = f"Failed to load or validate remote Component Definition: {e}"
             logger.exception(msg)
             _notify(msg)
             raise ValueError(msg) from e

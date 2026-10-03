@@ -154,9 +154,7 @@ def read_resources_file() -> str:
         logger.error("Encoding error reading file %s: %s", resources_file_path, e)
         # Try with different encoding as fallback
         try:
-            with open(
-                resources_file_path, encoding="latin-1", errors="replace"
-            ) as file:
+            with open(resources_file_path, encoding="latin-1", errors="replace") as file:
                 content = file.read()
             logger.warning("Successfully read file with latin-1 encoding fallback")
             return content

@@ -93,9 +93,7 @@ class TestFileIntegrityIntegration:
         mock_config.transport = "stdio"
 
         # Make integrity verification fail
-        mock_verify_integrity.side_effect = RuntimeError(
-            "File schema1.json has been modified"
-        )
+        mock_verify_integrity.side_effect = RuntimeError("File schema1.json has been modified")
 
         # Import main function
         from mcp_server_for_oscal.main import main
@@ -218,9 +216,7 @@ class TestFileIntegrityIntegration:
         mock_config.transport = "stdio"
 
         # Make integrity check fail
-        mock_verify_integrity.side_effect = RuntimeError(
-            "oscal_schemas integrity failure"
-        )
+        mock_verify_integrity.side_effect = RuntimeError("oscal_schemas integrity failure")
 
         # Import main function
         from mcp_server_for_oscal.main import main
@@ -274,9 +270,7 @@ class TestFileIntegrityIntegration:
         call_arg = mock_verify_integrity.call_args_list[0][0][0]
 
         # Verify path is resolved relative to main.py location
-        assert isinstance(call_arg, Path), (
-            f"Expected Path object, got {type(call_arg)}"
-        )
+        assert isinstance(call_arg, Path), f"Expected Path object, got {type(call_arg)}"
         path_str = str(call_arg)
         assert call_arg.is_absolute(), f"Path should be absolute: {path_str}"
 
@@ -340,9 +334,7 @@ class TestFileIntegrityIntegration:
         """
         # Create a valid test package
         test_files = create_sample_oscal_files()
-        package_dir = self.test_manager.create_test_package(
-            "valid_integration_test", test_files
-        )
+        package_dir = self.test_manager.create_test_package("valid_integration_test", test_files)
 
         # Import the real function
         from mcp_server_for_oscal.tools.utils import verify_package_integrity
@@ -351,9 +343,7 @@ class TestFileIntegrityIntegration:
         try:
             verify_package_integrity(package_dir)
         except Exception as e:
-            pytest.fail(
-                f"verify_package_integrity should pass for valid package, but got: {e}"
-            )
+            pytest.fail(f"verify_package_integrity should pass for valid package, but got: {e}")
 
     def test_integration_with_real_verify_function_tampered_package(self):
         """Test integration with real verify_package_integrity function using tampered package.
@@ -365,9 +355,7 @@ class TestFileIntegrityIntegration:
         """
         # Create a test package and tamper with it
         test_files = create_sample_oscal_files()
-        package_dir = self.test_manager.create_test_package(
-            "tampered_integration_test", test_files
-        )
+        package_dir = self.test_manager.create_test_package("tampered_integration_test", test_files)
 
         # Tamper with one of the files
         self.test_manager.tamper_file(package_dir, "catalog.json", "append")

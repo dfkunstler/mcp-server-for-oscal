@@ -41,6 +41,7 @@ _COMMON_METADATA = {
 # Hypothesis strategies
 # ---------------------------------------------------------------------------
 
+
 @st.composite
 def oscal_control_id(draw):
     """Generate a valid OSCAL control id string."""
@@ -69,12 +70,8 @@ def catalog_with_only_top_level_controls(draw):
     This strategy produces catalogs where isBugCondition is FALSE:
     no group has controls or nested groups.
     """
-    controls = draw(
-        st.lists(oscal_top_level_control(), min_size=1, max_size=5)
-    )
-    groups = draw(
-        st.lists(oscal_empty_group(), min_size=0, max_size=3)
-    )
+    controls = draw(st.lists(oscal_top_level_control(), min_size=1, max_size=5))
+    groups = draw(st.lists(oscal_empty_group(), min_size=0, max_size=3))
 
     catalog_dict = {
         "catalog": {
@@ -110,12 +107,14 @@ def component_definition_doc(draw):
     components = []
     for i in range(num_components):
         comp_uuid = draw(valid_uuid())
-        components.append({
-            "uuid": comp_uuid,
-            "type": "software",
-            "title": f"Component {i + 1}",
-            "description": f"Description for component {i + 1}",
-        })
+        components.append(
+            {
+                "uuid": comp_uuid,
+                "type": "software",
+                "title": f"Component {i + 1}",
+                "description": f"Description for component {i + 1}",
+            }
+        )
 
     return {
         "component-definition": {
@@ -129,6 +128,7 @@ def component_definition_doc(draw):
 # ---------------------------------------------------------------------------
 # Helper: ingest a document and return the parsed model
 # ---------------------------------------------------------------------------
+
 
 def _ingest_and_parse(store, tmp_path, doc_dict, filename="doc.json"):
     """Write a document JSON to disk, scan it, and return the parsed model."""
@@ -144,6 +144,7 @@ def _ingest_and_parse(store, tmp_path, doc_dict, filename="doc.json"):
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def store(tmp_path):
     """Create an OscalStore with an ephemeral DB in tmp_path."""
@@ -156,6 +157,7 @@ def store(tmp_path):
 # ---------------------------------------------------------------------------
 # Property-based tests: Preservation
 # ---------------------------------------------------------------------------
+
 
 class TestPreservationTopLevelControls:
     """
@@ -174,9 +176,7 @@ class TestPreservationTopLevelControls:
         deadline=None,
     )
     @given(catalog_dict=catalog_with_only_top_level_controls())
-    def test_top_level_controls_extracted(
-        self, catalog_dict, tmp_path_factory
-    ):
+    def test_top_level_controls_extracted(self, catalog_dict, tmp_path_factory):
         """
         Property 2a: Top-level controls are extracted with element_type="control".
 
@@ -187,20 +187,11 @@ class TestPreservationTopLevelControls:
         s = OscalStore(db_path=db_path, cache_size=10, seed_from_bundled=False)
         try:
             model = _ingest_and_parse(s, tmp_path, catalog_dict)
-            children = s._extract_child_elements(
-                OSCALModelType.CATALOG, model
-            )
+            children = s._extract_child_elements(OSCALModelType.CATALOG, model)
 
             # All top-level control IDs must be in the extracted set
-            expected_ctrl_ids = {
-                c["id"]
-                for c in catalog_dict["catalog"].get("controls", [])
-            }
-            extracted_ctrl_ids = {
-                c["uuid"]
-                for c in children
-                if c["element_type"] == "control"
-            }
+            expected_ctrl_ids = {c["id"] for c in catalog_dict["catalog"].get("controls", [])}
+            extracted_ctrl_ids = {c["uuid"] for c in children if c["element_type"] == "control"}
 
             assert expected_ctrl_ids == extracted_ctrl_ids, (
                 f"Top-level control extraction mismatch. "
@@ -215,9 +206,7 @@ class TestPreservationTopLevelControls:
         deadline=None,
     )
     @given(catalog_dict=catalog_with_only_top_level_controls())
-    def test_groups_extracted_as_group_type(
-        self, catalog_dict, tmp_path_factory
-    ):
+    def test_groups_extracted_as_group_type(self, catalog_dict, tmp_path_factory):
         """
         Property 2b: Groups are extracted with element_type="group".
 
@@ -228,19 +217,10 @@ class TestPreservationTopLevelControls:
         s = OscalStore(db_path=db_path, cache_size=10, seed_from_bundled=False)
         try:
             model = _ingest_and_parse(s, tmp_path, catalog_dict)
-            children = s._extract_child_elements(
-                OSCALModelType.CATALOG, model
-            )
+            children = s._extract_child_elements(OSCALModelType.CATALOG, model)
 
-            expected_group_ids = {
-                g["id"]
-                for g in catalog_dict["catalog"].get("groups", [])
-            }
-            extracted_group_ids = {
-                c["uuid"]
-                for c in children
-                if c["element_type"] == "group"
-            }
+            expected_group_ids = {g["id"] for g in catalog_dict["catalog"].get("groups", [])}
+            extracted_group_ids = {c["uuid"] for c in children if c["element_type"] == "group"}
 
             assert expected_group_ids == extracted_group_ids, (
                 f"Group extraction mismatch. "
@@ -255,9 +235,7 @@ class TestPreservationTopLevelControls:
         deadline=None,
     )
     @given(catalog_dict=catalog_with_only_top_level_controls())
-    def test_total_children_count_matches(
-        self, catalog_dict, tmp_path_factory
-    ):
+    def test_total_children_count_matches(self, catalog_dict, tmp_path_factory):
         """
         Property 2c: Total children = number of top-level controls + groups.
 
@@ -268,17 +246,14 @@ class TestPreservationTopLevelControls:
         s = OscalStore(db_path=db_path, cache_size=10, seed_from_bundled=False)
         try:
             model = _ingest_and_parse(s, tmp_path, catalog_dict)
-            children = s._extract_child_elements(
-                OSCALModelType.CATALOG, model
+            children = s._extract_child_elements(OSCALModelType.CATALOG, model)
+
+            expected_count = len(catalog_dict["catalog"].get("controls", [])) + len(
+                catalog_dict["catalog"].get("groups", [])
             )
 
-            expected_count = len(
-                catalog_dict["catalog"].get("controls", [])
-            ) + len(catalog_dict["catalog"].get("groups", []))
-
             assert len(children) == expected_count, (
-                f"Children count mismatch. "
-                f"Expected {expected_count}, got {len(children)}"
+                f"Children count mismatch. Expected {expected_count}, got {len(children)}"
             )
         finally:
             s.close()
@@ -311,19 +286,12 @@ class TestPreservationComponentDefinition:
         s = OscalStore(db_path=db_path, cache_size=10, seed_from_bundled=False)
         try:
             model = _ingest_and_parse(s, tmp_path, comp_def_dict)
-            children = s._extract_child_elements(
-                OSCALModelType.COMPONENT_DEFINITION, model
-            )
+            children = s._extract_child_elements(OSCALModelType.COMPONENT_DEFINITION, model)
 
             expected_comp_uuids = {
-                c["uuid"]
-                for c in comp_def_dict["component-definition"]["components"]
+                c["uuid"] for c in comp_def_dict["component-definition"]["components"]
             }
-            extracted_comp_uuids = {
-                c["uuid"]
-                for c in children
-                if c["element_type"] == "component"
-            }
+            extracted_comp_uuids = {c["uuid"] for c in children if c["element_type"] == "component"}
 
             assert expected_comp_uuids == extracted_comp_uuids, (
                 f"Component extraction mismatch. "
@@ -359,12 +327,8 @@ class TestPreservationEmptyCatalog:
             }
         }
         model = _ingest_and_parse(store, tmp_path, empty_cat)
-        children = store._extract_child_elements(
-            OSCALModelType.CATALOG, model
-        )
-        assert children == [], (
-            f"Empty catalog should return [], got {children}"
-        )
+        children = store._extract_child_elements(OSCALModelType.CATALOG, model)
+        assert children == [], f"Empty catalog should return [], got {children}"
 
     def test_catalog_with_only_empty_groups(self, store, tmp_path):
         """
@@ -383,9 +347,7 @@ class TestPreservationEmptyCatalog:
             }
         }
         model = _ingest_and_parse(store, tmp_path, cat)
-        children = store._extract_child_elements(
-            OSCALModelType.CATALOG, model
-        )
+        children = store._extract_child_elements(OSCALModelType.CATALOG, model)
 
         assert len(children) == 2
         for child in children:
@@ -419,6 +381,4 @@ class TestPreservationEmptyCatalog:
         store._ensure_indexed(row["id"])
 
         result = store.get_child_element(row["id"], "nonexistent-id")
-        assert result is None, (
-            f"Expected None for non-existent element, got {result}"
-        )
+        assert result is None, f"Expected None for non-existent element, got {result}"

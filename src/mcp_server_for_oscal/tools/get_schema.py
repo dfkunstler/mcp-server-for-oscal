@@ -48,11 +48,10 @@ def get_oscal_schema(
         try_notify_client_error(msg, ctx)
         raise ValueError(msg)
 
-    if (
-        model_name not in OSCALModelType.__members__.values()
-        and model_name != "complete"
-    ):
-        msg = f"Invalid model: {model_name}. Use the tool list_oscal_models to get valid model names."
+    if model_name not in OSCALModelType.__members__.values() and model_name != "complete":
+        msg = (
+            f"Invalid model: {model_name}. Use the tool list_oscal_models to get valid model names."
+        )
         try_notify_client_error(msg, ctx)
         raise ValueError(msg)
 

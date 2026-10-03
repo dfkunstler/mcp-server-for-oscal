@@ -103,9 +103,7 @@ def sample_bedrock_response():
                     "text": "OSCAL (Open Security Controls Assessment Language) is a set of formats that provide machine-readable representations of control catalogs, control baselines, system security plans, and assessment plans and results."
                 },
                 "location": {
-                    "s3Location": {
-                        "uri": "s3://oscal-kb-bucket/nist-oscal-docs/oscal-overview.pdf"
-                    }
+                    "s3Location": {"uri": "s3://oscal-kb-bucket/nist-oscal-docs/oscal-overview.pdf"}
                 },
                 "score": 0.95,
                 "metadata": {
@@ -401,7 +399,5 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.unit)
 
         # Mark async tests
-        if hasattr(item.function, "__code__") and inspect.iscoroutinefunction(
-            item.function
-        ):
+        if hasattr(item.function, "__code__") and inspect.iscoroutinefunction(item.function):
             item.add_marker(pytest.mark.asyncio)

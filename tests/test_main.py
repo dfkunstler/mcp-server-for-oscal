@@ -110,9 +110,7 @@ class TestMain:
     @patch("mcp_server_for_oscal.main.logging.basicConfig")
     @patch("mcp_server_for_oscal.main.logger")
     @patch("sys.argv", ["main.py"])
-    def test_main_mcp_server_error(
-        self, mock_logger, mock_logging_config, mock_config, mock_mcp
-    ):
+    def test_main_mcp_server_error(self, mock_logger, mock_logging_config, mock_config, mock_mcp):
         """Test main function when MCP server fails to start."""
         # Setup mocks
         mock_config.aws_profile = "default"
@@ -223,9 +221,7 @@ class TestMain:
     @patch("mcp_server_for_oscal.main.config")
     @patch("mcp_server_for_oscal.main.logging.basicConfig")
     @patch("sys.argv", ["main.py", "--log-level", "INVALID"])
-    def test_main_with_invalid_log_level(
-        self, mock_logging_config, mock_config, mock_mcp
-    ):
+    def test_main_with_invalid_log_level(self, mock_logging_config, mock_config, mock_mcp):
         """Test main function with invalid log level (should still work)."""
         # Setup mocks
         mock_config.aws_profile = "default"
@@ -250,9 +246,7 @@ class TestMain:
     @patch("mcp_server_for_oscal.main.config")
     @patch("mcp_server_for_oscal.main.logging.basicConfig")
     @patch("sys.argv", ["main.py", "--transport", "streamable-http"])
-    def test_main_with_streamable_http_transport(
-        self, mock_logging_config, mock_config, mock_mcp
-    ):
+    def test_main_with_streamable_http_transport(self, mock_logging_config, mock_config, mock_mcp):
         """Test main function with streamable-http transport."""
         # Setup mocks
         mock_config.aws_profile = "default"
@@ -297,8 +291,7 @@ class TestMain:
 
         # Make validate_transport raise ValueError
         mock_config.validate_transport.side_effect = ValueError(
-            "Invalid transport type: invalid-transport. "
-            "Valid options are: stdio, streamable-http"
+            "Invalid transport type: invalid-transport. Valid options are: stdio, streamable-http"
         )
 
         # Execute test and verify SystemExit is raised
@@ -339,9 +332,7 @@ class TestMain:
     @patch("mcp_server_for_oscal.main.config")
     @patch("mcp_server_for_oscal.main.logging.basicConfig")
     @patch("sys.argv", ["main.py", "--transport", ""])
-    def test_main_with_empty_transport(
-        self, mock_logging_config, mock_config, mock_mcp
-    ):
+    def test_main_with_empty_transport(self, mock_logging_config, mock_config, mock_mcp):
         """Test main function with empty transport string."""
         # Setup mocks
         mock_config.aws_profile = "default"
@@ -421,17 +412,12 @@ class TestMain:
         # Look for the specific log message about transport
         transport_log_found = False
         for call in info_calls:
-            if (
-                len(call[0]) >= 2
-                and "Starting MCP Server `%s` v%s with transport:" in call[0][0]
-            ):
+            if len(call[0]) >= 2 and "Starting MCP Server `%s` v%s with transport:" in call[0][0]:
                 assert call[0][3] == "streamable-http"
                 transport_log_found = True
                 break
 
-        assert transport_log_found, (
-            "Specific transport method should be logged during startup"
-        )
+        assert transport_log_found, "Specific transport method should be logged during startup"
 
 
 _CDEF_ENV = "OSCAL_COMPONENT_DEFINITIONS_DIR"
@@ -451,9 +437,7 @@ class TestDeprecatedSettings:
         monkeypatch.setattr(real_config, "transport", "stdio")
         monkeypatch.setattr(real_config, "log_level", "INFO")
         monkeypatch.setattr(real_config, "bedrock_model_id", real_config.bedrock_model_id)
-        monkeypatch.setattr(
-            real_config, "knowledge_base_id", real_config.knowledge_base_id
-        )
+        monkeypatch.setattr(real_config, "knowledge_base_id", real_config.knowledge_base_id)
         monkeypatch.setattr("sys.argv", ["main.py"])
         with (
             patch("mcp_server_for_oscal.main.mcp") as mock_mcp,
@@ -484,17 +468,13 @@ class TestDeprecatedSettings:
 
     def test_warns_once_with_streamable_http(self, startup_mocks, monkeypatch, caplog):
         monkeypatch.setenv(_CDEF_ENV, "/custom/comp_defs")
-        monkeypatch.setattr(
-            "sys.argv", ["main.py", "--transport", "streamable-http"]
-        )
+        monkeypatch.setattr("sys.argv", ["main.py", "--transport", "streamable-http"])
         with caplog.at_level(logging.WARNING, logger=_MAIN_LOGGER):
             main()
         records = self._cdef_warnings(caplog)
         assert len(records) == 1
         assert "OSCAL_DOCUMENTS_DIR" in records[0].getMessage()
-        assert startup_mocks["mcp"].run.call_args.kwargs["transport"] == (
-            "streamable-http"
-        )
+        assert startup_mocks["mcp"].run.call_args.kwargs["transport"] == ("streamable-http")
 
     @pytest.mark.usefixtures("startup_mocks")
     def test_no_warning_when_cdef_dir_unset(self, monkeypatch, caplog):
@@ -503,9 +483,7 @@ class TestDeprecatedSettings:
             main()
         assert self._cdef_warnings(caplog) == []
 
-    def test_cdef_dir_has_no_effect_on_startup(
-        self, startup_mocks, monkeypatch, caplog
-    ):
+    def test_cdef_dir_has_no_effect_on_startup(self, startup_mocks, monkeypatch, caplog):
         mock_init, mock_setup = startup_mocks["init"], startup_mocks["setup"]
 
         monkeypatch.setenv(_CDEF_ENV, "/custom/comp_defs")

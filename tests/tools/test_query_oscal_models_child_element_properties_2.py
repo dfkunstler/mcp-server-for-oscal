@@ -50,17 +50,13 @@ class TestStoreDependencyEnforcement:
     @pytest.mark.parametrize("tool_fn", ALL_LIST_TOOLS, ids=lambda f: f.__name__)
     def test_list_tool_raises_when_store_is_none(self, tool_fn):
         """Each list tool raises RuntimeError when _store is None."""
-        with patch(
-            "mcp_server_for_oscal.tools.query_oscal_models._store", None
-        ):
+        with patch("mcp_server_for_oscal.tools.query_oscal_models._store", None):
             with pytest.raises(RuntimeError):
                 tool_fn()
 
     def test_get_child_element_raises_when_store_is_none(self):
         """get_child_element raises RuntimeError when _store is None."""
-        with patch(
-            "mcp_server_for_oscal.tools.query_oscal_models._store", None
-        ):
+        with patch("mcp_server_for_oscal.tools.query_oscal_models._store", None):
             with pytest.raises(RuntimeError):
                 query_oscal_models.get_child_element(element_id="test-id")
 
@@ -79,9 +75,7 @@ class TestGetToolUnambiguousLookup:
         element_id=st.text(min_size=1, max_size=50),
         parent_doc_uuid=st.one_of(st.none(), st.uuids().map(str)),
     )
-    def test_get_child_element_delegates_correctly(
-        self, element_id, parent_doc_uuid
-    ):
+    def test_get_child_element_delegates_correctly(self, element_id, parent_doc_uuid):
         """get_child_element passes element_id and parent_doc_uuid to the store."""
         mock_store = MagicMock(spec=OscalStore)
         mock_store.get_child_element.return_value = None
@@ -118,9 +112,7 @@ def _make_catalog(uuid, title, control_ids):
                 "version": "1.0",
                 "oscal-version": "1.0.4",
             },
-            "controls": [
-                {"id": cid, "title": f"Control {cid}"} for cid in control_ids
-            ],
+            "controls": [{"id": cid, "title": f"Control {cid}"} for cid in control_ids],
         }
     }
 
@@ -187,9 +179,7 @@ class TestGetToolAmbiguityDetection:
         """Providing parent_doc_uuid resolves ambiguity for overlapping IDs."""
         store, cat1_uuid, cat2_uuid = ambiguous_store
 
-        result = query_oscal_models.get_child_element(
-            element_id="ac-1", parent_doc_uuid=cat1_uuid
-        )
+        result = query_oscal_models.get_child_element(element_id="ac-1", parent_doc_uuid=cat1_uuid)
 
         assert result is not None
         assert "error" not in result
