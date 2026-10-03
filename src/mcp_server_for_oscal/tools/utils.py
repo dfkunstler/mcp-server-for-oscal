@@ -3,22 +3,29 @@ Shared utilities for OSCAL MCP tools.
 """
 
 import asyncio
+import hashlib
+import json
 import logging
+import re
 import warnings
 from enum import StrEnum
-import json
-import re
 from functools import cache
-from typing import Literal
 from pathlib import Path
-import hashlib
+from typing import Literal
 
 import anyio.from_thread
 from mcp import MCPDeprecationWarning
 from mcp.server.mcpserver import Context
-from mcp_server_for_oscal.config import config
 
 logger = logging.getLogger(__name__)
+
+# Largest page size accepted by paginate().
+MAX_PAGE_LIMIT = 100
+
+# Strong references to fire-and-forget client log tasks; the event loop only
+# holds weak references, so an unreferenced task can be garbage-collected
+# before it runs.
+_background_tasks: set[asyncio.Task] = set()
 
 # MCP client logging is deprecated as of protocol 2026-07-28 (SEP-2577) but is
 # still delivered to clients that opt in; server-side logging is done by callers.
@@ -115,7 +122,9 @@ def safe_log_mcp(
     try:
         loop = asyncio.get_running_loop()
         # Already in async context - can't use asyncio.run()
-        loop.create_task(log_fn(msg))
+        task = loop.create_task(log_fn(msg))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
         return
     except RuntimeError:
         pass
@@ -196,7 +205,7 @@ def verify_package_integrity(directory: Path) -> None:
     """
 
     logger.info(f"Verifying contents of package {directory.name}")
-    with open(directory.joinpath("hashes.json"), "r") as hashes:
+    with open(directory.joinpath("hashes.json")) as hashes:
         state = json.load(hashes)
 
     # Confirm that all files listed in hashes.json actually exist
@@ -247,8 +256,8 @@ def paginate(
     """
     if offset < 0:
         raise ValueError(f"offset must be non-negative, got {offset}")
-    if limit < 1 or limit > 100:
-        raise ValueError(f"limit must be between 1 and 100, got {limit}")
+    if limit < 1 or limit > MAX_PAGE_LIMIT:
+        raise ValueError(f"limit must be between 1 and {MAX_PAGE_LIMIT}, got {limit}")
 
     total = len(items)
     sliced = items[offset : offset + limit]

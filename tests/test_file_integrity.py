@@ -6,6 +6,7 @@ validates OSCAL package files against their hash manifests and detects various
 types of integrity violations.
 """
 
+import contextlib
 import json
 import logging
 import shutil
@@ -166,17 +167,7 @@ class TestLoggingBehavior:
         # Verify package integrity
         verify_package_integrity(package_dir)
 
-        # Check for successful completion logging
-        # Note: Current implementation may not have this - test documents expected behavior
-        success_messages = [
-            msg
-            for msg in self.log_messages
-            if "success" in msg.lower() or "complete" in msg.lower()
-        ]
-
-        # If no success message found, this indicates the feature needs to be implemented
-        # For now, we'll check that verification completed without exceptions
-        # and that some logging occurred
+        # Verification completed without exceptions; check that some logging occurred
         assert len(self.log_messages) > 0, "Expected logging during verification"
 
     def test_logging_of_detailed_error_information_before_exceptions(self):
@@ -201,14 +192,6 @@ class TestLoggingBehavior:
         except RuntimeError:
             # Expected to fail
             pass
-
-        # Check that error information was logged before the exception
-        # Look for log messages that contain error details
-        error_messages = [
-            msg
-            for msg in self.log_messages
-            if "modified" in msg or "hash" in msg or "error" in msg.lower()
-        ]
 
         # Current implementation may not log before exceptions - test documents expected behavior
         # At minimum, we should have some logging during the verification process
@@ -235,10 +218,6 @@ class TestLoggingBehavior:
 
         # Check for debug-level logging of individual file results
         debug_messages = [record for record in self.log_records if record.levelno == logging.DEBUG]
-
-        # Should have debug messages for file existence and hash verification
-        file_existence_messages = [msg for msg in self.log_messages if "exists" in msg]
-        hash_match_messages = [msg for msg in self.log_messages if "matches" in msg]
 
         # Verify we have debug logging for individual files
         assert len(debug_messages) > 0, "Expected debug-level log messages"
@@ -669,7 +648,7 @@ class TestHashManifestValidation:
 
         # Verify all hashes are proper SHA-256 format
         manifest = self.package_manager.get_valid_hash_manifest(package_dir)
-        for filename, hash_value in manifest["file_hashes"].items():
+        for hash_value in manifest["file_hashes"].values():
             assert isinstance(hash_value, str)
             assert len(hash_value) == 64  # SHA-256 is 64 hex characters
             assert all(c in "0123456789abcdef" for c in hash_value.lower())
@@ -1352,10 +1331,8 @@ class TestDirectoryLevelErrors:
             pytest.skip("Permission changes not supported on this platform")
         finally:
             # Restore permissions for cleanup
-            try:
+            with contextlib.suppress(OSError):  # Ignore errors during cleanup
                 package_dir.chmod(original_mode)
-            except (OSError, PermissionError):
-                pass  # Ignore errors during cleanup
 
     def test_permission_denied_for_hashes_json_file(self):
         """Test permission denied errors when hashes.json file is not readable.
@@ -1382,10 +1359,8 @@ class TestDirectoryLevelErrors:
             pytest.skip("Permission changes not supported on this platform")
         finally:
             # Restore permissions for cleanup
-            try:
+            with contextlib.suppress(OSError):  # Ignore errors during cleanup
                 hashes_file.chmod(original_mode)
-            except (OSError, PermissionError):
-                pass  # Ignore errors during cleanup
 
     def test_empty_directory_with_missing_hashes_json(self):
         """Test behavior with completely empty directory (no files at all).
@@ -1474,10 +1449,8 @@ class TestIOErrorHandling:
             pytest.skip("Permission changes not supported on this platform")
         finally:
             # Restore permissions for cleanup
-            try:
+            with contextlib.suppress(OSError):  # Ignore errors during cleanup
                 restricted_file.chmod(original_mode)
-            except (OSError, PermissionError):
-                pass  # Ignore errors during cleanup
 
     def test_handling_of_disk_io_errors_during_file_reading(self):
         """Test handling of disk I/O errors during file reading.
@@ -1546,10 +1519,8 @@ class TestIOErrorHandling:
             pytest.skip("Permission changes not supported on this platform")
         finally:
             # Restore permissions for cleanup
-            try:
+            with contextlib.suppress(OSError):  # Ignore errors during cleanup
                 protected_file.chmod(original_mode)
-            except (OSError, PermissionError):
-                pass  # Ignore errors during cleanup
 
     def test_handling_of_corrupted_hashes_json_file(self):
         """Test handling when hashes.json file is corrupted or truncated.

@@ -491,7 +491,7 @@ def list_mapping_collections(
 
 @tool()
 def text_search_oscal(
-    ctx: Context | None = None,
+    ctx: Context | None = None,  # noqa: ARG001 - injected by MCP; kept for API
     query_text: str = "",
     oscal_model_type: str | None = None,
     offset: int = 0,
@@ -971,7 +971,7 @@ def list_mapping_collection_mappings(
 
 @tool()
 def get_child_element(
-    ctx: Context | None = None,
+    ctx: Context | None = None,  # noqa: ARG001 - injected by MCP; kept for API
     element_id: str = "",
     parent_doc_uuid: str | None = None,
 ) -> dict | None:

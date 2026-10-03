@@ -5,6 +5,9 @@ Tests for the configuration module.
 import os
 from unittest.mock import patch
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from mcp_server_for_oscal.config import Config
 
 
@@ -133,7 +136,7 @@ class TestConfig:
 
         try:
             config.validate_transport()
-            assert False, "Expected ValueError to be raised"
+            raise AssertionError("Expected ValueError to be raised")
         except ValueError as e:
             assert "Invalid transport type: invalid-transport" in str(e)
             assert "Valid options are: stdio, streamable-http" in str(e)
@@ -145,7 +148,7 @@ class TestConfig:
 
         try:
             config.validate_transport()
-            assert False, "Expected ValueError to be raised for uppercase transport"
+            raise AssertionError("Expected ValueError to be raised for uppercase transport")
         except ValueError as e:
             assert "Invalid transport type: STDIO" in str(e)
             assert "Valid options are: stdio, streamable-http" in str(e)
@@ -157,7 +160,7 @@ class TestConfig:
 
         try:
             config.validate_transport()
-            assert False, "Expected ValueError to be raised for empty transport"
+            raise AssertionError("Expected ValueError to be raised for empty transport")
         except ValueError as e:
             assert "Invalid transport type: " in str(e)
             assert "Valid options are: stdio, streamable-http" in str(e)
@@ -169,7 +172,7 @@ class TestConfig:
 
         try:
             config.validate_transport()
-            assert False, "Expected error to be raised for None transport"
+            raise AssertionError("Expected error to be raised for None transport")
         except (ValueError, TypeError):
             # Either ValueError or TypeError is acceptable for None
             pass
@@ -222,9 +225,6 @@ class TestAgentConfigDefaults:
 # ---------------------------------------------------------------------------
 # Task 2.2: Property test for agent config env var parsing
 # ---------------------------------------------------------------------------
-
-from hypothesis import given, settings
-from hypothesis import strategies as st
 
 
 class TestProperty3AgentConfigEnvVarParsing:
@@ -358,7 +358,7 @@ class TestSessionConversationConfigDefaults:
             cfg = Config()
             assert cfg.conversation_manager_type == "summarizing"
 
-    def test_all_session_env_vars_set_together(self):  # noqa: PLR0915
+    def test_all_session_env_vars_set_together(self):
         """All five attributes match their env vars when set simultaneously."""
         env = {
             "OSCAL_AGENT_SESSION_STORAGE": "s3",

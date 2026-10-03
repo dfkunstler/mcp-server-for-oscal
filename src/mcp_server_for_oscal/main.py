@@ -95,10 +95,12 @@ def _init_oscal_store() -> None:
                 )
 
         # Set the store singleton on all modules
-        from mcp_server_for_oscal.tools import list_oscal_resources
-        from mcp_server_for_oscal.tools import query_component_definition
-        from mcp_server_for_oscal.tools import query_documentation
-        from mcp_server_for_oscal.tools import query_oscal_models
+        from mcp_server_for_oscal.tools import (
+            list_oscal_resources,
+            query_component_definition,
+            query_documentation,
+            query_oscal_models,
+        )
 
         list_oscal_resources.init_store(store)
         query_component_definition.init_store(store)

@@ -4,10 +4,19 @@ Covers schema migration, markdown indexing, documentation-scoped search,
 and query_documentation module refactoring.
 """
 
+import hashlib
+import logging
+import re
 import sqlite3
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
+from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import strategies as st
 
+from mcp_server_for_oscal.tools import query_documentation
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
 
@@ -109,12 +118,7 @@ class TestContentHashSchemaMigration:
 # ---------------------------------------------------------------------------
 # Property-Based Tests (Hypothesis)
 # ---------------------------------------------------------------------------
-import hashlib
-import tempfile
-from pathlib import Path
 
-from hypothesis import given, settings, assume
-from hypothesis import strategies as st
 
 # Strategy: non-empty markdown content (must survive content.strip() check)
 _nonempty_md = st.text(
@@ -251,14 +255,6 @@ class TestSHA256ChangeDetectionProperty:
                 store.close()
 
 
-import re
-import tempfile
-from pathlib import Path
-
-from hypothesis import given, settings
-from hypothesis import strategies as st
-
-
 # --- Strategies for Property 2: Title Derivation ---
 
 # Strategy: markdown content that starts with a heading line
@@ -361,12 +357,6 @@ class TestTitleDerivationProperty:
 # Property-Based Tests (Hypothesis)
 # ---------------------------------------------------------------------------
 
-import hashlib
-from pathlib import Path
-
-from hypothesis import given, settings, HealthCheck
-from hypothesis import strategies as st
-
 
 class TestMarkdownIndexingRoundTripProperty:
     """Feature: local-documentation-search, Property 1: Markdown indexing round-trip.
@@ -462,7 +452,7 @@ class TestSearchDocumentation:
     Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6
     """
 
-    @pytest.fixture()
+    @pytest.fixture
     def store_with_docs(self, tmp_path):
         """Create a store with indexed markdown documentation files."""
         db_path = str(tmp_path / "test.db")
@@ -919,10 +909,6 @@ class TestDocumentationSearchScopingProperty:
 # ---------------------------------------------------------------------------
 # Unit Tests for query_documentation refactor (Task 5.4)
 # ---------------------------------------------------------------------------
-import logging
-from unittest.mock import MagicMock, patch
-
-from mcp_server_for_oscal.tools import query_documentation
 
 
 class TestInitStore:
@@ -1094,7 +1080,7 @@ class TestQueryOscalDocumentationRouting:
             mock_local.return_value = {"items": [], "total": 0}
 
             fn = query_documentation.query_oscal_documentation
-            result = fn(query="hello", ctx=None)
+            fn(query="hello", ctx=None)
 
             mock_local.assert_called_once()
 
@@ -1199,7 +1185,6 @@ class TestUnconditionalToolRegistration:
 # ---------------------------------------------------------------------------
 # Unit Tests for startup wiring in main.py (Task 6.2)
 # ---------------------------------------------------------------------------
-from unittest.mock import patch, MagicMock, call
 
 
 class TestStartupWiring:

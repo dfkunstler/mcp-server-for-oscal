@@ -9,11 +9,11 @@ import json
 from unittest.mock import patch
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from mcp_server_for_oscal.tools.oscal_store import OscalStore
 from mcp_server_for_oscal.tools import query_oscal_models
-
+from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
 # ---------------------------------------------------------------------------
 # Tool → expected element_type mapping
@@ -130,7 +130,7 @@ class TestProperty1CorrectDelegation:
     """
 
     @pytest.mark.parametrize(
-        "tool_fn, expected_element_type",
+        ("tool_fn", "expected_element_type"),
         LIST_TOOLS_AND_ELEMENT_TYPES,
         ids=[fn.__name__ for fn, _ in LIST_TOOLS_AND_ELEMENT_TYPES],
     )
@@ -250,7 +250,7 @@ class TestProperty3ResponseFormatContract:
     """
 
     @pytest.mark.parametrize(
-        "tool_fn, expected_element_type",
+        ("tool_fn", "expected_element_type"),
         LIST_TOOLS_AND_ELEMENT_TYPES,
         ids=[fn.__name__ for fn, _ in LIST_TOOLS_AND_ELEMENT_TYPES],
     )

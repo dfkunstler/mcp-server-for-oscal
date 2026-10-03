@@ -170,14 +170,14 @@ def installed_store(cdefs: list[dict]) -> Iterator[OscalStore]:
     function-scoped, so it does not isolate examples). The store is closed,
     the temp directory removed, and the prior singleton restored on exit.
     """
-    saved = _qcd_module._oscal_store  # noqa: SLF001
+    saved = _qcd_module._oscal_store
     with tempfile.TemporaryDirectory() as tmp:
         store = build_fixture_store(Path(tmp), cdefs)
         try:
             init_store(store)
             yield store
         finally:
-            _qcd_module._oscal_store = saved  # noqa: SLF001
+            _qcd_module._oscal_store = saved
             store.close()
 
 
@@ -309,10 +309,8 @@ class TestRemoveLegacyCdefStoreProperties:
         comp = data.draw(st.sampled_from(cdef_a.components), label="component")
 
         query_type = data.draw(st.sampled_from(["by_uuid", "by_title"]), label="qt")
-        if query_type == "by_uuid":
-            key = str(comp.uuid)  # UUID case preserved
-        else:
-            key = case_variant(data.draw, comp.title)
+        # UUID case preserved; titles get a random case variant
+        key = str(comp.uuid) if query_type == "by_uuid" else case_variant(data.draw, comp.title)
         pad = st.text(alphabet=" \t\n", max_size=3)
         query_value = data.draw(pad, label="lpad") + key + data.draw(pad, label="rpad")
 

@@ -70,7 +70,8 @@ class TestListOscalResources:
         # Check for markdown formatting elements
         assert "# " in result  # Headers
         assert "- " in result or "* " in result  # List items
-        assert "[" in result and "](" in result  # Links
+        assert "[" in result
+        assert "](" in result
 
     def test_list_oscal_resources_non_empty_content(self):
         """Test that the returned content is not empty."""
@@ -107,12 +108,14 @@ class TestListOscalResources:
             ctx.session.client_params = {}
 
             # Patch Path.exists to return False so both fallback paths fail
-            with patch(
-                "mcp_server_for_oscal.tools.list_oscal_resources.Path.exists",
-                return_value=False,
+            with (
+                patch(
+                    "mcp_server_for_oscal.tools.list_oscal_resources.Path.exists",
+                    return_value=False,
+                ),
+                pytest.raises(FileNotFoundError),
             ):
-                with pytest.raises(FileNotFoundError):
-                    list_oscal_resources(ctx)
+                list_oscal_resources(ctx)
 
             # Verify error was reported to context
             ctx.error.assert_called_once()
@@ -219,7 +222,7 @@ class TestListOscalResources:
             temp_file_path = temp_file.name
 
         try:
-            with patch("mcp_server_for_oscal.tools.list_oscal_resources.Path") as mock_path:
+            with patch("mcp_server_for_oscal.tools.list_oscal_resources.Path"):
                 mock_path_instance = Mock()
                 mock_path_instance.parent = Mock()
                 mock_path_instance.parent.parent = Mock()
@@ -227,7 +230,7 @@ class TestListOscalResources:
                 # Mock the final path to point to our empty temp file
                 with (
                     patch("builtins.open", open),
-                    patch("mcp_server_for_oscal.tools.list_oscal_resources.logger") as mock_logger,
+                    patch("mcp_server_for_oscal.tools.list_oscal_resources.logger"),
                 ):
                     # Direct file read test
                     with open(temp_file_path, encoding="utf-8") as f:
@@ -279,7 +282,7 @@ class TestListOscalResources:
         ctx.session.client_params = {}
 
         with patch("mcp_server_for_oscal.tools.list_oscal_resources.logger") as mock_logger:
-            result = list_oscal_resources(ctx)
+            list_oscal_resources(ctx)
 
             # Verify debug logging calls were made
             assert mock_logger.debug.called

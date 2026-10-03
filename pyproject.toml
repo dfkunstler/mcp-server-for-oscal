@@ -126,10 +126,52 @@ indent-style = "space"
 [tool.ruff.lint]
 isort.known-first-party = ["mcp_server_for_oscal"]
 exclude = ["./build", ".hatch", "private"]
+# Rules from hatch's default ruleset that don't fit this codebase:
+ignore = [
+  # Descriptive, f-string exception messages are preferred over
+  # message-constant boilerplate.
+  "TRY003", "EM101", "EM102",
+  # Lazy imports are deliberate: they defer heavy/optional deps (jsonschema,
+  # strands, boto3) and break import cycles in the tool registry.
+  "PLC0415",
+  # f-strings in log calls are used throughout; we don't rely on lazy
+  # interpolation or structured log args.
+  "G004",
+  # MCP tools and startup checks catch broad exceptions on purpose so failures
+  # are reported to the client instead of crashing the server.
+  "BLE001",
+  # Stylistic; moving returns into try/else rarely improves clarity here.
+  "TRY300",
+  # Handled errors are logged without tracebacks on purpose; most are
+  # re-raised or reported to the MCP client.
+  "TRY400",
+  # Raising inside try to share one handler is an accepted pattern here.
+  "TRY301",
+  # Explicit append loops read better than extend(generator) for the
+  # multi-field dict builders in oscal_store / validate_oscal_content.
+  "PERF401",
+]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests can use magic values, assertions, and relative imports
-"tests/**/*" = ["PLR2004", "S101", "TID252", "PLC0415"]
+# Tests can use magic values, assertions, relative imports, private access
+# (white-box tests), unused fixture args (fixtures used for side effects),
+# hardcoded temp paths, and broad pytest.raises / assert-in-except patterns.
+"tests/**/*" = [
+  "PLR2004", "S101", "TID252", "PLC0415",
+  "SLF001", "ARG001", "ARG002", "S108", "S104", "PT011", "PT017", "RUF012",
+  # Unicode test data and docstrings intentionally contain non-ASCII text.
+  "RUF001", "RUF002", "RUF003",
+  # Nested `with patch(...)` / `with pytest.raises(...)` keeps the raises
+  # scope visually distinct.
+  "SIM117",
+]
+# Dynamic SQL composes only internal column/clause fragments; all values are
+# bound parameters. Each site carries a bandit `# nosec B608` annotation.
+"src/mcp_server_for_oscal/tools/oscal_store.py" = ["S608"]
+# The urllib3/charset warning filter must be installed before importing boto3.
+"src/mcp_server_for_oscal/oscal_agent.py" = ["E402"]
+# Build scripts drive OscalStore internals directly to populate the bundled DB.
+"bin/**/*" = ["SLF001"]
 
 [tool.hatch.build]
 directory = "./build"

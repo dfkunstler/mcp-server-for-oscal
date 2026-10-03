@@ -14,15 +14,13 @@ the bug exists. DO NOT fix the test or the code when it fails.
 """
 
 import json
-from pathlib import Path
 
 import pytest
-from hypothesis import given, settings, HealthCheck
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 from mcp_server_for_oscal.tools.utils import OSCALModelType
-
 
 # ---------------------------------------------------------------------------
 # Common metadata for building valid OSCAL catalogs

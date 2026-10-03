@@ -83,13 +83,13 @@ def capture_file_state(directory=".", outdir: str = "."):
 
     try:
         commit = subprocess.run(
-            ["git", "log", "-1", "--format='%H'", "--", directory],
+            ["git", "log", "-1", "--format='%H'", "--", directory],  # noqa: S607 - dev script, git on PATH
             capture_output=True,
             text=True,
             check=True,
             cwd=directory,
         ).stdout.strip()
-    except:
+    except (subprocess.CalledProcessError, OSError):
         commit = "UNKNOWN"
 
     files = Path(directory).iterdir()

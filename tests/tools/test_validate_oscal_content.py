@@ -3,20 +3,20 @@ Tests for the validate_oscal_content tool.
 """
 
 import json
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from mcp_server_for_oscal.tools.utils import OSCALModelType
 from mcp_server_for_oscal.tools.validate_oscal_content import (
     MAX_ERRORS_PER_LEVEL,
     _detect_model_type,
-    _validate_well_formedness,
     _validate_json_schema,
-    _validate_trestle,
     _validate_oscal_cli,
+    _validate_trestle,
+    _validate_well_formedness,
     validate_oscal_content,
 )
-from mcp_server_for_oscal.tools.utils import OSCALModelType
 
 
 @pytest.fixture

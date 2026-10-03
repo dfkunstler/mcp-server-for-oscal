@@ -70,7 +70,7 @@ class TestGetToolListUnit:
         """get_tool_list() returns all base tools including query_oscal_documentation."""
         tools = get_tool_list()
         tool_names = {t.__name__ for t in tools}
-        assert BASE_TOOL_NAMES == tool_names
+        assert tool_names == BASE_TOOL_NAMES
 
     def test_excludes_about(self):
         """get_tool_list() never includes the 'about' tool."""

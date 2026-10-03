@@ -8,12 +8,12 @@ pagination, and three database modes (bundled, persistent, ephemeral).
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import hashlib
 import importlib
 import json
 import logging
-import os
 import re
 import shutil
 import sqlite3
@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 from uuid import NAMESPACE_URL, uuid5
 
 from mcp_server_for_oscal.config import config
-from mcp_server_for_oscal.tools.utils import OSCALModelType, ROOT_KEY_TO_MODEL_TYPE
+from mcp_server_for_oscal.tools.utils import ROOT_KEY_TO_MODEL_TYPE, OSCALModelType
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,7 @@ class OscalStore:
         self,
         db_path: str | None = None,
         cache_size: int = 100,
+        *,
         seed_from_bundled: bool = True,
     ) -> None:
         """Initialize the store, resolving database mode.
@@ -169,24 +170,23 @@ class OscalStore:
             return db_path
 
         # DB file doesn't exist yet — seed from bundled if available and valid
-        if self._seed_from_bundled:
-            if BUNDLED_DB_PATH.exists() and self._verify_bundled_db():
-                try:
-                    p.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(BUNDLED_DB_PATH, p)
-                except OSError:
-                    logger.warning(
-                        "Failed to copy bundled DB to %s; creating fresh DB",
-                        db_path,
-                    )
-                else:
-                    # Verify the copy's integrity
-                    expected_hash = self._get_expected_db_hash()
-                    if expected_hash:
-                        self._verify_file_hash(p, expected_hash)
-                    self._db_mode = "persistent"
-                    logger.info("Seeded persistent DB from bundled DB at %s", db_path)
-                    return db_path
+        if self._seed_from_bundled and BUNDLED_DB_PATH.exists() and self._verify_bundled_db():
+            try:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(BUNDLED_DB_PATH, p)
+            except OSError:
+                logger.warning(
+                    "Failed to copy bundled DB to %s; creating fresh DB",
+                    db_path,
+                )
+            else:
+                # Verify the copy's integrity
+                expected_hash = self._get_expected_db_hash()
+                if expected_hash:
+                    self._verify_file_hash(p, expected_hash)
+                self._db_mode = "persistent"
+                logger.info("Seeded persistent DB from bundled DB at %s", db_path)
+                return db_path
 
         # Create a new empty persistent DB
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -353,10 +353,8 @@ class OscalStore:
             """)
 
             # -- migration: add content_hash for existing DBs --
-            try:
+            with contextlib.suppress(sqlite3.OperationalError):  # column already exists
                 cur.execute("ALTER TABLE documents ADD COLUMN content_hash TEXT")
-            except sqlite3.OperationalError:
-                pass  # column already exists
 
             cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_uuid ON documents(uuid)")
             cur.execute(
@@ -546,7 +544,7 @@ class OscalStore:
         except Exception as exc:
             raise RuntimeError(f"Failed to parse document as {class_name}: {exc}") from exc
 
-    def _build_cached_parse(self) -> "functools._lru_cache_wrapper":
+    def _build_cached_parse(self) -> functools._lru_cache_wrapper:
         """Build an LRU-cached wrapper around ``_do_parse``.
 
         The wrapper signature is ``(doc_id, raw_json, model_type_str)``
@@ -556,7 +554,7 @@ class OscalStore:
         """
 
         @functools.lru_cache(maxsize=self._cache_size)
-        def _cached_parse(doc_id: int, raw_json: str, model_type_str: str) -> object:
+        def _cached_parse(doc_id: int, raw_json: str, model_type_str: str) -> object:  # noqa: ARG001 - doc_id is part of the cache key
             return OscalStore._do_parse(raw_json, model_type_str)
 
         return _cached_parse
@@ -952,7 +950,7 @@ class OscalStore:
 
     def query(
         self,
-        ctx: object | None = None,
+        ctx: object | None = None,  # noqa: ARG002 - kept for API parity with MCP tools
         oscal_model_type: OSCALModelType | None = None,
         query_type: str = "all",
         query_value: str | None = None,
@@ -983,13 +981,12 @@ class OscalStore:
         if query_type == "by_uuid":
             # query_value validated above; cast for type checker
             return self._query_by_uuid(query_value, oscal_model_type, offset, limit)  # type: ignore[arg-type]
-        elif query_type == "by_title":
+        if query_type == "by_title":
             return self._query_by_title(query_value, oscal_model_type, offset, limit)  # type: ignore[arg-type]
-        elif query_type == "by_type":
+        if query_type == "by_type":
             return self._query_by_type(query_value, oscal_model_type, offset, limit)  # type: ignore[arg-type]
-        else:
-            # "all" — paginated scan
-            return self._query_all(oscal_model_type, offset, limit)
+        # "all" — paginated scan
+        return self._query_all(oscal_model_type, offset, limit)
 
     def _query_by_uuid(
         self,
@@ -1006,14 +1003,14 @@ class OscalStore:
             params.append(oscal_model_type.value)
 
         total = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM documents d {where}",
-            params,  # nosec B608
+            f"SELECT COUNT(*) as cnt FROM documents d {where}",  # nosec B608
+            params,
         ).fetchone()["cnt"]
 
         rows = self._conn.execute(
             f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_path, d.file_size "  # nosec B608
             f"FROM documents d {where} ORDER BY d.id LIMIT ? OFFSET ?",  # nosec B608
-            params + [limit, offset],
+            [*params, limit, offset],
         ).fetchall()
 
         items = self._build_query_items(rows)
@@ -1035,15 +1032,15 @@ class OscalStore:
             params.append(oscal_model_type.value)
 
         total = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM documents d {where}",
-            params,  # nosec B608
+            f"SELECT COUNT(*) as cnt FROM documents d {where}",  # nosec B608
+            params,
         ).fetchone()["cnt"]
 
         if total > 0:
             rows = self._conn.execute(
                 f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_path, d.file_size "  # nosec B608
                 f"FROM documents d {where} ORDER BY d.id LIMIT ? OFFSET ?",  # nosec B608
-                params + [limit, offset],
+                [*params, limit, offset],
             ).fetchall()
             items = self._build_query_items(rows)
             return self._page_response(items, total, offset, limit)
@@ -1122,14 +1119,14 @@ class OscalStore:
             params.append(oscal_model_type.value)
 
         total = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM documents d {where}",
-            params,  # nosec B608
+            f"SELECT COUNT(*) as cnt FROM documents d {where}",  # nosec B608
+            params,
         ).fetchone()["cnt"]
 
         rows = self._conn.execute(
             f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_path, d.file_size "  # nosec B608
             f"FROM documents d {where} ORDER BY d.id LIMIT ? OFFSET ?",  # nosec B608
-            params + [limit, offset],
+            [*params, limit, offset],
         ).fetchall()
 
         items = self._build_query_items(rows)
@@ -1149,14 +1146,14 @@ class OscalStore:
             params.append(oscal_model_type.value)
 
         total = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM documents d {where}",
-            params,  # nosec B608
+            f"SELECT COUNT(*) as cnt FROM documents d {where}",  # nosec B608
+            params,
         ).fetchone()["cnt"]
 
         rows = self._conn.execute(
             f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_path, d.file_size "  # nosec B608
             f"FROM documents d {where} ORDER BY d.id LIMIT ? OFFSET ?",  # nosec B608
-            params + [limit, offset],
+            [*params, limit, offset],
         ).fetchall()
 
         items = self._build_query_items(rows)
@@ -1739,7 +1736,7 @@ class OscalStore:
 
     def list_documents(
         self,
-        ctx: object | None = None,
+        ctx: object | None = None,  # noqa: ARG002 - kept for API parity with MCP tools
         oscal_model_type: OSCALModelType | None = None,
         offset: int = 0,
         limit: int = 10,
@@ -1778,7 +1775,7 @@ class OscalStore:
         total = total_row["cnt"]
 
         # Get the page of documents
-        page_params = params + [limit, offset]
+        page_params = [*params, limit, offset]
         rows = self._conn.execute(
             f"""
             SELECT d.id, d.uuid, d.title, d.model_type, d.file_size, d.indexed
@@ -1902,7 +1899,7 @@ class OscalStore:
         total = total_row["cnt"]
 
         # Paginated results ranked by relevance
-        page_params = params + [limit, offset]
+        page_params = [*params, limit, offset]
         rows = self._conn.execute(
             f"""
             SELECT entity_type, entity_id, title, description, model_type,
@@ -1960,7 +1957,7 @@ class OscalStore:
         total = total_row["cnt"]
 
         # Paginated results
-        page_params = params + [limit, offset]
+        page_params = [*params, limit, offset]
         rows = self._conn.execute(
             f"""
             SELECT entity_type, entity_id, title, description, model_type
@@ -2056,7 +2053,7 @@ class OscalStore:
         total = total_row["cnt"]
 
         # Paginated results with snippet and source file_path
-        page_params = params + [limit, offset]
+        page_params = [*params, limit, offset]
         rows = self._conn.execute(
             f"""
             SELECT
@@ -2114,7 +2111,7 @@ class OscalStore:
         total = total_row["cnt"]
 
         # Paginated results
-        page_params = params + [limit, offset]
+        page_params = [*params, limit, offset]
         rows = self._conn.execute(
             f"""
             SELECT
@@ -2177,7 +2174,7 @@ class OscalStore:
 
     def list_child_elements(
         self,
-        ctx: object | None = None,
+        ctx: object | None = None,  # noqa: ARG002 - kept for API parity with MCP tools
         parent_doc_uuid: str | None = None,
         element_type: str | None = None,
         offset: int = 0,
@@ -2278,7 +2275,7 @@ class OscalStore:
         total = total_row["cnt"]
 
         # Get the page
-        page_params = params + [limit, offset]
+        page_params = [*params, limit, offset]
         rows = self._conn.execute(
             f"""
             SELECT ce.uuid, ce.title, ce.element_type, ce.description,
@@ -2464,6 +2461,7 @@ class OscalStore:
                 or the source is a directory.
         """
         import requests as _requests
+
         from mcp_server_for_oscal.tools.utils import try_notify_client_error
 
         def _notify(msg: str) -> None:

@@ -20,7 +20,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from mcp.server.mcpserver import Context
+from mcp.server.mcpserver import Context  # noqa: TC002 - MCP resolves ctx annotations at runtime
 from strands import tool
 from trestle.oscal.component import Capability, ComponentDefinition, DefinedComponent
 

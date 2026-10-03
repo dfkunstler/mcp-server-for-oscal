@@ -90,7 +90,7 @@ def query_kb(query: str, ctx: Context | None) -> Any:
         raise
 
 
-def query_local(query: str, ctx: Context | None) -> Any:
+def query_local(query: str, ctx: Context | None) -> Any:  # noqa: ARG001 - mirrors query_kb signature
     """Perform a local FTS5 search over bundled OSCAL documentation."""
     if _store is None:
         return {"error": "OscalStore has not been initialized"}

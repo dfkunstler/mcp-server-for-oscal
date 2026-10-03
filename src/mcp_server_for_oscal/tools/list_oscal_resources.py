@@ -90,7 +90,7 @@ def _read_from_store() -> str | None:
         return None
 
     try:
-        row = _store._conn.execute(
+        row = _store._conn.execute(  # noqa: SLF001 - OscalStore has no public raw-query API
             "SELECT raw_json FROM documents "
             "WHERE model_type = 'documentation' "
             "AND file_path LIKE '%awesome-oscal.md'",
@@ -160,7 +160,7 @@ def read_resources_file() -> str:
             return content
         except Exception as fallback_error:
             logger.error("Fallback encoding also failed: %s", fallback_error)
-            raise e  # Raise the original UnicodeDecodeError
+            raise e from fallback_error  # Raise the original UnicodeDecodeError
     except OSError as e:
         logger.error("IO error reading file %s: %s", resources_file_path, e)
         raise

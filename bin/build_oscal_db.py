@@ -23,7 +23,6 @@ import hashlib
 import json
 import logging
 import os
-import sys
 from pathlib import Path
 
 logging.basicConfig(
@@ -157,12 +156,15 @@ def build_db(
     return stats
 
 
+_KIB = 1024
+
+
 def _human_size(nbytes: int) -> str:
     """Return a human-readable file size string."""
     for unit in ("B", "KB", "MB", "GB"):
-        if nbytes < 1024:
+        if nbytes < _KIB:
             return f"{nbytes:.1f} {unit}"
-        nbytes /= 1024  # type: ignore[assignment]
+        nbytes /= _KIB  # type: ignore[assignment]
     return f"{nbytes:.1f} TB"
 
 

@@ -11,9 +11,8 @@ import json
 
 import pytest
 
-from mcp_server_for_oscal.tools.oscal_store import OscalStore
 from mcp_server_for_oscal.tools import query_oscal_models
-
+from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
 # ---------------------------------------------------------------------------
 # Helpers — minimal valid OSCAL documents

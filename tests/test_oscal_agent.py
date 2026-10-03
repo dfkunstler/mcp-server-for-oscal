@@ -17,7 +17,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
-from hypothesis import given, settings, HealthCheck
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from mcp_server_for_oscal.oscal_agent import (
@@ -25,7 +25,6 @@ from mcp_server_for_oscal.oscal_agent import (
     _build_system_prompt,
     create_oscal_agent,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -239,21 +238,21 @@ class TestProperty2ErrorContextPropagation:
             mock_config.bedrock_model_id = model_id
             mock_config.agent_max_tokens = 4096
 
-            with patch("mcp_server_for_oscal.oscal_agent.boto3.Session"):
-                with patch(
+            with (
+                patch("mcp_server_for_oscal.oscal_agent.boto3.Session"),
+                patch(
                     "mcp_server_for_oscal.oscal_agent.BedrockModel",
                     side_effect=Exception(error_msg),
-                ):
-                    with pytest.raises(ValueError) as exc_info:
-                        create_oscal_agent(tools=[_make_mock_tool("t")])
+                ),
+            ):
+                with pytest.raises(ValueError) as exc_info:
+                    create_oscal_agent(tools=[_make_mock_tool("t")])
 
-                    err_str = str(exc_info.value)
-                    assert model_id in err_str, (
-                        f"Model ID '{model_id}' not found in error: {err_str}"
-                    )
-                    assert error_msg in err_str, (
-                        f"Original error '{error_msg}' not found in error: {err_str}"
-                    )
+                err_str = str(exc_info.value)
+                assert model_id in err_str, f"Model ID '{model_id}' not found in error: {err_str}"
+                assert error_msg in err_str, (
+                    f"Original error '{error_msg}' not found in error: {err_str}"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -1447,7 +1446,7 @@ class TestProperty4SessionIDPropagation:
             session_s3_prefix="oscal-agent-sessions/",
         )
 
-        sm, returned_sid = _build_session_manager(args, cfg)
+        _sm, returned_sid = _build_session_manager(args, cfg)
 
         # The returned session_id must be the exact string provided
         assert returned_sid == session_id, (

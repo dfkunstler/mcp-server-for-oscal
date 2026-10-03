@@ -220,7 +220,7 @@ class TestBundledOscalVersion:
 
     def test_matches_update_script_release_version(self):
         script = Path(__file__).parent.parent / "bin" / "update-oscal-schemas.sh"
-        match = re.search(r'^CURRENT_RELEASE_VERSION="([^"]+)"', script.read_text(), re.M)
+        match = re.search(r'^CURRENT_RELEASE_VERSION="([^"]+)"', script.read_text(), re.MULTILINE)
         assert match, "CURRENT_RELEASE_VERSION not found in update script"
         assert get_bundled_oscal_version() == match.group(1)
 

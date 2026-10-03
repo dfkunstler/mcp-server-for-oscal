@@ -13,15 +13,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-import requests
 import regex
+import requests
 from mcp.server.mcpserver import Context
 from strands import tool
 
+from mcp_server_for_oscal.config import config
 from mcp_server_for_oscal.tools.utils import (
     ROOT_KEY_TO_MODEL_TYPE,
     OSCALModelType,
-    config,
     load_oscal_json_schema,
     try_notify_client_error,
 )
@@ -46,7 +46,7 @@ _TRESTLE_MODEL_MAP: dict[OSCALModelType, tuple[str, str]] = {
 }
 
 
-def _pattern_safe(validator: Any, patrn: str, instance: Any, schema: Any) -> Any:
+def _pattern_safe(validator: Any, patrn: str, instance: Any, schema: Any) -> Any:  # noqa: ARG001 - jsonschema keyword signature
     """Pattern keyword handler that uses the ``regex`` module for ECMA-262 compatibility.
 
     OSCAL JSON schemas use Unicode property escapes (e.g. ``\\p{L}``) which are
@@ -76,6 +76,7 @@ def _build_safe_validator() -> Any:
 
 def _make_level(
     level: str,
+    *,
     valid: bool = True,
     errors: list[str] | None = None,
     warnings: list[str] | None = None,
@@ -190,7 +191,7 @@ def _validate_trestle(data: dict, model_type: OSCALModelType) -> dict:
     return _make_level("trestle")
 
 
-def _validate_oscal_cli(content: str, model_type: OSCALModelType) -> dict:
+def _validate_oscal_cli(content: str, model_type: OSCALModelType) -> dict:  # noqa: ARG001 - same signature as other levels
     """Level 4: Full NIST validation via oscal-cli if available."""
     oscal_cli = shutil.which("oscal-cli")
     if oscal_cli is None:
@@ -202,9 +203,8 @@ def _validate_oscal_cli(content: str, model_type: OSCALModelType) -> dict:
 
     tmp_file = None
     try:
-        tmp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
-        tmp_file.write(content)
-        tmp_file.close()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp_file:
+            tmp_file.write(content)
 
         result = subprocess.run(
             [oscal_cli, "validate", tmp_file.name],
@@ -282,7 +282,7 @@ def validate_oscal_file(
         try:
             with open(lf) as oftv:
                 return validate_oscal_content(oftv.read(), model_type, ctx=ctx)
-        except Exception as e:
+        except Exception:
             logger.exception("OSCAL validation error.")
             raise
 
