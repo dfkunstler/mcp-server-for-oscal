@@ -8,9 +8,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -187,7 +184,7 @@ class TestUpdateHashesJson:
 
     def test_update_creates_new_manifest(self):
         """update_hashes_json creates a new manifest when none exists."""
-        from bin.build_oscal_db import update_hashes_json, HASHES_FILE
+        from bin.build_oscal_db import update_hashes_json
 
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_hashes = Path(tmpdir) / "hashes.json"

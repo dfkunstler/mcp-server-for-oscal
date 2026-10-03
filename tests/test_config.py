@@ -358,7 +358,7 @@ class TestSessionConversationConfigDefaults:
             cfg = Config()
             assert cfg.conversation_manager_type == "summarizing"
 
-    def test_all_session_env_vars_set_together(self):  # noqa: PLR0915
+    def test_all_session_env_vars_set_together(self):
         """All five attributes match their env vars when set simultaneously."""
         env = {
             "OSCAL_AGENT_SESSION_STORAGE": "s3",

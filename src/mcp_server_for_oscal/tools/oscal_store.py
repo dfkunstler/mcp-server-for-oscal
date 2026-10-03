@@ -13,7 +13,6 @@ import hashlib
 import importlib
 import json
 import logging
-import os
 import re
 import shutil
 import sqlite3
@@ -25,7 +24,7 @@ from urllib.parse import urlparse
 from uuid import NAMESPACE_URL, uuid5
 
 from mcp_server_for_oscal.config import config
-from mcp_server_for_oscal.tools.utils import OSCALModelType, ROOT_KEY_TO_MODEL_TYPE
+from mcp_server_for_oscal.tools.utils import ROOT_KEY_TO_MODEL_TYPE, OSCALModelType
 
 logger = logging.getLogger(__name__)
 
@@ -546,7 +545,7 @@ class OscalStore:
         except Exception as exc:
             raise RuntimeError(f"Failed to parse document as {class_name}: {exc}") from exc
 
-    def _build_cached_parse(self) -> "functools._lru_cache_wrapper":
+    def _build_cached_parse(self) -> functools._lru_cache_wrapper:
         """Build an LRU-cached wrapper around ``_do_parse``.
 
         The wrapper signature is ``(doc_id, raw_json, model_type_str)``
@@ -983,13 +982,12 @@ class OscalStore:
         if query_type == "by_uuid":
             # query_value validated above; cast for type checker
             return self._query_by_uuid(query_value, oscal_model_type, offset, limit)  # type: ignore[arg-type]
-        elif query_type == "by_title":
+        if query_type == "by_title":
             return self._query_by_title(query_value, oscal_model_type, offset, limit)  # type: ignore[arg-type]
-        elif query_type == "by_type":
+        if query_type == "by_type":
             return self._query_by_type(query_value, oscal_model_type, offset, limit)  # type: ignore[arg-type]
-        else:
-            # "all" — paginated scan
-            return self._query_all(oscal_model_type, offset, limit)
+        # "all" — paginated scan
+        return self._query_all(oscal_model_type, offset, limit)
 
     def _query_by_uuid(
         self,
@@ -2464,6 +2462,7 @@ class OscalStore:
                 or the source is a directory.
         """
         import requests as _requests
+
         from mcp_server_for_oscal.tools.utils import try_notify_client_error
 
         def _notify(msg: str) -> None:

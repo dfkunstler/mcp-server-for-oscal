@@ -15,15 +15,13 @@ correct behavior that must be preserved after the fix is applied.
 """
 
 import json
-from pathlib import Path
 
 import pytest
-from hypothesis import given, settings, HealthCheck
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 from mcp_server_for_oscal.tools.utils import OSCALModelType
-
 
 # ---------------------------------------------------------------------------
 # Common metadata for building valid OSCAL documents

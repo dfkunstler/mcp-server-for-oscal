@@ -9,7 +9,6 @@ import argparse
 import logging
 import uuid
 import warnings
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -132,7 +131,7 @@ def _build_session_manager(args: argparse.Namespace, cfg: Any) -> tuple[Any | No
             session_id=session_id,
             storage_dir=session_dir,
         ), session_id
-    elif storage == "s3":
+    if storage == "s3":
         bucket = args.session_s3_bucket or cfg.session_s3_bucket
         if not bucket:
             logger.error("--session-s3-bucket is required when --session-storage=s3")
@@ -172,9 +171,9 @@ def _build_conversation_manager(args: argparse.Namespace, cfg: Any) -> Any | Non
 
     if cm_type == "sliding-window":
         return SlidingWindowConversationManager()
-    elif cm_type == "summarizing":
+    if cm_type == "summarizing":
         return SummarizingConversationManager()
-    elif cm_type == "null":
+    if cm_type == "null":
         return NullConversationManager()
 
     return None
@@ -480,7 +479,6 @@ def main() -> None:
                 break
     except KeyboardInterrupt:
         logger.info("Shutdown due to keyboard interrupt")
-        pass
 
 
 if __name__ == "__main__":

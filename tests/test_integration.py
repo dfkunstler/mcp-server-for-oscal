@@ -2,14 +2,12 @@
 Integration tests for the OSCAL MCP Server.
 """
 
-import requests
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
-import pytest
 from mcp.server.mcpserver import MCPServer
 
-from mcp_server_for_oscal.main import mcp, _setup_tools
+from mcp_server_for_oscal.main import _setup_tools, mcp
 from mcp_server_for_oscal.tools.get_schema import get_oscal_schema
 from mcp_server_for_oscal.tools.list_models import list_oscal_models
 from mcp_server_for_oscal.tools.query_documentation import query_oscal_documentation

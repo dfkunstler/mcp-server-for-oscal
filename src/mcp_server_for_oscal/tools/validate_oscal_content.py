@@ -13,15 +13,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-import requests
 import regex
+import requests
 from mcp.server.mcpserver import Context
 from strands import tool
 
+from mcp_server_for_oscal.config import config
 from mcp_server_for_oscal.tools.utils import (
     ROOT_KEY_TO_MODEL_TYPE,
     OSCALModelType,
-    config,
     load_oscal_json_schema,
     try_notify_client_error,
 )
@@ -282,7 +282,7 @@ def validate_oscal_file(
         try:
             with open(lf) as oftv:
                 return validate_oscal_content(oftv.read(), model_type, ctx=ctx)
-        except Exception as e:
+        except Exception:
             logger.exception("OSCAL validation error.")
             raise
 

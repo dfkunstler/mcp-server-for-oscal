@@ -3,20 +3,19 @@ Shared utilities for OSCAL MCP tools.
 """
 
 import asyncio
+import hashlib
+import json
 import logging
+import re
 import warnings
 from enum import StrEnum
-import json
-import re
 from functools import cache
-from typing import Literal
 from pathlib import Path
-import hashlib
+from typing import Literal
 
 import anyio.from_thread
 from mcp import MCPDeprecationWarning
 from mcp.server.mcpserver import Context
-from mcp_server_for_oscal.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +195,7 @@ def verify_package_integrity(directory: Path) -> None:
     """
 
     logger.info(f"Verifying contents of package {directory.name}")
-    with open(directory.joinpath("hashes.json"), "r") as hashes:
+    with open(directory.joinpath("hashes.json")) as hashes:
         state = json.load(hashes)
 
     # Confirm that all files listed in hashes.json actually exist

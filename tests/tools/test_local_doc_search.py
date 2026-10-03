@@ -113,7 +113,7 @@ import hashlib
 import tempfile
 from pathlib import Path
 
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 # Strategy: non-empty markdown content (must survive content.strip() check)
@@ -252,12 +252,9 @@ class TestSHA256ChangeDetectionProperty:
 
 
 import re
-import tempfile
-from pathlib import Path
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
 
 # --- Strategies for Property 2: Title Derivation ---
 
@@ -361,10 +358,8 @@ class TestTitleDerivationProperty:
 # Property-Based Tests (Hypothesis)
 # ---------------------------------------------------------------------------
 
-import hashlib
-from pathlib import Path
 
-from hypothesis import given, settings, HealthCheck
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 
@@ -462,7 +457,7 @@ class TestSearchDocumentation:
     Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6
     """
 
-    @pytest.fixture()
+    @pytest.fixture
     def store_with_docs(self, tmp_path):
         """Create a store with indexed markdown documentation files."""
         db_path = str(tmp_path / "test.db")
@@ -1199,7 +1194,6 @@ class TestUnconditionalToolRegistration:
 # ---------------------------------------------------------------------------
 # Unit Tests for startup wiring in main.py (Task 6.2)
 # ---------------------------------------------------------------------------
-from unittest.mock import patch, MagicMock, call
 
 
 class TestStartupWiring:

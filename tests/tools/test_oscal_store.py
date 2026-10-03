@@ -790,7 +790,7 @@ class TestExtractChildElements:
 
 import uuid as uuid_mod
 
-from hypothesis import given, settings, HealthCheck
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 
@@ -921,7 +921,7 @@ class TestIncrementalReindexingProperty:
             )
 
             # Verify each document's metadata is intact
-            for orig, pers in zip(original_data, persisted_data):
+            for orig, pers in zip(original_data, persisted_data, strict=False):
                 assert orig["uuid"] == pers["uuid"]
                 assert orig["title"] == pers["title"]
                 assert orig["model_type"] == pers["model_type"]
@@ -947,7 +947,6 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from mcp_server_for_oscal.tools.utils import ROOT_KEY_TO_MODEL_TYPE
-
 
 # Strategy: pick a valid root key from ROOT_KEY_TO_MODEL_TYPE
 _valid_root_keys = st.sampled_from(sorted(ROOT_KEY_TO_MODEL_TYPE.keys()))
@@ -2751,6 +2750,7 @@ class TestVerifyBundledDb:
     def test_returns_true_when_hash_matches(self, tmp_path, monkeypatch):
         """Returns True when the computed hash matches the expected hash."""
         import hashlib
+
         import mcp_server_for_oscal.tools.oscal_store as mod
 
         fake_db = tmp_path / "oscal_store.db"
@@ -2796,6 +2796,7 @@ class TestBundledDbIntegrityAtStartup:
     def test_auto_mode_uses_bundled_when_integrity_passes(self, tmp_path, monkeypatch):
         """When bundled DB passes integrity, uses bundled mode."""
         import hashlib
+
         import mcp_server_for_oscal.tools.oscal_store as mod
 
         # Create a real small SQLite DB as the "bundled" DB
@@ -2822,6 +2823,7 @@ class TestBundledDbIntegrityAtStartup:
     def test_persistent_seeds_from_bundled_when_integrity_passes(self, tmp_path, monkeypatch):
         """When OSCAL_STORE_DB_PATH is set but missing, seeds from verified bundled DB."""
         import hashlib
+
         import mcp_server_for_oscal.tools.oscal_store as mod
 
         # Create a real small SQLite DB as the "bundled" DB
@@ -3066,7 +3068,7 @@ class TestPropertyDatabaseModeResolution:
         **Validates: Requirements 1.2, 1.3, 1.4, 1.5**
         """
         import hashlib
-        from unittest.mock import patch
+
         import mcp_server_for_oscal.tools.oscal_store as mod
 
         tmp_path = tmp_path_factory.mktemp("prop14")
@@ -3090,10 +3092,9 @@ class TestPropertyDatabaseModeResolution:
             # Compute correct SHA-256 hash for integrity verification
             db_hash = hashlib.sha256(bundled_db_path.read_bytes()).hexdigest()
             hashes_file.write_text(json.dumps({"file_hashes": {"oscal_store.db": db_hash}}))
-        else:
-            # Ensure bundled DB does NOT exist
-            if bundled_db_path.exists():
-                bundled_db_path.unlink()
+        # Ensure bundled DB does NOT exist
+        elif bundled_db_path.exists():
+            bundled_db_path.unlink()
 
         # --- Set up DB_PATH ---
         if db_path_set:

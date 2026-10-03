@@ -107,12 +107,14 @@ class TestListOscalResources:
             ctx.session.client_params = {}
 
             # Patch Path.exists to return False so both fallback paths fail
-            with patch(
-                "mcp_server_for_oscal.tools.list_oscal_resources.Path.exists",
-                return_value=False,
+            with (
+                patch(
+                    "mcp_server_for_oscal.tools.list_oscal_resources.Path.exists",
+                    return_value=False,
+                ),
+                pytest.raises(FileNotFoundError),
             ):
-                with pytest.raises(FileNotFoundError):
-                    list_oscal_resources(ctx)
+                list_oscal_resources(ctx)
 
             # Verify error was reported to context
             ctx.error.assert_called_once()
