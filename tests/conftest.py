@@ -3,9 +3,70 @@ Pytest configuration and shared fixtures for OSCAL MCP Server tests.
 """
 
 import os
+from typing import NamedTuple
 from unittest.mock import Mock
 
 import pytest
+
+from mcp_server_for_oscal.tools import query_component_definition as _qcd_module
+from mcp_server_for_oscal.tools.oscal_store import OscalStore
+
+from .fixture_store import (
+    build_fixture_store,
+    load_valid_fixture_cdefs,
+    make_many_capabilities_cdef,
+)
+
+
+@pytest.fixture(autouse=True)
+def reset_oscal_store():
+    """Isolate the ``query_component_definition._oscal_store`` singleton per test.
+
+    Sets ``_oscal_store`` to ``None`` before each test and restores the prior
+    value afterward, so a store installed via ``init_store`` (by a test or a
+    fixture such as ``fixture_store``) never leaks into another test. Tests
+    that exercise the unset-store path rely on ``_oscal_store`` being ``None``
+    when they start.
+    """
+    saved = _qcd_module._oscal_store  # noqa: SLF001
+    _qcd_module._oscal_store = None  # noqa: SLF001
+    yield
+    _qcd_module._oscal_store = saved  # noqa: SLF001
+
+
+@pytest.fixture
+def fixture_store(tmp_path):
+    """Real ``OscalStore`` built from the three valid cdef fixtures.
+
+    Installs the store with ``init_store`` so the MCP tool wrappers use it.
+    ``reset_oscal_store`` restores the singleton after the test.
+    """
+    store = build_fixture_store(tmp_path, load_valid_fixture_cdefs())
+    _qcd_module.init_store(store)
+    yield store
+    store.close()
+
+
+class ManyCapabilitiesStore(NamedTuple):
+    """Value of the ``many_capabilities_store`` fixture."""
+
+    store: OscalStore
+    target: dict  # capability dict (uuid, name, description) at index n - 1
+
+
+@pytest.fixture
+def many_capabilities_store(tmp_path):
+    """Real ``OscalStore`` holding one cdef with 120 capabilities.
+
+    Yields ``ManyCapabilitiesStore(store, target)``; ``target`` is the last
+    capability, beyond position 100. The store is installed with
+    ``init_store``.
+    """
+    cdef, target = make_many_capabilities_cdef()
+    store = build_fixture_store(tmp_path, [cdef])
+    _qcd_module.init_store(store)
+    yield ManyCapabilitiesStore(store=store, target=target)
+    store.close()
 
 
 @pytest.fixture

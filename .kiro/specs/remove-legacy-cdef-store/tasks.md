@@ -6,8 +6,8 @@ Make `OscalStore` the only backend for the Component Definition tools. Steps: ad
 
 ## Tasks
 
-- [ ] 1. Set up branch and spec commit
-  - [-] 1.1 Create the feature branch from the existing GitHub issue and commit the spec
+- [x] 1. Set up branch and spec commit
+  - [x] 1.1 Create the feature branch from the existing GitHub issue and commit the spec
     - Confirm the current branch with `git branch --show-current` (expected: `main`). Never commit to `main`.
     - The issue already exists; do not search for, draft, or create one. No default repo is set, so pass `-R dfkunstler/mcp-server-for-oscal` to every `gh` call and do not run `gh repo set-default`
     - Create and check out the branch: `gh issue develop 8 -R dfkunstler/mcp-server-for-oscal --checkout --name 8-remove-legacy-cdef-store`
@@ -15,49 +15,49 @@ Make `OscalStore` the only backend for the Component Definition tools. Steps: ad
     - Do not push without explicit user approval
     - _Requirements: none (project git-strategy)_
 
-- [ ] 2. Add public OscalStore lookup and filtering APIs
-  - [~] 2.1 Implement `OscalStore.get_parsed_model_by_uuid(doc_uuid)`
+- [x] 2. Add public OscalStore lookup and filtering APIs
+  - [x] 2.1 Implement `OscalStore.get_parsed_model_by_uuid(doc_uuid)`
     - In `src/mcp_server_for_oscal/tools/oscal_store.py`, resolve `documents.uuid` to `id` with a bound parameter and delegate to `get_parsed_model()` so the existing LRU cache is used
     - Return `None` for an empty UUID or no matching row
     - _Requirements: 6.1, 6.2_
 
-  - [~] 2.2 Add keyword-only `element_id`, `title`, `include_raw_json` to `OscalStore.list_child_elements`
+  - [x] 2.2 Add keyword-only `element_id`, `title`, `include_raw_json` to `OscalStore.list_child_elements`
     - `element_id` → `ce.uuid = ?`; `title` → `ce.title = ? COLLATE NOCASE`; `include_raw_json=True` adds `"raw_json"` to each item
     - Keep positional parameters and defaults unchanged so existing `query_oscal_models` callers are untouched; use bound parameters only (the `# nosec B608` f-string interpolates only the fixed clause list)
     - Ordering stays `title COLLATE NOCASE, uuid`
     - _Requirements: 5.3, 5.5, 6.3_
 
-  - [~] 2.3 Write unit tests for the new OscalStore APIs
+  - [x] 2.3 Write unit tests for the new OscalStore APIs
     - In `tests/tools/test_oscal_store.py`: `get_parsed_model_by_uuid` with a known UUID (returns a `ComponentDefinition`), an unknown UUID and an empty string (both `None`)
     - `list_child_elements` examples: `element_id` filter, case-insensitive `title` filter, combination with `parent_doc_uuid` and `element_type`, `include_raw_json` present only when requested, default call output unchanged
     - _Requirements: 6.1, 6.2, 7.6_
 
-- [ ] 3. Build Fixture_Store test infrastructure
-  - [~] 3.1 Create `tests/fixture_store.py`
+- [x] 3. Build Fixture_Store test infrastructure
+  - [x] 3.1 Create `tests/fixture_store.py`
     - `build_fixture_store(directory, cdefs) -> OscalStore`: write each cdef dict as JSON under `directory/docs`, create `OscalStore(db_path=..., cache_size=10, seed_from_bundled=False)`, call `scan_directory`
     - `make_many_capabilities_cdef(n=120)`: one Trestle-valid cdef whose capability names sort so the target sits beyond position 100
     - Helpers to load the three valid JSON fixtures in `tests/fixtures/` (`sample_component_definition.json`, `multi_component_definition.json`, `sample_component_definition_with_capabilities.json`)
     - No mocking of OscalStore methods
     - _Requirements: 7.2, 7.4_
 
-  - [~] 3.2 Move the autouse reset fixture to `tests/conftest.py` and add store fixtures
+  - [x] 3.2 Move the autouse reset fixture to `tests/conftest.py` and add store fixtures
     - Move `reset_oscal_store` from `tests/tools/conftest.py` and `tests/test_properties.py` into `tests/conftest.py`; rewrite its docstring to say it isolates the `_oscal_store` singleton, and that unset-store tests rely on it being `None`
     - Add `fixture_store` (builds from the three fixtures, calls `init_store`, yields, closes) and `many_capabilities_store` fixtures using `tests/fixture_store.py`
     - Leave the legacy Property 16 tests in `tests/test_properties.py` in place for now (they are removed in task 7.4)
     - _Requirements: 7.2, 7.4, 7.5_
 
-- [~] 4. Checkpoint - OscalStore APIs and test infrastructure
+- [-] 4. Checkpoint - OscalStore APIs and test infrastructure
   - Run `hatch run tests` and `hatch fmt`; ensure all tests pass, ask the user if questions arise.
   - Commit only the files changed in tasks 2–3 plus the updated `tasks.md`: `feat: add OscalStore uuid lookup and child filters, fixture store helpers (#8) - tests passing`
 
 - [ ] 5. Rewrite CDef_Tools on OscalStore
-  - [~] 5.1 Add store access and scope helpers in `src/mcp_server_for_oscal/tools/query_component_definition.py`
+  - [x] 5.1 Add store access and scope helpers in `src/mcp_server_for_oscal/tools/query_component_definition.py`
     - `_require_store()` raising `RuntimeError("OscalStore is not initialised; call init_store() before using Component Definition tools")`; keep `init_store(store)` signature
     - Frozen dataclass `_Scope(cdef_uuid, searched)`; `_resolve_scope` using `store.query` by_uuid then by_title with an exact case-insensitive title check (reject FTS-only hits), returning `None` and logging the existing guidance message when unmatched
     - `_iter_children` paging `list_child_elements` with `_CHILD_PAGE = 500`; `_first`, `_raw` (falls back to parent materialization when `raw_json` is `None`), `_component_type`, `_has_prop_value`
     - _Requirements: 2.2, 2.3, 4.2, 4.5, 6.3_
 
-  - [~] 5.2 Implement candidate selection, materialization, and capability lookup
+  - [x] 5.2 Implement candidate selection, materialization, and capability lookup
     - `_select_component_candidates` for `all`, `by_uuid` (`element_id`), `by_title` (`title`, then prop-value fallback over `raw_json`), `by_type` (`raw_json` type check); `ValueError` for invalid `query_type`
     - `_materialize_components`: parse each distinct parent once via `get_parsed_model_by_uuid`, return `DefinedComponent.dict(exclude_none=True)`, `logger.warning` and skip candidates missing from the parent
     - `_find_capability(store, scope, query_type, value)` via `element_type="capability"` + `element_id`/`title`, materialized from the parent; no `_conn` access and no 100-item cap
@@ -85,18 +85,18 @@ Make `OscalStore` the only backend for the Component Definition tools. Steps: ad
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2_
 
 - [ ] 6. Update startup messaging and deprecate `OSCAL_COMPONENT_DEFINITIONS_DIR`
-  - [~] 6.1 Update `main.py::_init_oscal_store` docstring and warning text
+  - [x] 6.1 Update `main.py::_init_oscal_store` docstring and warning text
     - Remove references to falling back to the legacy store; state that the Component Definition tools raise until a store is initialised
     - Adjust any assertion on the old message in `tests/test_main.py`
     - _Requirements: 2.2_
 
-  - [~] 6.2 Add the deprecation warning to `main.py`
+  - [x] 6.2 Add the deprecation warning to `main.py`
     - Add `import os`, module constant `_DEPRECATED_CDEF_DIR_ENV = "OSCAL_COMPONENT_DEFINITIONS_DIR"`, and `_warn_deprecated_settings()` as in the design: keyed on `_DEPRECATED_CDEF_DIR_ENV in os.environ` (any value, including `""`), never on `config.component_definitions_dir`; one `logger.warning` naming the setting, stating it has no effect, and naming `OSCAL_DOCUMENTS_DIR`
     - Call it exactly once in `main()`, immediately after the `# reConfigure logging` block and before `config.validate_transport()`, so `stdio` and `streamable-http` share the single call
     - Do not call it from `Config.__init__` or `_init_oscal_store()`
     - _Requirements: 8.2, 8.3, 8.4_
 
-  - [~] 6.3 Mark the setting deprecated in `config.py` and the setting docs
+  - [x] 6.3 Mark the setting deprecated in `config.py` and the setting docs
     - `config.py`: replace the `component_definitions_dir` comment with the design's `DEPRECATED` comment; keep the attribute and its `os.getenv("OSCAL_COMPONENT_DEFINITIONS_DIR", "component_definitions")` default unchanged
     - `DEVELOPING.md` (env var table, ~line 48): description becomes "**Deprecated**, no effect. Use `OSCAL_DOCUMENTS_DIR`."; keep the row
     - `dotenv.example` (~line 31): replace the commented assignment with `# OSCAL_COMPONENT_DEFINITIONS_DIR is deprecated and has no effect; use OSCAL_DOCUMENTS_DIR.`
