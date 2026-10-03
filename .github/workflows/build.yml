@@ -78,3 +78,54 @@ jobs:
           name: mcpb
           path: build/*.mcpb
           if-no-files-found: error
+
+  # Create a draft GitHub release for version tags that point at a commit on
+  # main, and attach the build artifacts. Publishing the draft (manually) is
+  # what triggers release.yml, so nothing is published automatically here.
+  draft-release:
+    needs: build
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag points to a commit on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on main; skipping release."
+            exit 1
+          fi
+
+      - name: Download python packages
+        uses: actions/download-artifact@v4
+        with:
+          name: python-packages
+          path: dist/
+
+      - name: Download MCP Bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: mcpb
+          path: dist/
+
+      - name: Create draft release with artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist/
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} exists; uploading artifacts."
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --draft \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
