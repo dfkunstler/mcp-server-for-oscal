@@ -411,7 +411,9 @@ See [Kiro's MCP documentation](https://kiro.dev/docs/mcp/configuration/) for add
 ```
 
 #### Claude Desktop
-Add to your `~/.claude/claude_desktop_config.json`:
+The easiest way to install is with the MCP Bundle: download `mcp-server-for-oscal-<version>.mcpb` from the [latest release](https://github.com/dfkunstler/mcp-server-for-oscal/releases/latest) and open it with Claude Desktop (or drag it onto **Settings > Extensions**). Claude Desktop manages Python and dependencies for you, and lets you configure optional settings such as a directory of your own OSCAL documents.
+
+Alternatively, open **Settings > Developer > Edit Config** in Claude Desktop and add the following to `claude_desktop_config.json` (located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
 
 ```json
 {

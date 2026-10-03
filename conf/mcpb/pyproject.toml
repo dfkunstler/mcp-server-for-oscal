@@ -1,0 +1,12 @@
+# Project file for the MCPB bundle. The host runs `uv run` against this file,
+# which installs the bundled mcp-server-for-oscal wheel and its dependencies.
+# bin/build_mcpb.py fills in the version and wheel path at build time.
+[project]
+name = "mcp-server-for-oscal-mcpb"
+version = "0.0.0"
+description = "MCPB bundle for mcp-server-for-oscal"
+requires-python = ">=3.11"
+dependencies = ["mcp-server-for-oscal"]
+
+[tool.uv.sources]
+mcp-server-for-oscal = { path = "wheels/WHEEL_FILENAME" }

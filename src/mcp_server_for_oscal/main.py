@@ -12,7 +12,10 @@ from pathlib import Path
 from mcp.server.mcpserver import MCPServer
 
 from mcp_server_for_oscal.config import config
-from mcp_server_for_oscal.tools.utils import verify_package_integrity
+from mcp_server_for_oscal.tools.utils import (
+    get_bundled_oscal_version,
+    verify_package_integrity,
+)
 # Configure logging
 try:
     logging.basicConfig(level=config.log_level)
@@ -102,7 +105,7 @@ def _setup_tools() -> None:
         return {
             "version": meta.get("version"),
             "keywords": meta.get("keywords"),
-            "oscal-version": "1.2.1",
+            "oscal-version": get_bundled_oscal_version(),
         }
 
 def main():

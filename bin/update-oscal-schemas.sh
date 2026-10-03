@@ -14,7 +14,7 @@
 # Usage: ./bin/update-oscal-schemas.sh
 #
 # The script will:
-#   1. Download OSCAL v1.1.3 release package from GitHub
+#   1. Download the OSCAL release package (CURRENT_RELEASE_VERSION) from GitHub
 #   2. Extract JSON schema files and XSD files 
 #   3. Place them in the project's schema directory
 #   4. Clean up temporary download files

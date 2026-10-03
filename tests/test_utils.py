@@ -2,7 +2,18 @@
 Tests for the utils module.
 """
 
-from mcp_server_for_oscal.tools.utils import OSCALModelType
+import re
+from pathlib import Path
+
+import pytest
+
+from mcp_server_for_oscal.tools.utils import (
+    OSCALModelType,
+    get_bundled_oscal_version,
+    load_oscal_json_schema,
+    oscal_version_from_schema,
+    schema_names,
+)
 
 
 class TestOSCALModelType:
@@ -184,3 +195,40 @@ class TestOSCALModelType:
         actual_order = [mt.value for mt in sorted_types]
 
         assert actual_order == expected_order
+
+
+class TestBundledOscalVersion:
+    """The reported OSCAL version must come from, and agree with, the bundled schemas."""
+
+    def test_parses_version_from_schema_id(self):
+        schema = {"$id": "http://csrc.nist.gov/ns/oscal/9.8.7/oscal-catalog-schema.json"}
+        assert oscal_version_from_schema(schema) == "9.8.7"
+
+    def test_parses_version_from_complete_schema_id(self):
+        schema = {"$id": "http://csrc.nist.gov/ns/oscal/1.0/9.8.7/oscal-complete-schema.json"}
+        assert oscal_version_from_schema(schema) == "9.8.7"
+
+    def test_rejects_schema_id_without_version(self):
+        with pytest.raises(ValueError):
+            oscal_version_from_schema({"$id": "http://example.com/schema.json"})
+
+    def test_all_bundled_schemas_share_one_version(self):
+        versions = {
+            name: oscal_version_from_schema(load_oscal_json_schema(name))
+            for name in schema_names
+        }
+        assert set(versions.values()) == {get_bundled_oscal_version()}, versions
+
+    def test_matches_update_script_release_version(self):
+        script = Path(__file__).parent.parent / "bin" / "update-oscal-schemas.sh"
+        match = re.search(r'^CURRENT_RELEASE_VERSION="([^"]+)"', script.read_text(), re.M)
+        assert match, "CURRENT_RELEASE_VERSION not found in update script"
+        assert get_bundled_oscal_version() == match.group(1)
+
+    def test_about_tool_reports_bundled_version(self):
+        from mcp_server_for_oscal import main
+
+        if main.mcp._tool_manager.get_tool("about") is None:
+            main._setup_tools()
+        about = main.mcp._tool_manager.get_tool("about")
+        assert about.fn()["oscal-version"] == get_bundled_oscal_version()

@@ -209,6 +209,7 @@ mcp-server-for-oscal/
 ├── bin/                            # Utility scripts (update_hashes.py, update-oscal-schemas.sh)
 ├── conf/
 │   ├── agentcore/                  # Dockerfile for Bedrock AgentCore deployment (local dev only)
+│   ├── mcpb/                       # MCP Bundle template (manifest.json, pyproject.toml, src/server.py)
 │   └── powers/oscal/               # Kiro Power config (POWER.md, mcp.json)
 ├── private/docs/                   # Generated reports (coverage, bandit) — not committed
 ├── pyproject.toml                  # Project metadata, dependencies, hatch config, tool settings
@@ -231,7 +232,10 @@ the `default` environment.
 This is the primary test command. It runs typing (mypy), security scanning (bandit), pytest, and coverage.
 
 `hatch run release`
-This is the release command. It runs the full test suite and then builds the package.
+This is the release command. It runs the full test suite, builds the package, and then builds the MCP Bundle.
+
+`hatch run build-mcpb`
+Packages the most recently built wheel in `build/` as an [MCP Bundle](https://github.com/modelcontextprotocol/mcpb) (`build/mcp-server-for-oscal-<version>.mcpb`) for one-click installation in Claude Desktop and other MCPB-compatible hosts. Run `hatch build` first. Requires `uv` and `npx` (Node.js) on your PATH. The bundle template lives in `conf/mcpb/`: `manifest.json` (metadata and user-configurable settings), `pyproject.toml` (installs the bundled wheel), and `src/server.py` (entry point). The bundle uses the MCPB `uv` server type, so the host installs Python and the dependencies pinned in the generated `uv.lock`; no platform-specific packages are shipped in the bundle. Attach the `.mcpb` file to the GitHub release so users can download it.
 
 `hatch test`
 This runs pytest and coverage directly.

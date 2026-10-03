@@ -61,7 +61,7 @@ Each OSCAL model is provided in two schema formats:
 The schema files in this directory are automatically downloaded and updated using the `bin/update-oscal-schemas.sh` script:
 
 1. **Source**: Schemas are downloaded from the official NIST OSCAL GitHub repository
-2. **Version**: OSCAL version 1.2.1 as of the last update to this README. Determined by value of variable `CURRENT_RELEASE_VERSION` in the script. 
+2. **Version**: Determined by the `CURRENT_RELEASE_VERSION` variable in the script. The server reads the bundled version from the schemas' `$id` at runtime (reported by the `about` tool), so no code change is needed when it changes.
 3. **Update Process**: 
    ```bash
    # Run from project root
@@ -100,7 +100,7 @@ To update to a newer version of OSCAL schemas:
 1. **Edit the update script**: Modify `CURRENT_RELEASE_VERSION` in `bin/update-oscal-schemas.sh` to point to the desired OSCAL version
 2. **Run the update**: Execute `./bin/update-oscal-schemas.sh` from the project root
 3. **Test compatibility**: Verify that existing functionality works with the new schemas
-4. **Update documentation**: Update version references in code and documentation as needed
+4. **Regenerate hashes**: Run `hatch run rehash` to update `hashes.json`
 
 ## Related Documentation
 
