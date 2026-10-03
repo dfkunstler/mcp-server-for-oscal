@@ -578,9 +578,7 @@ FILTERED_COMPONENT_QUERIES = [
     pytest.param("by_uuid", HSM_UUID, {HSM_UUID}, id="by_uuid"),
     pytest.param("by_title", "API Gateway", {API_GATEWAY_UUID}, id="by_title"),
     pytest.param("by_type", "software", {DATABASE_UUID}, id="by_type"),
-    pytest.param(
-        "by_title", PROP_FALLBACK_VALUE, {DATABASE_UUID}, id="prop-fallback"
-    ),
+    pytest.param("by_title", PROP_FALLBACK_VALUE, {DATABASE_UUID}, id="prop-fallback"),
 ]
 
 
@@ -797,8 +795,6 @@ class TestImportReadsNoCdefContent:
         assert fresh.init_store is not qcd_module.init_store
         assert sys.modules[qcd_module.__name__] is qcd_module
         offenders = [
-            p
-            for p in import_seen
-            if str(cdef_dir) in p or "component_definitions" in p
+            p for p in import_seen if str(cdef_dir) in p or "component_definitions" in p
         ]
         assert offenders == []

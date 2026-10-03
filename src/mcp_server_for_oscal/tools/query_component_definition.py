@@ -12,6 +12,7 @@ A Component Definition is the top-level document. It contains Capabilities
 (leaf-level items such as services, software, or regions). Queries in this
 module prioritize Capabilities over Components to reflect that hierarchy.
 """
+
 from __future__ import annotations
 
 import json
@@ -140,15 +141,10 @@ def _resolve_scope(
     wanted = cdef_filter.lower()
     for item in hit["items"]:
         if str(item.get("title") or "").lower() == wanted:
-            logger.info(
-                "Filtered to Component Definition with title: %s", cdef_filter
-            )
+            logger.info("Filtered to Component Definition with title: %s", cdef_filter)
             return _Scope(item["uuid"], 1)
 
-    msg = (
-        f"No Component Definition found with UUID or title matching: "
-        f"`{cdef_filter}`."
-    )
+    msg = f"No Component Definition found with UUID or title matching: `{cdef_filter}`."
     logger.debug(msg)
     safe_log_mcp(
         msg + " Try again without a filter or lookup the filter value with "
@@ -215,8 +211,12 @@ def _raw(store: OscalStore, child: dict) -> dict:
     if not isinstance(model, ComponentDefinition):
         return {}
     pool: list[Any] = list(
-        (model.capabilities if child.get("element_type") == "capability"
-         else model.components) or []
+        (
+            model.capabilities
+            if child.get("element_type") == "capability"
+            else model.components
+        )
+        or []
     )
     for obj in pool:
         if str(obj.uuid) == child["id"]:
@@ -236,13 +236,15 @@ def _component_type(raw: dict) -> str:
 def _has_prop_value(raw: dict, value: str) -> bool:
     """Return True if any property in the raw OSCAL dict has *value*."""
     return any(
-        isinstance(p, dict) and p.get("value") == value
-        for p in raw.get("props") or []
+        isinstance(p, dict) and p.get("value") == value for p in raw.get("props") or []
     )
 
 
 def _select_component_candidates(
-    store: OscalStore, scope: _Scope, query_type: str, value: str | None,
+    store: OscalStore,
+    scope: _Scope,
+    query_type: str,
+    value: str | None,
 ) -> list[dict]:
     """Return child summaries of the components matching a query.
 
@@ -305,7 +307,10 @@ def _materialize_components(store: OscalStore, page: list[dict]) -> list[dict]:
 
 
 def _find_capability(
-    store: OscalStore, scope: _Scope, query_type: str, value: str,
+    store: OscalStore,
+    scope: _Scope,
+    query_type: str,
+    value: str,
 ) -> Capability | None:
     """Find a capability by UUID (``by_uuid``) or exact title (otherwise).
 
@@ -437,8 +442,14 @@ def _child_summary(item: dict, name_key: str) -> dict:
     }
 
 
-def _child_page(store: OscalStore, ctx: Context | None, element_type: str,
-                name_key: str, offset: int, limit: int) -> dict:
+def _child_page(
+    store: OscalStore,
+    ctx: Context | None,
+    element_type: str,
+    name_key: str,
+    offset: int,
+    limit: int,
+) -> dict:
     """Return a Page_Response of child summaries of *element_type*."""
     result = store.list_child_elements(
         ctx=ctx,
@@ -457,7 +468,10 @@ def _child_page(store: OscalStore, ctx: Context | None, element_type: str,
 
 
 def _list_components(
-    store: OscalStore, ctx: Context | None, offset: int, limit: int,
+    store: OscalStore,
+    ctx: Context | None,
+    offset: int,
+    limit: int,
 ) -> dict:
     """Return a Page_Response of Component summaries.
 
@@ -473,7 +487,10 @@ def _list_components(
 
 
 def _list_capabilities(
-    store: OscalStore, ctx: Context | None, offset: int, limit: int,
+    store: OscalStore,
+    ctx: Context | None,
+    offset: int,
+    limit: int,
 ) -> dict:
     """Return a Page_Response of Capability summaries.
 
@@ -497,7 +514,10 @@ def _get_capability(store: OscalStore, uuid: str) -> dict | None:
 
 
 def _list_component_definitions(
-    store: OscalStore, ctx: Context | None, offset: int, limit: int,
+    store: OscalStore,
+    ctx: Context | None,
+    offset: int,
+    limit: int,
 ) -> dict:
     """Return a Page_Response of Component Definition summaries.
 
@@ -677,6 +697,7 @@ def list_components(
     store = _require_store()
     return _list_components(store, ctx, offset, limit)
 
+
 @tool()
 def list_capabilities(
     ctx: Context | None = None, offset: int = 0, limit: int = 10
@@ -704,6 +725,7 @@ def list_capabilities(
     """
     store = _require_store()
     return _list_capabilities(store, ctx, offset, limit)
+
 
 @tool()
 def get_capability(

@@ -97,41 +97,41 @@ def mock_config():
 def sample_bedrock_response():
     """Create a sample Bedrock knowledge base response."""
     return {
-        'retrievalResults': [
+        "retrievalResults": [
             {
-                'content': {
-                    'text': 'OSCAL (Open Security Controls Assessment Language) is a set of formats that provide machine-readable representations of control catalogs, control baselines, system security plans, and assessment plans and results.'
+                "content": {
+                    "text": "OSCAL (Open Security Controls Assessment Language) is a set of formats that provide machine-readable representations of control catalogs, control baselines, system security plans, and assessment plans and results."
                 },
-                'location': {
-                    's3Location': {
-                        'uri': 's3://oscal-kb-bucket/nist-oscal-docs/oscal-overview.pdf'
+                "location": {
+                    "s3Location": {
+                        "uri": "s3://oscal-kb-bucket/nist-oscal-docs/oscal-overview.pdf"
                     }
                 },
-                'score': 0.95,
-                'metadata': {
-                    'source': 'NIST OSCAL Documentation',
-                    'title': 'OSCAL Overview',
-                    'x-amz-bedrock-kb-source-uri': 's3://oscal-kb-bucket/nist-oscal-docs/oscal-overview.pdf'
-                }
+                "score": 0.95,
+                "metadata": {
+                    "source": "NIST OSCAL Documentation",
+                    "title": "OSCAL Overview",
+                    "x-amz-bedrock-kb-source-uri": "s3://oscal-kb-bucket/nist-oscal-docs/oscal-overview.pdf",
+                },
             },
             {
-                'content': {
-                    'text': 'OSCAL enables organizations to automate control implementation and assessment activities.'
+                "content": {
+                    "text": "OSCAL enables organizations to automate control implementation and assessment activities."
                 },
-                'location': {
-                    's3Location': {
-                        'uri': 's3://oscal-kb-bucket/nist-oscal-docs/oscal-implementation.pdf'
+                "location": {
+                    "s3Location": {
+                        "uri": "s3://oscal-kb-bucket/nist-oscal-docs/oscal-implementation.pdf"
                     }
                 },
-                'score': 0.87,
-                'metadata': {
-                    'source': 'NIST OSCAL Implementation Guide',
-                    'title': 'OSCAL Implementation',
-                    'x-amz-bedrock-kb-source-uri': 's3://oscal-kb-bucket/nist-oscal-docs/oscal-implementation.pdf'
-                }
-            }
+                "score": 0.87,
+                "metadata": {
+                    "source": "NIST OSCAL Implementation Guide",
+                    "title": "OSCAL Implementation",
+                    "x-amz-bedrock-kb-source-uri": "s3://oscal-kb-bucket/nist-oscal-docs/oscal-implementation.pdf",
+                },
+            },
         ],
-        'nextToken': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+        "nextToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
     }
 
 
@@ -155,41 +155,28 @@ def sample_json_schema():
                         "title": "Catalog Universally Unique Identifier",
                         "description": "Provides a globally unique means to identify a given catalog instance.",
                         "type": "string",
-                        "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[45][0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$"
+                        "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[45][0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$",
                     },
-                    "metadata": {
-                        "$ref": "#/definitions/metadata"
-                    },
+                    "metadata": {"$ref": "#/definitions/metadata"},
                     "params": {
                         "type": "array",
                         "minItems": 1,
-                        "items": {
-                            "$ref": "#/definitions/parameter"
-                        }
+                        "items": {"$ref": "#/definitions/parameter"},
                     },
                     "controls": {
                         "type": "array",
                         "minItems": 1,
-                        "items": {
-                            "$ref": "#/definitions/control"
-                        }
+                        "items": {"$ref": "#/definitions/control"},
                     },
                     "groups": {
                         "type": "array",
                         "minItems": 1,
-                        "items": {
-                            "$ref": "#/definitions/group"
-                        }
+                        "items": {"$ref": "#/definitions/group"},
                     },
-                    "back-matter": {
-                        "$ref": "#/definitions/back-matter"
-                    }
+                    "back-matter": {"$ref": "#/definitions/back-matter"},
                 },
-                "required": [
-                    "uuid",
-                    "metadata"
-                ],
-                "additionalProperties": False
+                "required": ["uuid", "metadata"],
+                "additionalProperties": False,
             },
             "metadata": {
                 "title": "Publication metadata",
@@ -199,58 +186,47 @@ def sample_json_schema():
                     "title": {
                         "title": "Document Title",
                         "description": "A name given to the document, which may be used by a tool for display and navigation.",
-                        "type": "string"
+                        "type": "string",
                     },
                     "published": {
                         "title": "Publication Timestamp",
                         "description": "The date and time the document was published.",
                         "type": "string",
                         "format": "date-time",
-                        "pattern": "^((2000|2400|2800|(19|2[0-9](0[48]|[2468][048]|[13579][26])))-02-29)|(((19|2[0-9])[0-9]{2})-02-(0[1-9]|1[0-9]|2[0-8]))|(((19|2[0-9])[0-9]{2})-(0[13578]|10|12)-(0[1-9]|[12][0-9]|3[01]))|(((19|2[0-9])[0-9]{2})-(0[469]|11)-(0[1-9]|[12][0-9]|30))T(2[0-3]|[01][0-9]):([0-5][0-9]):([0-5][0-9])(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+                        "pattern": "^((2000|2400|2800|(19|2[0-9](0[48]|[2468][048]|[13579][26])))-02-29)|(((19|2[0-9])[0-9]{2})-02-(0[1-9]|1[0-9]|2[0-8]))|(((19|2[0-9])[0-9]{2})-(0[13578]|10|12)-(0[1-9]|[12][0-9]|3[01]))|(((19|2[0-9])[0-9]{2})-(0[469]|11)-(0[1-9]|[12][0-9]|30))T(2[0-3]|[01][0-9]):([0-5][0-9]):([0-5][0-9])(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$",
                     },
                     "last-modified": {
                         "title": "Last Modified Timestamp",
                         "description": "The date and time the document was last modified.",
                         "type": "string",
                         "format": "date-time",
-                        "pattern": "^((2000|2400|2800|(19|2[0-9](0[48]|[2468][048]|[13579][26])))-02-29)|(((19|2[0-9])[0-9]{2})-02-(0[1-9]|1[0-9]|2[0-8]))|(((19|2[0-9])[0-9]{2})-(0[13578]|10|12)-(0[1-9]|[12][0-9]|3[01]))|(((19|2[0-9])[0-9]{2})-(0[469]|11)-(0[1-9]|[12][0-9]|30))T(2[0-3]|[01][0-9]):([0-5][0-9]):([0-5][0-9])(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+                        "pattern": "^((2000|2400|2800|(19|2[0-9](0[48]|[2468][048]|[13579][26])))-02-29)|(((19|2[0-9])[0-9]{2})-02-(0[1-9]|1[0-9]|2[0-8]))|(((19|2[0-9])[0-9]{2})-(0[13578]|10|12)-(0[1-9]|[12][0-9]|3[01]))|(((19|2[0-9])[0-9]{2})-(0[469]|11)-(0[1-9]|[12][0-9]|30))T(2[0-3]|[01][0-9]):([0-5][0-9]):([0-5][0-9])(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$",
                     },
                     "version": {
                         "title": "Document Version",
                         "description": "A string used to distinguish the current version of the document from other previous (and future) versions.",
-                        "type": "string"
+                        "type": "string",
                     },
                     "oscal-version": {
                         "title": "OSCAL version",
                         "description": "The OSCAL model version the document was authored against.",
-                        "type": "string"
-                    }
+                        "type": "string",
+                    },
                 },
-                "required": [
-                    "title",
-                    "last-modified",
-                    "version",
-                    "oscal-version"
-                ],
-                "additionalProperties": False
-            }
+                "required": ["title", "last-modified", "version", "oscal-version"],
+                "additionalProperties": False,
+            },
         },
-        "properties": {
-            "catalog": {
-                "$ref": "#/definitions/catalog"
-            }
-        },
-        "required": [
-            "catalog"
-        ],
-        "additionalProperties": False
+        "properties": {"catalog": {"$ref": "#/definitions/catalog"}},
+        "required": ["catalog"],
+        "additionalProperties": False,
     }
 
 
 @pytest.fixture
 def sample_xsd_schema():
     """Create a sample OSCAL XSD schema content."""
-    return '''<?xml version="1.0" encoding="UTF-8"?>
+    return """<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
            xmlns:oscal="http://csrc.nist.gov/ns/oscal/1.0"
            targetNamespace="http://csrc.nist.gov/ns/oscal/1.0"
@@ -303,7 +279,7 @@ def sample_xsd_schema():
     </xs:restriction>
   </xs:simpleType>
 
-</xs:schema>'''
+</xs:schema>"""
 
 
 @pytest.fixture
@@ -323,12 +299,12 @@ def clean_environment():
 
     # Clear relevant environment variables
     env_vars_to_clear = [
-        'BEDROCK_MODEL_ID',
-        'OSCAL_KB_ID',
-        'AWS_PROFILE',
-        'AWS_REGION',
-        'LOG_LEVEL',
-        'OSCAL_MCP_SERVER_NAME'
+        "BEDROCK_MODEL_ID",
+        "OSCAL_KB_ID",
+        "AWS_PROFILE",
+        "AWS_REGION",
+        "LOG_LEVEL",
+        "OSCAL_MCP_SERVER_NAME",
     ]
 
     for var in env_vars_to_clear:
@@ -354,6 +330,7 @@ def mock_schema_file():
 def all_oscal_model_types():
     """Provide all OSCAL model types for testing."""
     from mcp_server_for_oscal.tools.utils import OSCALModelType
+
     return list(OSCALModelType)
 
 
@@ -364,58 +341,52 @@ def sample_model_list():
         "catalog": {
             "description": "A structured set of controls and control enhancements",
             "layer": "Control",
-            "status": "GA"
+            "status": "GA",
         },
         "profile": {
             "description": "A baseline or overlay that selects and customizes controls from catalogs",
             "layer": "Control",
-            "status": "Prototype"
+            "status": "Prototype",
         },
         "component-definition": {
             "description": "Describes how components implement controls",
             "layer": "Implementation",
-            "status": "GA"
+            "status": "GA",
         },
         "system-security-plan": {
             "description": "Documents how a system implements required controls",
             "layer": "Implementation",
-            "status": "GA"
+            "status": "GA",
         },
         "assessment-plan": {
             "description": "Defines how controls will be assessed",
             "layer": "Assessment",
-            "status": "GA"
+            "status": "GA",
         },
         "assessment-results": {
             "description": "Documents the results of control assessments",
             "layer": "Assessment",
-            "status": "GA"
+            "status": "GA",
         },
         "plan-of-action-and-milestones": {
             "description": "Documents remediation plans for identified issues",
             "layer": "Assessment",
-            "status": "GA"
+            "status": "GA",
         },
         "mapping-collection": {
             "description": "Describes how a collection of security controls relates to another collection of controls",
             "layer": "Control",
-            "status": "GA"
-        }
+            "status": "GA",
+        },
     }
 
 
 # Pytest configuration
 def pytest_configure(config):
     """Configure pytest with custom markers."""
-    config.addinivalue_line(
-        "markers", "integration: mark test as an integration test"
-    )
-    config.addinivalue_line(
-        "markers", "unit: mark test as a unit test"
-    )
-    config.addinivalue_line(
-        "markers", "slow: mark test as slow running"
-    )
+    config.addinivalue_line("markers", "integration: mark test as an integration test")
+    config.addinivalue_line("markers", "unit: mark test as a unit test")
+    config.addinivalue_line("markers", "slow: mark test as slow running")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -430,6 +401,7 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.unit)
 
         # Mark async tests
-        if hasattr(item.function, '__code__') and inspect.iscoroutinefunction(item.function):
+        if hasattr(item.function, "__code__") and inspect.iscoroutinefunction(
+            item.function
+        ):
             item.add_marker(pytest.mark.asyncio)
-

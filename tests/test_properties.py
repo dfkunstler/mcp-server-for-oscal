@@ -10,11 +10,13 @@ Feature: remove-legacy-cdef-store
 
 import string
 import tempfile
-from collections.abc import Iterator
+from collections import Counter
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from trestle.oscal.component import ComponentDefinition
@@ -22,11 +24,15 @@ from trestle.oscal.component import ComponentDefinition
 from mcp_server_for_oscal.tools import query_component_definition as _qcd_module
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 from mcp_server_for_oscal.tools.query_component_definition import (
+    get_capability,
     init_store,
+    list_capabilities,
+    list_components,
     query_component_definition,
 )
+from mcp_server_for_oscal.tools.utils import paginate
 
-from .fixture_store import build_fixture_store
+from .fixture_store import build_fixture_store, make_many_capabilities_cdef
 
 # ------------------------------------------------------------------
 # Shared strategies and helpers for remove-legacy-cdef-store properties
@@ -211,6 +217,27 @@ def collect_pages(
         assert len(responses) <= 1000, "pagination did not terminate"
 
 
+def collect_list_pages(
+    list_fn: Callable[..., dict], limit: int
+) -> tuple[list[dict], list[dict]]:
+    """Page a ``list_*`` helper until ``hasMore`` is false.
+
+    Returns:
+        ``(items, responses)``: concatenated items and every page.
+    """
+    items: list[dict] = []
+    responses: list[dict] = []
+    offset = 0
+    while True:
+        resp = list_fn(ctx=None, offset=offset, limit=limit)
+        responses.append(resp)
+        items.extend(resp["items"])
+        if not resp["hasMore"]:
+            return items, responses
+        offset += limit
+        assert len(responses) <= 1000, "pagination did not terminate"
+
+
 # ------------------------------------------------------------------
 # Feature: remove-legacy-cdef-store
 # ------------------------------------------------------------------
@@ -327,3 +354,405 @@ class TestRemoveLegacyCdefStoreProperties:
         else:
             assert resp["components"] == [comp.dict(exclude_none=True)]
             assert resp["total_count"] == 1
+
+    @given(cdefs=cdef_stores(), data=st.data())
+    @settings(max_examples=100, deadline=None)
+    def test_property_value_fallback(self, cdefs, data):
+        """Feature: remove-legacy-cdef-store, Property 3: Property-value
+        fallback.
+
+        A ``by_title`` value that is no in-scope Capability name or Component
+        title, but is a prop value of some in-scope Component, returns exactly
+        one in-scope Component carrying that prop value; otherwise nothing.
+
+        **Validates: Requirements 3.5, 3.8**
+        """
+        models = parse_cdefs(cdefs)
+        mode = data.draw(st.sampled_from(["none", "uuid"]), label="mode")
+        if mode == "none":
+            cdef_filter = None
+            in_scope = models
+        else:
+            target = data.draw(st.sampled_from(models), label="target")
+            cdef_filter = str(target.uuid)
+            in_scope = [target]
+
+        # PROP_VALUES never equal a title or capability name (those always
+        # end in " <n>"), so the fallback path is the only way to match.
+        value = data.draw(st.sampled_from(PROP_VALUES), label="value")
+        pad = st.text(alphabet=" \t\n", max_size=3)
+        query_value = (
+            data.draw(pad, label="lpad") + value + data.draw(pad, label="rpad")
+        )
+
+        candidates = {
+            str(c.uuid): c.dict(exclude_none=True)
+            for m in in_scope
+            for c in m.components or []
+            if any(p.value == value for p in c.props or [])
+        }
+
+        with installed_store(cdefs):
+            resp = query_component_definition(
+                ctx=None,
+                component_definition_filter=cdef_filter,
+                query_type="by_title",
+                query_value=query_value,
+            )
+
+        assert "capability" not in resp
+        assert resp["query_type"] == "by_title"
+        assert resp["filtered_by"] == cdef_filter
+        if candidates:
+            assert len(resp["components"]) == 1
+            assert resp["total_count"] == 1
+            got = resp["components"][0]
+            assert candidates.get(str(got["uuid"])) == got
+        else:
+            assert resp["components"] == []
+            assert resp["total_count"] == 0
+
+    @given(cdefs=cdef_stores(), data=st.data())
+    @settings(max_examples=100, deadline=None)
+    def test_by_type_matches_reference_model(self, cdefs, data):
+        """Feature: remove-legacy-cdef-store, Property 4: by_type matches a
+        reference model.
+
+        Paging ``query_type="by_type"`` with any type string (including one
+        absent from the store) yields exactly the in-scope Components whose
+        source ``type`` equals it, each equal to the source
+        ``DefinedComponent.dict(exclude_none=True)``.
+
+        **Validates: Requirements 3.6, 3.8**
+        """
+        models = parse_cdefs(cdefs)
+        mode = data.draw(st.sampled_from(["none", "uuid", "title"]), label="mode")
+        if mode == "none":
+            cdef_filter = None
+            in_scope_idx = list(range(len(models)))
+        else:
+            idx = data.draw(st.integers(0, len(models) - 1), label="target")
+            in_scope_idx = [idx]
+            target = models[idx]
+            cdef_filter = (
+                str(target.uuid)
+                if mode == "uuid"
+                else case_variant(data.draw, target.metadata.title)
+            )
+        type_value = data.draw(
+            st.sampled_from((*COMPONENT_TYPES, "interconnection")), label="type"
+        )
+        limit = data.draw(st.integers(1, 10), label="limit")
+
+        # Reference model: computed from the raw source dicts, independent of
+        # the store's indexing.
+        expected_uuids = {
+            comp["uuid"]
+            for i in in_scope_idx
+            for comp in cdefs[i]["component-definition"].get("components", [])
+            if comp["type"] == type_value
+        }
+        expected = {
+            str(c.uuid): c.dict(exclude_none=True)
+            for i in in_scope_idx
+            for c in models[i].components or []
+            if str(c.uuid) in expected_uuids
+        }
+        assert set(expected) == expected_uuids
+
+        with installed_store(cdefs):
+            components, responses = collect_pages(
+                limit,
+                query_type="by_type",
+                query_value=type_value,
+                component_definition_filter=cdef_filter,
+            )
+
+        got = {str(c["uuid"]): c for c in components}
+        assert len(got) == len(components), "duplicate components across pages"
+        assert set(got) == expected_uuids
+        assert got == expected
+        for resp in responses:
+            assert resp["query_type"] == "by_type"
+            assert resp["filtered_by"] == cdef_filter
+            assert resp["total_count"] == len(expected_uuids)
+
+    @given(cdefs=cdef_stores(), data=st.data())
+    @settings(max_examples=100, deadline=None)
+    def test_pagination_agrees_with_paginate(self, cdefs, data):
+        """Feature: remove-legacy-cdef-store, Property 5: Pagination agrees
+        with paginate.
+
+        A single call at any ``offset``/``limit`` returns the same
+        ``components``, ``total_count``, ``offset``, ``limit``, and
+        ``hasMore`` as ``paginate`` applied to the full result list (the same
+        query paged at ``limit=100`` and concatenated).
+
+        **Validates: Requirements 3.12**
+        """
+        models = parse_cdefs(cdefs)
+        components = [c for m in models for c in m.components or []]
+        query_type: QueryType = data.draw(
+            st.sampled_from(["all", "by_type", "by_uuid", "by_title"]), label="qt"
+        )
+        query_value: str | None
+        if query_type == "all":
+            query_value = None
+        elif query_type == "by_type":
+            query_value = data.draw(
+                st.sampled_from((*COMPONENT_TYPES, "interconnection")), label="type"
+            )
+        else:
+            # Component keys, prop values (by_title fallback), or a miss.
+            # Capability UUIDs/names are distinct from all of these.
+            keys: list[str] = ["no-such-key"]
+            if query_type == "by_uuid":
+                keys += [str(c.uuid) for c in components]
+            else:
+                keys += [c.title for c in components] + list(PROP_VALUES)
+            query_value = data.draw(st.sampled_from(keys), label="value")
+        mode = data.draw(st.sampled_from(["none", "uuid"]), label="mode")
+        cdef_filter = (
+            None
+            if mode == "none"
+            else str(data.draw(st.sampled_from(models), label="target").uuid)
+        )
+        # Stores hold at most 20 Components, so offsets up to 30 cover
+        # in-range, boundary, and beyond-the-end pages.
+        offset = data.draw(st.integers(0, 30), label="offset")
+        limit = data.draw(st.integers(1, 100), label="limit")
+
+        with installed_store(cdefs):
+            full, _ = collect_pages(
+                100,
+                query_type=query_type,
+                query_value=query_value,
+                component_definition_filter=cdef_filter,
+            )
+            resp = query_component_definition(
+                ctx=None,
+                component_definition_filter=cdef_filter,
+                query_type=query_type,
+                query_value=query_value,
+                offset=offset,
+                limit=limit,
+            )
+
+        assert "capability" not in resp
+        expected = paginate(full, offset, limit)
+        assert resp["components"] == expected["items"]
+        assert resp["total_count"] == expected["total"]
+        assert resp["offset"] == expected["offset"]
+        assert resp["limit"] == expected["limit"]
+        assert resp["hasMore"] == expected["hasMore"]
+
+    @given(
+        cdefs=cdef_stores().filter(
+            lambda cs: any(c["component-definition"].get("capabilities") for c in cs)
+        ),
+        data=st.data(),
+    )
+    @settings(max_examples=100, deadline=None)
+    def test_capability_first_and_capability_scoping(self, cdefs, data):
+        """Feature: remove-legacy-cdef-store, Property 6: Capability-first and
+        capability scoping.
+
+        ``by_uuid`` with a Capability's UUID, or ``by_title`` with any case
+        variant of its name, returns the Capability_Query_Response for it when
+        unscoped or scoped to its own cdef. Scoped to a different cdef, the
+        response is an empty Component_Query_Response instead.
+
+        **Validates: Requirements 4.1, 4.2, 5.5, 7.7**
+        """
+        models = parse_cdefs(cdefs)
+        owners = [m for m in models if m.capabilities]
+        cdef_a = data.draw(st.sampled_from(owners), label="cdef_a")
+        cap = data.draw(st.sampled_from(cdef_a.capabilities), label="capability")
+
+        query_type = data.draw(st.sampled_from(["by_uuid", "by_title"]), label="qt")
+        query_value = (
+            str(cap.uuid)
+            if query_type == "by_uuid"
+            else case_variant(data.draw, cap.name)
+        )
+
+        others = [m for m in models if m.uuid != cdef_a.uuid]
+        scopes = ["none", "a_uuid", "a_title"] + (["other"] if others else [])
+        scope = data.draw(st.sampled_from(scopes), label="scope")
+        if scope == "none":
+            cdef_filter = None
+        elif scope == "a_uuid":
+            cdef_filter = str(cdef_a.uuid)
+        elif scope == "a_title":
+            cdef_filter = case_variant(data.draw, cdef_a.metadata.title)
+        else:
+            cdef_filter = str(data.draw(st.sampled_from(others), label="cdef_s").uuid)
+
+        with installed_store(cdefs):
+            resp = query_component_definition(
+                ctx=None,
+                component_definition_filter=cdef_filter,
+                query_type=query_type,
+                query_value=query_value,
+            )
+
+        assert resp["query_type"] == query_type
+        assert resp["filtered_by"] == cdef_filter
+        assert resp["component_definitions_searched"] == (
+            len(models) if cdef_filter is None else 1
+        )
+        if scope == "other":
+            # Capability keys never collide with Component keys or prop
+            # values, so the component fallback finds nothing either.
+            assert "capability" not in resp
+            assert "components" in resp
+            assert resp["components"] == []
+            assert resp["total_count"] == 0
+        else:
+            assert "components" not in resp
+            got = resp["capability"]["capability"]
+            assert str(got["uuid"]) == str(cap.uuid)
+            assert got["name"] == cap.name
+            assert resp["capability"] == cap.oscal_dict()
+            assert resp["component_count"] == len(cap.incorporates_components or [])
+            assert resp["offset"] == 0
+            assert resp["limit"] == 1
+            assert resp["total"] == 1
+            assert resp["hasMore"] is False
+
+    @given(cdefs=cdef_stores(), data=st.data())
+    @settings(max_examples=100, deadline=None)
+    def test_list_helpers_complete_and_correctly_keyed(self, cdefs, data):
+        """Feature: remove-legacy-cdef-store, Property 7: List helpers are
+        complete and correctly keyed.
+
+        Paging ``list_components`` (resp. ``list_capabilities``) yields items
+        with exactly the required keys, and the multiset of
+        ``(uuid, parentComponentDefinitionUuid)`` equals the multiset of
+        ``(component.uuid, cdef.uuid)`` (resp. capabilities) in the source.
+
+        **Validates: Requirements 5.1, 5.2**
+        """
+        models = parse_cdefs(cdefs)
+        limit = data.draw(st.integers(1, 10), label="limit")
+
+        component_keys = {
+            "uuid",
+            "title",
+            "parentComponentDefinitionTitle",
+            "parentComponentDefinitionUuid",
+            "sizeInBytes",
+        }
+        capability_keys = {
+            "uuid",
+            "name",
+            "parentComponentDefinitionTitle",
+            "parentComponentDefinitionUuid",
+            "sizeInBytes",
+        }
+
+        expected_components = Counter(
+            (str(c.uuid), c.title, str(m.uuid), m.metadata.title)
+            for m in models
+            for c in m.components or []
+        )
+        expected_capabilities = Counter(
+            (str(k.uuid), k.name, str(m.uuid), m.metadata.title)
+            for m in models
+            for k in m.capabilities or []
+        )
+
+        with installed_store(cdefs):
+            if expected_components:
+                comp_items, comp_pages = collect_list_pages(list_components, limit)
+            else:
+                with pytest.raises(RuntimeError, match="No Components loaded"):
+                    list_components(ctx=None, offset=0, limit=limit)
+                comp_items, comp_pages = [], []
+            cap_items, cap_pages = collect_list_pages(list_capabilities, limit)
+
+        # Every page respects the requested limit and reports the true total.
+        for pages, expected in (
+            (comp_pages, expected_components),
+            (cap_pages, expected_capabilities),
+        ):
+            for page in pages:
+                assert len(page["items"]) <= limit
+                assert page["total"] == sum(expected.values())
+
+        for item in comp_items:
+            assert set(item) == component_keys
+        for item in cap_items:
+            assert set(item) == capability_keys
+
+        # Multiset of (uuid, parent uuid) matches the source exactly.
+        assert Counter(
+            (i["uuid"], i["parentComponentDefinitionUuid"]) for i in comp_items
+        ) == Counter((u, p) for (u, _, p, _) in expected_components.elements())
+        assert Counter(
+            (i["uuid"], i["parentComponentDefinitionUuid"]) for i in cap_items
+        ) == Counter((u, p) for (u, _, p, _) in expected_capabilities.elements())
+
+        # Titles/names and parent titles match the source too.
+        assert (
+            Counter(
+                (
+                    i["uuid"],
+                    i["title"],
+                    i["parentComponentDefinitionUuid"],
+                    i["parentComponentDefinitionTitle"],
+                )
+                for i in comp_items
+            )
+            == expected_components
+        )
+        assert (
+            Counter(
+                (
+                    i["uuid"],
+                    i["name"],
+                    i["parentComponentDefinitionUuid"],
+                    i["parentComponentDefinitionTitle"],
+                )
+                for i in cap_items
+            )
+            == expected_capabilities
+        )
+
+    @given(cdefs=cdef_stores(), data=st.data())
+    @settings(max_examples=100, deadline=None)
+    def test_get_capability_is_position_independent(self, cdefs, data):
+        """Feature: remove-legacy-cdef-store, Property 8: get_capability is
+        position-independent.
+
+        For every Capability ``k`` in the store, including stores with more
+        than 100 Capabilities, ``get_capability(uuid=k.uuid)`` equals
+        ``k.dict()``; any UUID not belonging to a Capability returns ``None``.
+
+        **Validates: Requirements 5.3, 5.4**
+        """
+        # Mix in a >100-capability cdef on some examples so positions past
+        # the old default page limit are exercised without slowing every run.
+        if data.draw(st.booleans(), label="large"):
+            n = data.draw(st.integers(101, 130), label="n_large_capabilities")
+            large_cdef, _ = make_many_capabilities_cdef(n)
+            cdefs = [*cdefs, large_cdef]
+        models = parse_cdefs(cdefs)
+
+        capabilities = [k for m in models for k in m.capabilities or []]
+        capability_uuids = {str(k.uuid) for k in capabilities}
+        non_capability_uuids = [str(m.uuid) for m in models] + [
+            str(c.uuid) for m in models for c in m.components or []
+        ]
+        all_uuids = capability_uuids | set(non_capability_uuids)
+        fresh = data.draw(
+            st.uuids(version=4).map(str).filter(lambda u: u not in all_uuids),
+            label="fresh_uuid",
+        )
+        non_capability_uuids += [fresh, ""]
+
+        with installed_store(cdefs):
+            for k in capabilities:
+                assert get_capability(ctx=None, uuid=str(k.uuid)) == k.dict()
+            for u in non_capability_uuids:
+                assert get_capability(ctx=None, uuid=u) is None

@@ -140,11 +140,11 @@ Make `OscalStore` the only backend for the Component Definition tools. Steps: ad
     - Grep the test suite for `ComponentDefinitionStore`, `_store._reset`, `load_from_directory`, `_load_component_definitions_from_directory` and the legacy `_store` import from CDef_Tools; none may remain
     - _Requirements: 7.1_
 
-- [-] 8. Checkpoint - CDef_Tools rewrite and example tests
+- [x] 8. Checkpoint - CDef_Tools rewrite and example tests
   - Run `hatch run tests` and `hatch fmt`; ensure all tests pass, ask the user if questions arise.
   - Commit only the files changed in tasks 5–7 plus the updated `tasks.md`: `refactor: remove legacy ComponentDefinitionStore, query cdefs via OscalStore (#8) - tests passing`
 
-- [ ] 9. Property-based tests against a Fixture_Store
+- [x] 9. Property-based tests against a Fixture_Store
   - Add a Hypothesis strategy in `tests/test_properties.py` for Trestle-valid stores (1–4 cdefs, 0–5 components, 0–3 capabilities each, `type` from a small set); build each example in a `tempfile.TemporaryDirectory()` with `build_fixture_store`; `@settings(max_examples=100, deadline=None)`; tag docstrings `Feature: remove-legacy-cdef-store, Property N: <title>`
 
   - [x] 9.1 Write property test for scope completeness and fidelity of `all`
@@ -157,31 +157,31 @@ Make `OscalStore` the only backend for the Component Definition tools. Steps: ad
     - Required: replaces legacy `test_filter_scoping_with_by_uuid_query`
     - **Validates: Requirements 3.3, 3.4, 3.8, 4.6, 7.7**
 
-  - [~] 9.3 Write property test for property-value fallback
+  - [x] 9.3 Write property test for property-value fallback
     - **Property 3: Property-value fallback**
     - **Validates: Requirements 3.5, 3.8**
 
-  - [~] 9.4 Write property test for `by_type`
+  - [x] 9.4 Write property test for `by_type`
     - **Property 4: `by_type` matches a reference model**
     - **Validates: Requirements 3.6, 3.8**
 
-  - [~] 9.5 Write property test for pagination
+  - [x] 9.5 Write property test for pagination
     - **Property 5: Pagination agrees with `paginate`**
     - **Validates: Requirements 3.12**
 
-  - [~] 9.6 Write property test for capability-first scoping
+  - [x] 9.6 Write property test for capability-first scoping
     - **Property 6: Capability-first and capability scoping**
     - **Validates: Requirements 4.1, 4.2, 5.5, 7.7**
 
-  - [~] 9.7 Write property test for list helpers
+  - [x] 9.7 Write property test for list helpers
     - **Property 7: List helpers are complete and correctly keyed**
     - **Validates: Requirements 5.1, 5.2**
 
-  - [~] 9.8 Write property test for `get_capability`
+  - [x] 9.8 Write property test for `get_capability`
     - **Property 8: `get_capability` is position-independent**
     - **Validates: Requirements 5.3, 5.4**
 
-- [~] 10. Final checkpoint - Full suite, format, commit
+- [-] 10. Final checkpoint - Full suite, format, commit
   - Run `hatch run tests` (mypy, pytest, coverage, bandit) and `hatch fmt`; ensure zero failures, zero mypy errors, no new bandit findings, and a clean tree after formatting. Ask the user if questions arise.
   - Commit only the files changed in task 9 plus the updated `tasks.md`: `test: add Fixture_Store property tests for cdef tools (#8) - tests passing`
   - Do not push or open a PR without explicit user approval.
