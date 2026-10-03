@@ -2,10 +2,13 @@
 Tests for the main module.
 """
 
+import logging
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
+from mcp_server_for_oscal.config import config as real_config
 from mcp_server_for_oscal.main import main
 
 
@@ -429,3 +432,107 @@ class TestMain:
         assert transport_log_found, (
             "Specific transport method should be logged during startup"
         )
+
+
+_CDEF_ENV = "OSCAL_COMPONENT_DEFINITIONS_DIR"
+_MAIN_LOGGER = "mcp_server_for_oscal.main"
+
+
+class TestDeprecatedSettings:
+    """Startup deprecation warning for OSCAL_COMPONENT_DEFINITIONS_DIR (Req 8)."""
+
+    @pytest.fixture
+    def startup_mocks(self, monkeypatch):
+        """Patch main()'s side effects and isolate the real config singleton.
+
+        update_from_args mutates the module-level config, so pin the attributes
+        it may touch; monkeypatch restores them after the test.
+        """
+        monkeypatch.setattr(real_config, "transport", "stdio")
+        monkeypatch.setattr(real_config, "log_level", "INFO")
+        monkeypatch.setattr(real_config, "bedrock_model_id", real_config.bedrock_model_id)
+        monkeypatch.setattr(
+            real_config, "knowledge_base_id", real_config.knowledge_base_id
+        )
+        monkeypatch.setattr("sys.argv", ["main.py"])
+        with (
+            patch("mcp_server_for_oscal.main.mcp") as mock_mcp,
+            patch("mcp_server_for_oscal.main.verify_package_integrity"),
+            patch("mcp_server_for_oscal.main._init_oscal_store") as mock_init,
+            patch("mcp_server_for_oscal.main._setup_tools") as mock_setup,
+            patch("mcp_server_for_oscal.main.logging.basicConfig"),
+        ):
+            yield {"mcp": mock_mcp, "init": mock_init, "setup": mock_setup}
+
+    @staticmethod
+    def _cdef_warnings(caplog):
+        return [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and _CDEF_ENV in r.getMessage()
+        ]
+
+    @pytest.mark.usefixtures("startup_mocks")
+    @pytest.mark.parametrize("value", ["/custom/comp_defs", ""])
+    def test_warns_once_when_cdef_dir_set(self, monkeypatch, caplog, value):
+        monkeypatch.setenv(_CDEF_ENV, value)
+        with caplog.at_level(logging.WARNING, logger=_MAIN_LOGGER):
+            main()
+        records = self._cdef_warnings(caplog)
+        assert len(records) == 1
+        assert "OSCAL_DOCUMENTS_DIR" in records[0].getMessage()
+
+    def test_warns_once_with_streamable_http(self, startup_mocks, monkeypatch, caplog):
+        monkeypatch.setenv(_CDEF_ENV, "/custom/comp_defs")
+        monkeypatch.setattr(
+            "sys.argv", ["main.py", "--transport", "streamable-http"]
+        )
+        with caplog.at_level(logging.WARNING, logger=_MAIN_LOGGER):
+            main()
+        records = self._cdef_warnings(caplog)
+        assert len(records) == 1
+        assert "OSCAL_DOCUMENTS_DIR" in records[0].getMessage()
+        assert startup_mocks["mcp"].run.call_args.kwargs["transport"] == (
+            "streamable-http"
+        )
+
+    @pytest.mark.usefixtures("startup_mocks")
+    def test_no_warning_when_cdef_dir_unset(self, monkeypatch, caplog):
+        monkeypatch.delenv(_CDEF_ENV, raising=False)
+        with caplog.at_level(logging.WARNING, logger=_MAIN_LOGGER):
+            main()
+        assert self._cdef_warnings(caplog) == []
+
+    def test_cdef_dir_has_no_effect_on_startup(
+        self, startup_mocks, monkeypatch, caplog
+    ):
+        mock_init, mock_setup = startup_mocks["init"], startup_mocks["setup"]
+
+        monkeypatch.setenv(_CDEF_ENV, "/custom/comp_defs")
+        with caplog.at_level(logging.WARNING, logger=_MAIN_LOGGER):
+            main()
+        init_set, setup_set = mock_init.call_args_list, mock_setup.call_args_list
+        mock_init.reset_mock()
+        mock_setup.reset_mock()
+
+        monkeypatch.delenv(_CDEF_ENV, raising=False)
+        with caplog.at_level(logging.WARNING, logger=_MAIN_LOGGER):
+            main()
+
+        assert init_set == mock_init.call_args_list
+        assert setup_set == mock_setup.call_args_list
+        assert len(init_set) == 1
+        assert len(setup_set) == 1
+
+    def test_cdef_dir_not_read_outside_config(self):
+        src = Path(__file__).parent.parent / "src" / "mcp_server_for_oscal"
+        attr_files, env_files = set(), set()
+        for path in src.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            if "component_definitions_dir" in text:
+                attr_files.add(path.name)
+            if _CDEF_ENV in text:
+                env_files.add(path.name)
+        assert attr_files == {"config.py"}
+        assert env_files <= {"config.py", "main.py"}
+        assert "config.py" in env_files

@@ -45,7 +45,7 @@ See [dotenv.example](dotenv.example) for available options. Key environment vari
 | `OSCAL_ALLOW_REMOTE_URIS` | Allow `validate_oscal_file` to fetch remote URIs | `false` |
 | `OSCAL_REQUEST_TIMEOUT` | Timeout for remote requests (seconds) | `30` |
 | `OSCAL_MAX_URI_DEPTH` | Max URI depth for remote loading | `3` |
-| `OSCAL_COMPONENT_DEFINITIONS_DIR` | Component definitions directory | `component_definitions` |
+| `OSCAL_COMPONENT_DEFINITIONS_DIR` | **Deprecated**, no effect. Use `OSCAL_DOCUMENTS_DIR`. | `component_definitions` |
 | `OSCAL_DOCUMENTS_DIR` | Directory containing your own OSCAL JSON files (catalogs, SSPs, profiles, etc.) | _(empty — not scanned)_ |
 | `OSCAL_STORE_DB_PATH` | Path to a persistent SQLite database (reused across restarts when set) | _(empty — in-memory only)_ |
 | `OSCAL_STORE_CACHE_SIZE` | Max parsed OSCAL documents in the in-memory LRU cache | `100` |

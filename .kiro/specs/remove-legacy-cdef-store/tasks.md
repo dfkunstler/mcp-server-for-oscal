@@ -46,11 +46,11 @@ Make `OscalStore` the only backend for the Component Definition tools. Steps: ad
     - Leave the legacy Property 16 tests in `tests/test_properties.py` in place for now (they are removed in task 7.4)
     - _Requirements: 7.2, 7.4, 7.5_
 
-- [-] 4. Checkpoint - OscalStore APIs and test infrastructure
+- [x] 4. Checkpoint - OscalStore APIs and test infrastructure
   - Run `hatch run tests` and `hatch fmt`; ensure all tests pass, ask the user if questions arise.
   - Commit only the files changed in tasks 2–3 plus the updated `tasks.md`: `feat: add OscalStore uuid lookup and child filters, fixture store helpers (#8) - tests passing`
 
-- [ ] 5. Rewrite CDef_Tools on OscalStore
+- [x] 5. Rewrite CDef_Tools on OscalStore
   - [x] 5.1 Add store access and scope helpers in `src/mcp_server_for_oscal/tools/query_component_definition.py`
     - `_require_store()` raising `RuntimeError("OscalStore is not initialised; call init_store() before using Component Definition tools")`; keep `init_store(store)` signature
     - Frozen dataclass `_Scope(cdef_uuid, searched)`; `_resolve_scope` using `store.query` by_uuid then by_title with an exact case-insensitive title check (reject FTS-only hits), returning `None` and logging the existing guidance message when unmatched
@@ -63,28 +63,28 @@ Make `OscalStore` the only backend for the Component Definition tools. Steps: ad
     - `_find_capability(store, scope, query_type, value)` via `element_type="capability"` + `element_id`/`title`, materialized from the parent; no `_conn` access and no 100-item cap
     - _Requirements: 3.3, 3.4, 3.5, 3.6, 3.7, 3.10, 3.11, 5.5, 6.3_
 
-  - [~] 5.3 Implement `_query_component_definition(store, ctx, filter, query_type, query_value, offset, limit)`
+  - [x] 5.3 Implement `_query_component_definition(store, ctx, filter, query_type, query_value, offset, limit)`
     - Strip `query_value`; `ValueError` when required and empty; `ValueError("No Component Definitions loaded")` when the store has zero cdefs (both with `try_notify_client_error`)
     - Empty Component_Query_Response with `component_definitions_searched = 0` when the filter matches nothing
     - Capability-first for `by_uuid`/`by_title` returning the Capability_Query_Response (`oscal_dict()`, `component_count`, offset 0, limit 1, total 1, hasMore false); log exceptions and fall through
     - `paginate` candidates, materialize only the page, return Component_Query_Response with `component_definitions_searched = scope.searched`
     - _Requirements: 3.1, 3.2, 3.8, 3.9, 3.12, 4.1, 4.3, 4.4, 4.5, 4.6_
 
-  - [~] 5.4 Implement list and capability helpers
+  - [x] 5.4 Implement list and capability helpers
     - `_list_components`: `include_raw_json=True`, `uuid = item["id"]`, parent title/UUID keys, `sizeInBytes` from `raw_json` UTF-8 length (0 if `None`); `RuntimeError("No Components loaded")` when total is 0
     - `_list_capabilities`: `uuid = item["id"]`, `name = item["title"]`, empty Page_Response when none
     - `_get_capability(store, uuid)`: `None` for empty UUID or no match, otherwise `cap.dict()`
     - `_list_component_definitions(store, ctx, offset, limit)`: existing logic, explicit `store` argument
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.6, 5.7, 5.8_
 
-  - [~] 5.5 Rewire the five `@tool()` wrappers and remove the legacy store
+  - [x] 5.5 Rewire the five `@tool()` wrappers and remove the legacy store
     - Each wrapper keeps its signature and docstring, calls `store = _require_store()`, and delegates to its helper
     - Delete `ComponentDefinitionStore`, `_store`, `_load_component_definitions_from_directory`, the import-time `load_from_directory()` call, all `else` fallbacks, the old `_oscal_store_*` helpers, and `# pragma: no cover` guards that no longer apply
     - Remove now-unused imports (`zipfile`, `Path`, `urlparse`, `requests`, `cast`, `config`, `json` if unused); confirm with `hatch fmt` / ruff F401
     - Do not touch `config.py` here (`component_definitions_dir`, `allow_remote_uris`, `request_timeout` retained; the deprecation comment is task 6.3)
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2_
 
-- [ ] 6. Update startup messaging and deprecate `OSCAL_COMPONENT_DEFINITIONS_DIR`
+- [x] 6. Update startup messaging and deprecate `OSCAL_COMPONENT_DEFINITIONS_DIR`
   - [x] 6.1 Update `main.py::_init_oscal_store` docstring and warning text
     - Remove references to falling back to the legacy store; state that the Component Definition tools raise until a store is initialised
     - Adjust any assertion on the old message in `tests/test_main.py`
@@ -103,7 +103,7 @@ Make `OscalStore` the only backend for the Component Definition tools. Steps: ad
     - `src/mcp_server_for_oscal/tools/README.md` (~line 373): bullet becomes "`component_definitions_dir`: deprecated, no effect; use `oscal_documents_dir` (`OSCAL_DOCUMENTS_DIR`)"
     - _Requirements: 1.5, 8.1, 8.5_
 
-  - [~] 6.4 Write `TestDeprecatedSettings` in `tests/test_main.py`
+  - [x] 6.4 Write `TestDeprecatedSettings` in `tests/test_main.py`
     - Required (satisfies 8.6, 8.7). Each test patches `mcp_server_for_oscal.main.mcp`, `verify_package_integrity`, `_init_oscal_store`, `_setup_tools`, `logging.basicConfig`, sets `sys.argv = ["main.py"]`, and uses `caplog.at_level(logging.WARNING, logger="mcp_server_for_oscal.main")`; control the env with `monkeypatch.setenv` / `monkeypatch.delenv(..., raising=False)` (a developer `.env` may already have injected the variable)
     - `test_warns_once_when_cdef_dir_set`, parametrized over `"/custom/comp_defs"` and `""`: exactly one `WARNING` record mentioning `OSCAL_COMPONENT_DEFINITIONS_DIR`, and it mentions `OSCAL_DOCUMENTS_DIR`
     - `test_warns_once_with_streamable_http`: same assertion with `--transport streamable-http`
@@ -113,46 +113,46 @@ Make `OscalStore` the only backend for the Component Definition tools. Steps: ad
     - Keep `tests/test_config.py::test_component_definitions_dir_still_works` unchanged; confirm it still passes
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.6, 8.7, 8.8_
 
-- [ ] 7. Replace CDef_Tools tests with real-store tests
-  - [~] 7.1 Rewrite `tests/tools/test_query_component_definition.py`: wrapper and query matrix tests
+- [x] 7. Replace CDef_Tools tests with real-store tests
+  - [x] 7.1 Rewrite `tests/tools/test_query_component_definition.py`: wrapper and query matrix tests
     - Remove all legacy-store and mock-delegation tests
     - Each of the five wrappers against `fixture_store`; `list_component_definitions` item keys
     - `query_component_definition` × {`all`, `by_uuid`, `by_title`, `by_title` prop-value fallback (`"PostgreSQL Global Development Group"`), `by_type`} × {no filter, filter}
     - `list_components` / `list_capabilities` item keys and `uuid` populated from the child element id
     - _Requirements: 2.1, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 5.1, 5.2, 5.8, 7.2, 7.3_
 
-  - [~] 7.2 Add error and edge-case tests to `tests/tools/test_query_component_definition.py`
+  - [x] 7.2 Add error and edge-case tests to `tests/tools/test_query_component_definition.py`
     - Parametrized over the five wrappers: `RuntimeError` when `_oscal_store is None`
     - `ValueError` for missing and whitespace-only `query_value`; empty store → "No Component Definitions loaded"; unmatched filter → empty response with `component_definitions_searched` 0; fuzzy-only title filter does not match; whitespace-padded `query_value` still matches
     - `many_capabilities_store` (>100 capabilities): `get_capability` and `query_component_definition` `by_uuid` and `by_title` find the capability beyond position 100; unknown UUID and empty UUID return `None`
     - `list_capabilities` empty page on a store without capabilities; `list_components` `RuntimeError("No Components loaded")` on a store whose only cdef has no components
     - _Requirements: 2.2, 4.3, 4.4, 4.5, 4.6, 5.3, 5.4, 5.5, 5.6, 5.7, 7.4, 7.5_
 
-  - [~] 7.3 Add parse-scope and structural smoke tests to `tests/tools/test_query_component_definition.py`
+  - [x] 7.3 Add parse-scope and structural smoke tests to `tests/tools/test_query_component_definition.py`
     - Spy with `wraps=store.get_parsed_model_by_uuid`: filtered queries only parse the matched cdef; unfiltered `by_uuid`/`by_title` only parse candidate parents
     - Module has no `ComponentDefinitionStore`, `_store`, `_load_component_definitions_from_directory`
     - Reloading the module under patched `Path.iterdir`/`open` reads nothing from `config.component_definitions_dir`
     - AST check: no `_oscal_store._*` or `store._*` attribute access in CDef_Tools
     - _Requirements: 1.1, 1.2, 1.3, 3.10, 3.11, 6.3_
 
-  - [~] 7.4 Remove legacy tests from `tests/test_properties.py`
+  - [x] 7.4 Remove legacy tests from `tests/test_properties.py`
     - Delete the `_store` import and `TestProperty16ComponentDefinitionFilterScoping` (all `_store._reset()` / `load_from_directory` usage)
     - Grep the test suite for `ComponentDefinitionStore`, `_store._reset`, `load_from_directory`, `_load_component_definitions_from_directory` and the legacy `_store` import from CDef_Tools; none may remain
     - _Requirements: 7.1_
 
-- [~] 8. Checkpoint - CDef_Tools rewrite and example tests
+- [-] 8. Checkpoint - CDef_Tools rewrite and example tests
   - Run `hatch run tests` and `hatch fmt`; ensure all tests pass, ask the user if questions arise.
   - Commit only the files changed in tasks 5–7 plus the updated `tasks.md`: `refactor: remove legacy ComponentDefinitionStore, query cdefs via OscalStore (#8) - tests passing`
 
 - [ ] 9. Property-based tests against a Fixture_Store
   - Add a Hypothesis strategy in `tests/test_properties.py` for Trestle-valid stores (1–4 cdefs, 0–5 components, 0–3 capabilities each, `type` from a small set); build each example in a `tempfile.TemporaryDirectory()` with `build_fixture_store`; `@settings(max_examples=100, deadline=None)`; tag docstrings `Feature: remove-legacy-cdef-store, Property N: <title>`
 
-  - [~] 9.1 Write property test for scope completeness and fidelity of `all`
+  - [x] 9.1 Write property test for scope completeness and fidelity of `all`
     - **Property 1: Scope completeness and fidelity for `all`**
     - Required: replaces legacy `test_filter_by_uuid_scopes_to_single_cdef` / `test_filter_by_title_scopes_to_single_cdef`
     - **Validates: Requirements 3.1, 3.2, 3.7, 3.9, 7.7**
 
-  - [~] 9.2 Write property test for lookup by UUID and title
+  - [x] 9.2 Write property test for lookup by UUID and title
     - **Property 2: Lookup by UUID and title respects scope, case, and whitespace**
     - Required: replaces legacy `test_filter_scoping_with_by_uuid_query`
     - **Validates: Requirements 3.3, 3.4, 3.8, 4.6, 7.7**

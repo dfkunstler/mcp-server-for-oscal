@@ -1,1661 +1,804 @@
 """
-Tests for the query_component_definition tool.
+Tests for the Component Definition MCP tools in ``query_component_definition``.
+
+Every test runs against a real ``OscalStore`` (the ``fixture_store`` and
+``many_capabilities_store`` fixtures in ``tests/conftest.py``) built from the
+JSON fixtures in ``tests/fixtures``. Nothing on ``OscalStore`` is mocked.
+
+Fixture contents (three Component Definitions, five Components, one Capability):
+
+- ``sample_component_definition.json``: "Sample Component" (software)
+- ``multi_component_definition.json``: "Database Service" (software, prop value
+  "PostgreSQL Global Development Group"), "API Gateway" (service),
+  "Hardware Security Module" (hardware)
+- ``sample_component_definition_with_capabilities.json``: "Capability Component"
+  (software) and the "Test Capability" capability
 """
-import copy
-import json
+
+import ast
+import builtins
+import contextlib
+import importlib.util
+import os
+import sys
 import zipfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
+from unittest.mock import patch
 
 import pytest
-import requests
-from hypothesis import given, settings
-from hypothesis import strategies as st
 from trestle.oscal.component import ComponentDefinition
 
+from mcp_server_for_oscal.config import config
+from mcp_server_for_oscal.tools import query_component_definition as qcd_module
 from mcp_server_for_oscal.tools.query_component_definition import (
-    _load_component_definitions_from_directory,
-    _store,
     get_capability,
+    init_store,
     list_capabilities,
     list_component_definitions,
     list_components,
     query_component_definition,
 )
-from mcp_server_for_oscal.tools import query_component_definition as _qcd_module
 
-
-@pytest.fixture(autouse=True)
-def reset_store():
-    """Save, clear, and restore _store and _oscal_store around each test."""
-    # Save _store state (deep copy of all index dicts + stats)
-    saved_cdefs_by_path = copy.deepcopy(_store._cdefs_by_path)
-    saved_cdefs_by_uuid = copy.deepcopy(_store._cdefs_by_uuid)
-    saved_cdefs_by_title = copy.deepcopy(_store._cdefs_by_title)
-    saved_components_by_uuid = copy.deepcopy(_store._components_by_uuid)
-    saved_components_by_title = copy.deepcopy(_store._components_by_title)
-    saved_components_to_cdef = copy.deepcopy(_store._components_to_cdef_by_uuid)
-    saved_capabilities_by_uuid = copy.deepcopy(_store._capabilities_by_uuid)
-    saved_capabilities_by_name = copy.deepcopy(_store._capabilities_by_name)
-    saved_capabilities_to_cdef = copy.deepcopy(_store._capabilities_to_cdef_by_uuid)
-    saved_stats = copy.deepcopy(_store._stats)
-
-    # Save _oscal_store
-    saved_oscal_store = _qcd_module._oscal_store
-
-    # Clear both singletons
-    _store._reset()
-    _qcd_module._oscal_store = None
-
-    yield
-
-    # Restore _store state
-    _store._cdefs_by_path = saved_cdefs_by_path
-    _store._cdefs_by_uuid = saved_cdefs_by_uuid
-    _store._cdefs_by_title = saved_cdefs_by_title
-    _store._components_by_uuid = saved_components_by_uuid
-    _store._components_by_title = saved_components_by_title
-    _store._components_to_cdef_by_uuid = saved_components_to_cdef
-    _store._capabilities_by_uuid = saved_capabilities_by_uuid
-    _store._capabilities_by_name = saved_capabilities_by_name
-    _store._capabilities_to_cdef_by_uuid = saved_capabilities_to_cdef
-    _store._stats = saved_stats
-
-    # Restore _oscal_store
-    _qcd_module._oscal_store = saved_oscal_store
-
-
-class TestLoadComponentDefinitionsFromDirectory:
-    """Test cases for _load_component_definitions_from_directory function."""
-
-    @pytest.fixture
-    def sample_component_def_data(self):
-        """Load sample component definition data."""
-        sample_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition.json"
-        )
-        with open(sample_path) as f:
-            return json.load(f)
-
-    def test_load_from_directory_success(self, tmp_path, sample_component_def_data):
-        """Test successfully loading component definitions from a directory."""
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-
-        # Create first component definition file
-        comp_def_1 = comp_defs_dir / "comp_def_1.json"
-        with open(comp_def_1, "w") as f:
-            json.dump(sample_component_def_data, f)
-
-        # Create second component definition file in subdirectory
-        subdir = comp_defs_dir / "vendor_a"
-        subdir.mkdir()
-        comp_def_2 = subdir / "comp_def_2.json"
-        with open(comp_def_2, "w") as f:
-            json.dump(sample_component_def_data, f)
-
-        # Load component definitions
-        result = _load_component_definitions_from_directory(comp_defs_dir)
-
-        # Verify results
-        assert len(result) == 2
-        assert "comp_def_1.json" in result
-        assert "vendor_a/comp_def_2.json" in result
-        assert all(isinstance(cd, ComponentDefinition) for cd in result.values())
-
-    def test_load_from_directory_nonexistent(self, tmp_path):
-        """Test loading from a nonexistent directory."""
-        nonexistent_dir = tmp_path / "nonexistent"
-        result = _load_component_definitions_from_directory(nonexistent_dir)
-        assert result == {}
-
-    def test_load_from_directory_not_a_directory(self, tmp_path):
-        """Test loading when path is not a directory."""
-        file_path = tmp_path / "not_a_dir.txt"
-        file_path.write_text("test")
-        result = _load_component_definitions_from_directory(file_path)
-        assert result == {}
-
-    def test_load_from_directory_with_invalid_files(
-        self, tmp_path, sample_component_def_data, monkeypatch
-    ):
-        """Test loading from directory with mix of valid and invalid files."""
-
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-
-        # Create valid component definition file
-        valid_file = comp_defs_dir / "valid.json"
-        with open(valid_file, "w") as f:
-            json.dump(sample_component_def_data, f)
-
-        # Create invalid JSON file
-        invalid_json = comp_defs_dir / "invalid.json"
-        invalid_json.write_text("{ invalid json }")
-
-        # Create non-component-definition JSON file
-        other_json = comp_defs_dir / "other.json"
-        with open(other_json, "w") as f:
-            json.dump({"some": "data"}, f)
-
-        # Load component definitions
-        result = _load_component_definitions_from_directory(comp_defs_dir)
-
-        # Verify only valid component definition is loaded
-        assert len(result) == 1
-        assert "valid.json" in result
-
-    def test_load_from_directory_empty(self, tmp_path, monkeypatch):
-        """Test loading from an empty directory."""
-
-        empty_dir = tmp_path / "empty"
-        empty_dir.mkdir()
-        result = _load_component_definitions_from_directory(empty_dir)
-        assert result == {}
-
-    def test_load_from_directory_no_json_files(self, tmp_path, monkeypatch):
-        """Test loading from directory with no JSON files."""
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-
-        # Create non-JSON files
-        (comp_defs_dir / "readme.txt").write_text("test")
-        (comp_defs_dir / "data.xml").write_text("<xml/>")
-
-        result = _load_component_definitions_from_directory(comp_defs_dir)
-        assert result == {}
-
-
-class TestQueryComponentDefinitionTool:
-    """Test cases for the main query_component_definition tool function."""
-
-    @pytest.fixture
-    def mock_context(self):
-        """Create a mock MCP context."""
-        context = AsyncMock()
-        context.log = AsyncMock()
-        context.session = AsyncMock()
-        context.session.client_params = {}
-        return context
-
-    @pytest.fixture
-    def sample_component_def_data(self):
-        """Load sample component definition data."""
-        sample_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition.json"
-        )
-        with open(sample_path) as f:
-            return json.load(f)
-
-    @pytest.fixture
-    def setup_component_defs_dir(
-        self, tmp_path, sample_component_def_data, monkeypatch
-    ):
-        """Set up a temporary component definitions directory with test data."""
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-
-        # Create sample component definition file
-        comp_def_file = comp_defs_dir / "sample.json"
-        with open(comp_def_file, "w") as f:
-            json.dump(sample_component_def_data, f)
-
-        # Patch the config to use our test directory
-        from mcp_server_for_oscal import config as config_module
-
-        monkeypatch.setattr(
-            config_module.config, "component_definitions_dir", str(comp_defs_dir)
-        )
-
-        _load_component_definitions_from_directory()
-
-        return comp_defs_dir
-
-    def test_query_all_components_raw_format(self, mock_context, setup_component_defs_dir, monkeypatch):
-        """Test querying all components with raw format (default)."""
-
-        result = query_component_definition(
-            ctx=mock_context,
-            component_definition_filter=None,
-            query_type="all",
-            return_format="raw",
-        )
-
-        # Verify response structure
-        assert "components" in result
-        assert "total_count" in result
-        assert "query_type" in result
-        assert "component_definitions_searched" in result
-        assert "filtered_by" in result
-
-        # Verify pagination metadata
-        assert "offset" in result
-        assert "limit" in result
-        assert "hasMore" in result
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-        # Verify query metadata
-        assert result["query_type"] == "all"
-        assert result["component_definitions_searched"] == 1
-        assert result["filtered_by"] is None
-        assert result["total_count"] == 1
-
-        # Verify component has full OSCAL structure (raw format)
-        component = result["components"][0]
-        assert "uuid" in component
-        assert "title" in component
-        assert component["uuid"] == "b2c3d4e5-6789-4bcd-9efa-234567890123"
-        assert component["title"] == "Sample Component"
-
-    def test_query_by_uuid_success(self, mock_context, setup_component_defs_dir):
-        """Test querying component by UUID successfully."""
-        result =  query_component_definition(
-            ctx=mock_context,
-            component_definition_filter=None,
-            query_type="by_uuid",
-            query_value="b2c3d4e5-6789-4bcd-9efa-234567890123",
-            return_format="raw",
-        )
-
-        assert result["total_count"] == 1
-        assert result["query_type"] == "by_uuid"
-        assert result["components"][0]["uuid"] == "b2c3d4e5-6789-4bcd-9efa-234567890123"
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-    def test_query_by_uuid_not_found(self, mock_context, setup_component_defs_dir):
-        """Test querying component by UUID that doesn't exist returns empty."""
-        result = query_component_definition(
-            ctx=mock_context,
-            component_definition_filter=None,
-            query_type="by_uuid",
-            query_value="00000000-0000-0000-0000-000000000000",
-            return_format="raw",
-        )
-        assert result["total_count"] == 0
-        assert result["components"] == []
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-    def test_query_by_title_success(self, mock_context, setup_component_defs_dir):
-        """Test querying component by title successfully."""
-        result =  query_component_definition(
-            ctx=mock_context,
-            component_definition_filter=None,
-            query_type="by_title",
-            query_value="Sample Component",
-            return_format="raw",
-        )
-
-        assert result["total_count"] == 1
-        assert result["query_type"] == "by_title"
-        assert result["components"][0]["title"] == "Sample Component"
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-    def test_query_by_title_not_found(self, mock_context, setup_component_defs_dir):
-        """Test querying component by title that doesn't exist returns empty."""
-        result = query_component_definition(
-            ctx=mock_context,
-            component_definition_filter=None,
-            query_type="by_title",
-            query_value="Nonexistent Component",
-            return_format="raw",
-        )
-        assert result["total_count"] == 0
-        assert result["components"] == []
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-    def test_query_by_type_success(self, mock_context, setup_component_defs_dir):
-        """Test querying components by type successfully."""
-        result =  query_component_definition(
-            ctx=mock_context,
-            component_definition_filter=None,
-            query_type="by_type",
-            query_value="software",
-            return_format="raw",
-        )
-
-        assert result["total_count"] == 1
-        assert result["query_type"] == "by_type"
-        assert result["components"][0]["type"] == "software"
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-    def test_query_by_type_not_found(self, mock_context, setup_component_defs_dir):
-        """Test querying components by type that doesn't exist returns empty."""
-        result = query_component_definition(
-            ctx=mock_context,
-            component_definition_filter=None,
-            query_type="by_type",
-            query_value="hardware",
-            return_format="raw",
-        )
-        assert result["total_count"] == 0
-        assert result["components"] == []
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-    def test_query_missing_query_value(self, mock_context):
-        """Test that query_value is required for specific query types."""
-        with pytest.raises(ValueError, match="query_value is required"):
-            query_component_definition(
-                ctx=mock_context,
-                component_definition_filter=None,
-                query_type="by_uuid",
-                query_value=None,
-                return_format="raw",
-            )
-
-    def test_query_invalid_query_type(self, mock_context, setup_component_defs_dir):
-        """Test that invalid query_type raises error."""
-        with pytest.raises(ValueError, match="Invalid query_type"):
-            query_component_definition(
-                ctx=mock_context,
-                component_definition_filter=None,
-                query_type="invalid_type",  # type: ignore
-                return_format="raw",
-            )
-
-    def test_query_with_component_definition_filter_by_uuid(
-        self, mock_context, tmp_path, sample_component_def_data, monkeypatch
-    ):
-        """Test filtering to a specific component definition by UUID."""
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-
-        # Create component definition file
-        comp_def_file = comp_defs_dir / "sample.json"
-        with open(comp_def_file, "w") as f:
-            json.dump(sample_component_def_data, f)
-
-        # Patch the config
-        from mcp_server_for_oscal import config as config_module
-
-        monkeypatch.setattr(
-            config_module.config, "component_definitions_dir", str(comp_defs_dir)
-        )
-
-        _load_component_definitions_from_directory()
-
-        # Query with component definition filter
-        result =  query_component_definition(
-            ctx=mock_context,
-            component_definition_filter="a1b2c3d4-5678-4abc-8def-123456789012",
-            query_type="all",
-            return_format="raw",
-        )
-
-        assert result["component_definitions_searched"] == 1
-        assert result["filtered_by"] == "a1b2c3d4-5678-4abc-8def-123456789012"
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-    def test_query_with_component_definition_filter_by_title(
-        self, mock_context, tmp_path, sample_component_def_data, monkeypatch
-    ):
-        """Test filtering to a specific component definition by title."""
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-
-        # Create component definition file
-        comp_def_file = comp_defs_dir / "sample.json"
-        with open(comp_def_file, "w") as f:
-            json.dump(sample_component_def_data, f)
-
-        # Patch the config
-        from mcp_server_for_oscal import config as config_module
-
-        monkeypatch.setattr(
-            config_module.config, "component_definitions_dir", str(comp_defs_dir)
-        )
-
-        _load_component_definitions_from_directory()
-
-        # Query with component definition filter
-        result =  query_component_definition(
-            ctx=mock_context,
-            component_definition_filter="Sample Component Definition",
-            query_type="all",
-            return_format="raw",
-        )
-
-        assert result["component_definitions_searched"] == 1
-        assert result["filtered_by"] == "Sample Component Definition"
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-    def test_query_with_component_definition_filter_not_found(
-        self, mock_context, tmp_path, sample_component_def_data, monkeypatch
-    ):
-        """Test error when component definition filter doesn't match any definitions."""
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-
-        # Create component definition file
-        comp_def_file = comp_defs_dir / "sample.json"
-        with open(comp_def_file, "w") as f:
-            json.dump(sample_component_def_data, f)
-
-        # Patch the config
-        from mcp_server_for_oscal import config as config_module
-
-        monkeypatch.setattr(
-            config_module.config, "component_definitions_dir", str(comp_defs_dir)
-        )
-
-        _load_component_definitions_from_directory()
-
-        # Query with non-matching filter - should return empty, not raise
-        result = query_component_definition(
-            ctx=mock_context,
-            component_definition_filter="Nonexistent Definition",
-            query_type="all",
-            return_format="raw",
-        )
-        assert result["total_count"] == 0
-        assert result["components"] == []
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-    def test_query_empty_directory(self, mock_context, tmp_path, monkeypatch):
-        """Test error when component definitions directory is empty."""
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-
-        # Patch the config
-        from mcp_server_for_oscal import config as config_module
-
-        monkeypatch.setattr(
-            config_module.config, "component_definitions_dir", str(comp_defs_dir)
-        )
-
-        _load_component_definitions_from_directory(comp_defs_dir)
-
-        # Query should fail with no component definitions
-        with pytest.raises(ValueError, match="No Component Definitions loaded"):
-            query_component_definition(
-                ctx=mock_context,
-                component_definition_filter=None,
-                query_type="all",
-                return_format="raw",
-            )
-
-
-class TestLoadExternalComponentDefinition:
-    """Tests for load_external_component_definition."""
-
-    @pytest.fixture
-    def mock_context(self):
-        ctx = AsyncMock()
-        ctx.log = AsyncMock()
-        return ctx
-
-    @pytest.fixture
-    def sample_component_def_data(self):
-        sample_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition.json"
-        )
-        with open(sample_path) as f:
-            return json.load(f)
-
-    def test_load_local_directory_raises(self, mock_context, tmp_path):
-        """Loading a directory path should raise ValueError."""
-        _store._reset()
-        with pytest.raises(ValueError, match="URI must point to a zip file"):
-            _store.load_external_component_definition(str(tmp_path), mock_context)
-
-    def test_load_local_zip_file(self, mock_context, tmp_path, sample_component_def_data):
-        """Loading a local zip file should index its contents."""
-        _store._reset()
-        # Create a zip with a component definition JSON inside
-        zip_path = tmp_path / "test.zip"
-        with zipfile.ZipFile(zip_path, "w") as zf:
-            zf.writestr("comp.json", json.dumps(sample_component_def_data))
-
-        _store.load_external_component_definition(str(zip_path), mock_context)
-        assert _store._stats["processed_external_files"] == 1
-        assert len(_store._cdefs_by_uuid) == 1
-
-    def test_load_local_non_zip_file_is_noop(self, mock_context, tmp_path):
-        """Loading a local non-zip file should be a no-op."""
-        _store._reset()
-        f = tmp_path / "readme.txt"
-        f.write_text("hello")
-        _store.load_external_component_definition(str(f), mock_context)
-        assert _store._stats["processed_external_files"] == 0
-
-    def test_remote_uri_disabled(self, mock_context, monkeypatch):
-        """Remote URI loading should raise when allow_remote_uris is False."""
-        _store._reset()
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "allow_remote_uris", False)
-
-        with pytest.raises(ValueError, match="Remote URI loading is not enabled"):
-            _store.load_external_component_definition("https://example.com/comp.json", mock_context)
-
-    def test_remote_uri_success(self, mock_context, monkeypatch, sample_component_def_data):
-        """Remote URI loading should fetch, parse, and index."""
-        _store._reset()
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "allow_remote_uris", True)
-
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = sample_component_def_data
-        mock_resp.raise_for_status = MagicMock()
-
-        with patch("mcp_server_for_oscal.tools.query_component_definition.requests.get", return_value=mock_resp):
-            _store.load_external_component_definition("https://example.com/comp.json", mock_context)
-
-        assert _store._stats["processed_external_files"] == 1
-        assert len(_store._cdefs_by_uuid) == 1
-
-    def test_remote_uri_timeout(self, mock_context, monkeypatch):
-        """Remote URI timeout should raise ValueError."""
-        _store._reset()
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "allow_remote_uris", True)
-
-        with patch(
-            "mcp_server_for_oscal.tools.query_component_definition.requests.get",
-            side_effect=requests.Timeout("timed out"),
-        ):
-            with pytest.raises(ValueError, match="Request timeout"):
-                _store.load_external_component_definition("https://example.com/comp.json", mock_context)
-
-    def test_remote_uri_request_exception(self, mock_context, monkeypatch):
-        """Remote request failure should raise ValueError."""
-        _store._reset()
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "allow_remote_uris", True)
-
-        with patch(
-            "mcp_server_for_oscal.tools.query_component_definition.requests.get",
-            side_effect=requests.ConnectionError("refused"),
-        ):
-            with pytest.raises(ValueError, match="Failed to fetch"):
-                _store.load_external_component_definition("https://example.com/comp.json", mock_context)
-
-    def test_remote_uri_json_decode_error(self, mock_context, monkeypatch):
-        """Bad JSON from remote should raise ValueError."""
-        _store._reset()
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "allow_remote_uris", True)
-
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.side_effect = json.JSONDecodeError("bad", "", 0)
-
-        with patch("mcp_server_for_oscal.tools.query_component_definition.requests.get", return_value=mock_resp):
-            with pytest.raises(ValueError, match="Failed to parse remote"):
-                _store.load_external_component_definition("https://example.com/comp.json", mock_context)
-
-    def test_remote_uri_validation_error(self, mock_context, monkeypatch):
-        """Invalid OSCAL data from remote should raise ValueError."""
-        _store._reset()
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "allow_remote_uris", True)
-
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"component-definition": {"bad": "data"}}
-
-        with patch("mcp_server_for_oscal.tools.query_component_definition.requests.get", return_value=mock_resp):
-            with pytest.raises(ValueError, match="Failed to load or validate"):
-                _store.load_external_component_definition("https://example.com/comp.json", mock_context)
-
-
-class TestZipFileProcessing:
-    """Tests for _process_zip_files and _handle_zip_file."""
-
-    @pytest.fixture
-    def sample_component_def_data(self):
-        sample_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition.json"
-        )
-        with open(sample_path) as f:
-            return json.load(f)
-
-    def test_process_zip_files(self, tmp_path, sample_component_def_data):
-        """Zip files in directory should be processed."""
-        _store._reset()
-        zip_path = tmp_path / "bundle.zip"
-        with zipfile.ZipFile(zip_path, "w") as zf:
-            zf.writestr("comp.json", json.dumps(sample_component_def_data))
-            zf.writestr("readme.txt", "not json")
-
-        _store._process_zip_files(tmp_path)
-        assert _store._stats["processed_zip_files"] == 1
-        assert _store._stats["zip_file_contents"] == 2
-        assert _store._stats["loaded_files"] == 1
-
-    def test_process_zip_files_no_zips(self, tmp_path):
-        """Directory with no zips should be a no-op."""
-        _store._reset()
-        (tmp_path / "file.json").write_text("{}")
-        _store._process_zip_files(tmp_path)
-        assert _store._stats["processed_zip_files"] == 0
-
-
-class TestCapabilityQuery:
-    """Tests for capability query paths in ComponentDefinitionStore.query."""
-
-    @pytest.fixture
-    def mock_context(self):
-        ctx = AsyncMock()
-        ctx.log = AsyncMock()
-        return ctx
-
-    @pytest.fixture
-    def setup_with_capabilities(self, tmp_path, monkeypatch):
-        """Load a component definition that includes capabilities."""
-        _store._reset()
-        cap_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition_with_capabilities.json"
-        )
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-
-        import shutil
-        shutil.copy(cap_path, comp_defs_dir / "cap.json")
-
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "component_definitions_dir", str(comp_defs_dir))
-        _store.load_from_directory(comp_defs_dir)
-        return comp_defs_dir
-
-    def test_query_capability_by_title(self, mock_context, setup_with_capabilities):
-        """Query by_title should return a capability when name matches."""
-        result = _store.query(ctx=mock_context, query_type="by_title", query_value="Test Capability")
-        assert "capability" in result
-        assert result["query_type"] == "by_title"
-
-    def test_query_capability_by_uuid(self, mock_context, setup_with_capabilities):
-        """Query by_uuid should return a capability when UUID matches."""
-        result = _store.query(ctx=mock_context, query_type="by_uuid", query_value="d1e2f3a4-5678-4abc-9def-112233445566")
-        assert "capability" in result
-        assert result["component_count"] == 0
-
-    def test_query_capability_by_title_with_filter(self, mock_context, setup_with_capabilities):
-        """Capability query with matching component_definition_filter should succeed."""
-        result = _store.query(
-            ctx=mock_context,
-            query_type="by_title",
-            query_value="Test Capability",
-            component_definition_filter="c1d2e3f4-5678-4abc-8def-aabbccddeeff",
-        )
-        assert "capability" in result
-
-    def test_query_capability_by_title_with_wrong_filter(self, mock_context, setup_with_capabilities):
-        """Capability query with non-matching filter should fall through to component search."""
-        result = _store.query(
-            ctx=mock_context,
-            query_type="by_title",
-            query_value="Test Capability",
-            component_definition_filter="Capability Test Definition",
-        )
-        # The filter matches the cdef title, so it should still find the capability
-        assert "capability" in result
-
-
-class TestListMethods:
-    """Tests for list_component_definitions, list_components, list_capabilities."""
-
-    @pytest.fixture
-    def mock_context(self):
-        ctx = AsyncMock()
-        ctx.log = AsyncMock()
-        return ctx
-
-    @pytest.fixture
-    def sample_component_def_data(self):
-        sample_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition.json"
-        )
-        with open(sample_path) as f:
-            return json.load(f)
-
-    @pytest.fixture
-    def setup_store(self, tmp_path, sample_component_def_data, monkeypatch):
-        _store._reset()
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        with open(comp_defs_dir / "sample.json", "w") as f:
-            json.dump(sample_component_def_data, f)
-
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "component_definitions_dir", str(comp_defs_dir))
-        _store.load_from_directory(comp_defs_dir)
-
-    def test_list_component_definitions(self, mock_context, setup_store):
-        result = list_component_definitions(mock_context)
-        assert isinstance(result, dict)
-        assert set(result.keys()) == {"items", "total", "offset", "limit", "hasMore"}
-        assert result["total"] == 1
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-        assert len(result["items"]) == 1
-        assert result["items"][0]["title"] == "Sample Component Definition"
-        assert "uuid" in result["items"][0]
-        assert "componentCount" in result["items"][0]
-        assert "sizeInBytes" in result["items"][0]
-
-    def test_list_component_definitions_empty(self, mock_context):
-        _store._reset()
-        with pytest.raises(RuntimeError, match="No Component Definitions loaded"):
-            list_component_definitions(mock_context)
-
-    def test_list_components(self, mock_context, setup_store):
-        result = list_components(mock_context)
-        assert isinstance(result, dict)
-        assert set(result.keys()) == {"items", "total", "offset", "limit", "hasMore"}
-        assert result["total"] == 1
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-        assert len(result["items"]) == 1
-        assert result["items"][0]["title"] == "Sample Component"
-        assert "parentComponentDefinitionTitle" in result["items"][0]
-
-    def test_list_components_empty(self, mock_context):
-        _store._reset()
-        with pytest.raises(RuntimeError, match="No Components loaded"):
-            list_components(mock_context)
-
-    def test_list_capabilities_empty(self, mock_context):
-        _store._reset()
-        result = list_capabilities(mock_context)
-        assert isinstance(result, dict)
-        assert result["items"] == []
-        assert result["total"] == 0
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-    def test_list_capabilities_with_data(self, mock_context, tmp_path, monkeypatch):
-        _store._reset()
-        cap_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition_with_capabilities.json"
-        )
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        import shutil
-        shutil.copy(cap_path, comp_defs_dir / "cap.json")
-
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "component_definitions_dir", str(comp_defs_dir))
-        _store.load_from_directory(comp_defs_dir)
-
-        result = list_capabilities(mock_context)
-        assert isinstance(result, dict)
-        assert set(result.keys()) == {"items", "total", "offset", "limit", "hasMore"}
-        assert result["total"] == 1
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-        assert len(result["items"]) == 1
-        assert result["items"][0]["name"] == "Test Capability"
-        assert "parentComponentDefinitionTitle" in result["items"][0]
-
-
-class TestDefaultPaginationParameters:
-    """Verify each wrapper returns offset=0, limit=10 when called without explicit params."""
-
-    @pytest.fixture
-    def mock_context(self):
-        ctx = AsyncMock()
-        ctx.log = AsyncMock()
-        return ctx
-
-    @pytest.fixture
-    def sample_component_def_data(self):
-        sample_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition.json"
-        )
-        with open(sample_path) as f:
-            return json.load(f)
-
-    @pytest.fixture
-    def setup_store(self, tmp_path, sample_component_def_data, monkeypatch):
-        _store._reset()
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        with open(comp_defs_dir / "sample.json", "w") as f:
-            json.dump(sample_component_def_data, f)
-
-        from mcp_server_for_oscal import config as config_module
-
-        monkeypatch.setattr(
-            config_module.config,
-            "component_definitions_dir",
-            str(comp_defs_dir),
-        )
-        _store.load_from_directory(comp_defs_dir)
-
-    def test_list_component_definitions_default_pagination(
-        self, mock_context, setup_store
-    ):
-        result = list_component_definitions(mock_context)
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-
-    def test_list_components_default_pagination(
-        self, mock_context, setup_store
-    ):
-        result = list_components(mock_context)
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-
-    def test_list_capabilities_default_pagination(
-        self, mock_context, tmp_path, monkeypatch
-    ):
-        _store._reset()
-        cap_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition_with_capabilities.json"
-        )
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        import shutil
-
-        shutil.copy(cap_path, comp_defs_dir / "cap.json")
-
-        from mcp_server_for_oscal import config as config_module
-
-        monkeypatch.setattr(
-            config_module.config,
-            "component_definitions_dir",
-            str(comp_defs_dir),
-        )
-        _store.load_from_directory(comp_defs_dir)
-
-        result = list_capabilities(mock_context)
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-
-
-class TestGetCapability:
-    """Tests for the get_capability tool wrapper."""
-
-    @pytest.fixture
-    def mock_context(self):
-        ctx = AsyncMock()
-        ctx.log = AsyncMock()
-        return ctx
-
-    def test_get_capability_found(self, mock_context, tmp_path, monkeypatch):
-        _store._reset()
-        cap_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition_with_capabilities.json"
-        )
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        import shutil
-        shutil.copy(cap_path, comp_defs_dir / "cap.json")
-
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "component_definitions_dir", str(comp_defs_dir))
-        _store.load_from_directory(comp_defs_dir)
-
-        result = get_capability(mock_context, "d1e2f3a4-5678-4abc-9def-112233445566")
-        assert result is not None
-        assert result["name"] == "Test Capability"
-
-    def test_get_capability_not_found(self, mock_context):
-        _store._reset()
-        result = get_capability(mock_context, "00000000-0000-0000-0000-000000000000")
-        assert result is None
-
-
-class TestSelectComponentsEdgeCases:
-    """Tests for _select_components edge cases."""
-
-    @pytest.fixture
-    def mock_context(self):
-        ctx = AsyncMock()
-        ctx.log = AsyncMock()
-        return ctx
-
-    @pytest.fixture
-    def sample_component_def_data(self):
-        sample_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition.json"
-        )
-        with open(sample_path) as f:
-            return json.load(f)
-
-    @pytest.fixture
-    def setup_store(self, tmp_path, sample_component_def_data, monkeypatch):
-        _store._reset()
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        with open(comp_defs_dir / "sample.json", "w") as f:
-            json.dump(sample_component_def_data, f)
-
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "component_definitions_dir", str(comp_defs_dir))
-        _store.load_from_directory(comp_defs_dir)
-
-    def test_query_by_title_falls_back_to_prop_search(self, mock_context, setup_store):
-        """When title doesn't match, should fall back to prop value search."""
-        result = query_component_definition(
-            ctx=mock_context,
-            query_type="by_title",
-            query_value="1.0.0",  # matches the prop value
-            return_format="raw",
-        )
-        assert result["total_count"] == 1
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-    def test_query_no_components_in_filtered_cdef(self, mock_context, tmp_path, monkeypatch):
-        """A component definition with no components should return empty."""
-        _store._reset()
-        cdef_data = {
-            "component-definition": {
-                "uuid": "f1a2b3c4-5678-4abc-8def-ffeeddccbbaa",
-                "metadata": {
-                    "title": "Empty Def",
-                    "last-modified": "2024-01-01T00:00:00Z",
-                    "version": "1.0",
-                    "oscal-version": "1.0.4",
-                },
-            }
-        }
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        with open(comp_defs_dir / "empty.json", "w") as f:
-            json.dump(cdef_data, f)
-
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "component_definitions_dir", str(comp_defs_dir))
-        _store.load_from_directory(comp_defs_dir)
-
-        result = query_component_definition(
-            ctx=mock_context,
-            query_type="all",
-            return_format="raw",
-        )
-        assert result["total_count"] == 0
-        assert result["components"] == []
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-
-class TestIndexComponentsExceptionPath:
-    """Test the exception path in _index_components."""
-
-    def test_index_components_bad_data_raises(self):
-        """_index_components should re-raise on bad data."""
-        _store._reset()
-        bad_cdef = MagicMock()
-        bad_cdef.metadata = None  # will cause AttributeError
-
-        with pytest.raises(Exception):
-            _store._index_components(bad_cdef, "bad.json")
-
-
-class TestRemainingCoverageGaps:
-    """Tests targeting specific uncovered lines and branch partials."""
-
-    @pytest.fixture
-    def mock_context(self):
-        ctx = AsyncMock()
-        ctx.log = AsyncMock()
-        return ctx
-
-    @pytest.fixture
-    def sample_component_def_data(self):
-        sample_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition.json"
-        )
-        with open(sample_path) as f:
-            return json.load(f)
-
-    def test_remote_uri_without_component_definition_key(self, mock_context, monkeypatch, sample_component_def_data):
-        """Remote JSON without 'component-definition' wrapper should be parsed directly."""
-        _store._reset()
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "allow_remote_uris", True)
-
-        # Send the inner object directly (no "component-definition" wrapper)
-        inner_data = sample_component_def_data["component-definition"]
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = inner_data
-        mock_resp.raise_for_status = MagicMock()
-
-        with patch("mcp_server_for_oscal.tools.query_component_definition.requests.get", return_value=mock_resp):
-            _store.load_external_component_definition("https://example.com/comp.json", mock_context)
-
-        assert _store._stats["processed_external_files"] == 1
-
-    def test_find_component_by_prop_value_no_props(self):
-        """Component with no props should not match."""
-        import uuid as uuid_mod
-
-        from trestle.oscal.component import DefinedComponent
-        comp = DefinedComponent(
-            uuid=str(uuid_mod.uuid4()),
-            type="software",
-            title="No Props",
-            description="desc",
-        )
-        result = _store.find_component_by_prop_value([comp], "anything")
-        assert result is None
-
-    def test_capability_filter_no_match_falls_through(self, mock_context, tmp_path, monkeypatch):
-        """Capability found but filter doesn't match its parent cdef — should fall through to component search."""
-        _store._reset()
-        # Load the capability fixture
-        cap_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition_with_capabilities.json"
-        )
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        import shutil
-        shutil.copy(cap_path, comp_defs_dir / "cap.json")
-
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "component_definitions_dir", str(comp_defs_dir))
-        _store.load_from_directory(comp_defs_dir)
-
-        # Also load the sample fixture so there's a second cdef to filter to
-        sample_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition.json"
-        )
-        shutil.copy(sample_path, comp_defs_dir / "sample.json")
-        _store.load_from_directory(comp_defs_dir)
-
-        # Query capability by title but filter to the OTHER cdef UUID
-        result = _store.query(
-            ctx=mock_context,
-            query_type="by_title",
-            query_value="Test Capability",
-            component_definition_filter="a1b2c3d4-5678-4abc-8def-123456789012",
-        )
-        # The capability's parent doesn't match the filter, so it falls through
-        # to component search which finds nothing with that title
-        assert "components" in result
-
-    def test_capability_search_exception_handled(self, mock_context, tmp_path, monkeypatch):
-        """Exception during capability search should be caught and fall through."""
-        _store._reset()
-        cap_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition_with_capabilities.json"
-        )
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        import shutil
-        shutil.copy(cap_path, comp_defs_dir / "cap.json")
-
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "component_definitions_dir", str(comp_defs_dir))
-        _store.load_from_directory(comp_defs_dir)
-
-        # Corrupt the capabilities index to force an exception
-        for key in list(_store._capabilities_to_cdef_by_uuid.keys()):
-            _store._capabilities_to_cdef_by_uuid[key] = "bogus-uuid"
-
-        result = _store.query(
-            ctx=mock_context,
-            query_type="by_title",
-            query_value="Test Capability",
-            component_definition_filter="c1d2e3f4-5678-4abc-8def-aabbccddeeff",
-        )
-        # Should fall through to component search after exception
-        assert "components" in result
-
-    def test_select_components_by_uuid_none_query_value(self, mock_context, tmp_path, sample_component_def_data, monkeypatch):
-        """_select_components by_uuid with None query_value should raise."""
-        _store._reset()
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        with open(comp_defs_dir / "sample.json", "w") as f:
-            json.dump(sample_component_def_data, f)
-
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "component_definitions_dir", str(comp_defs_dir))
-        _store.load_from_directory(comp_defs_dir)
-
-        by_uuid = {"x": MagicMock()}
-        by_title = {"x": MagicMock()}
-        with pytest.raises(ValueError, match="query_value is required for by_uuid"):
-            _store._select_components("by_uuid", None, by_uuid, by_title, mock_context)
-
-    def test_select_components_by_title_none_query_value(self, mock_context):
-        """_select_components by_title with None query_value should raise."""
-        by_uuid = {"x": MagicMock()}
-        by_title = {"x": MagicMock()}
-        with pytest.raises(ValueError, match="query_value is required for by_title"):
-            _store._select_components("by_title", None, by_uuid, by_title, mock_context)
-
-    def test_select_components_by_type_none_query_value(self, mock_context):
-        """_select_components by_type with None query_value should raise."""
-        by_uuid = {"x": MagicMock()}
-        by_title = {"x": MagicMock()}
-        with pytest.raises(ValueError, match="query_value is required for by_type"):
-            _store._select_components("by_type", None, by_uuid, by_title, mock_context)
-
-
-    def test_zip_reprocessing_existing_entry(self, mock_context, tmp_path, sample_component_def_data):
-        """Loading a zip with an already-indexed entry should log reprocessing."""
-        _store._reset()
-        zip_path = tmp_path / "bundle.zip"
-        with zipfile.ZipFile(zip_path, "w") as zf:
-            zf.writestr("comp.json", json.dumps(sample_component_def_data))
-
-        # Load once
-        _store._handle_zip_file(zip_path)
-        # Load again — the entry path should already be in _cdefs_by_path
-        _store._handle_zip_file(zip_path)
-        assert _store._stats["loaded_files"] == 2
-
-    def test_process_json_files_skips_hashes_json(self, tmp_path, sample_component_def_data):
-        """hashes.json files should be skipped during JSON processing."""
-        _store._reset()
-        (tmp_path / "hashes.json").write_text('{"file_hashes": {}}')
-        with open(tmp_path / "sample.json", "w") as f:
-            json.dump(sample_component_def_data, f)
-
-        _store._process_json_files(tmp_path)
-        assert _store._stats["processed_json_files"] == 1
-        assert len(_store._cdefs_by_path) == 1
-
-    def test_index_components_exception_reraise(self):
-        """_index_components should log and re-raise when indexing fails mid-way."""
-        _store._reset()
-        sample_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition.json"
-        )
-        with open(sample_path) as f:
-            data = json.load(f)
-
-        cdef = ComponentDefinition.parse_obj(data["component-definition"])
-        # Sabotage the components list with a non-DefinedComponent to cause failure
-        cdef.__dict__["components"] = ["not a component"]
-
-        with pytest.raises(Exception):
-            _store._index_components(cdef, "bad.json")
-
-    def test_capability_exception_path_in_query(self, mock_context, tmp_path, monkeypatch):
-        """Force an exception in the capability search try block."""
-        _store._reset()
-        cap_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition_with_capabilities.json"
-        )
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        import shutil
-        shutil.copy(cap_path, comp_defs_dir / "cap.json")
-
-        from mcp_server_for_oscal import config as config_module
-        monkeypatch.setattr(config_module.config, "component_definitions_dir", str(comp_defs_dir))
-        _store.load_from_directory(comp_defs_dir)
-
-        # Corrupt _capabilities_by_name to force an exception when accessing the capability
-        cap_key = list(_store._capabilities_by_name.keys())[0]
-        _store._capabilities_by_name[cap_key] = "not a capability"  # type: ignore[assignment]
-
-        result = _store.query(
-            ctx=mock_context,
-            query_type="by_title",
-            query_value="Test Capability",
-        )
-        # Should fall through to component search after exception
-        assert "components" in result
-
-
-    def test_process_json_files_oscal_read_returns_none(self, tmp_path):
-        """When oscal_read returns None, the file should be skipped."""
-        _store._reset()
-        (tmp_path / "empty.json").write_text('{}')
-
-        with patch(
-            "mcp_server_for_oscal.tools.query_component_definition.ComponentDefinition.oscal_read",
-            return_value=None,
-        ):
-            _store._process_json_files(tmp_path)
-
-        assert _store._stats["processed_json_files"] == 1
-        assert _store._stats["loaded_files"] == 0
-        assert len(_store._cdefs_by_path) == 0
-
-
-class TestQueryComponentDefinitionPagination:
-    """Pagination-specific tests for query_component_definition.
-
-    Validates: Requirements 1.2, 2.1, 4.1, 4.2, 5.3, 6.3
-    """
-
-    @pytest.fixture
-    def mock_context(self):
-        ctx = AsyncMock()
-        ctx.log = AsyncMock()
-        ctx.session = AsyncMock()
-        ctx.session.client_params = {}
-        return ctx
-
-    @pytest.fixture
-    def multi_component_cdef_data(self):
-        """Component definition with three components for pagination testing."""
-        return {
-            "component-definition": {
-                "uuid": "aa000000-0000-4000-8000-000000000001",
-                "metadata": {
-                    "title": "Multi Component Def",
-                    "last-modified": "2024-01-01T00:00:00Z",
-                    "version": "1.0",
-                    "oscal-version": "1.0.4",
-                },
-                "components": [
-                    {
-                        "uuid": "bb000000-0000-4000-8000-000000000001",
-                        "type": "software",
-                        "title": "Component Alpha",
-                        "description": "First component",
-                    },
-                    {
-                        "uuid": "bb000000-0000-4000-8000-000000000002",
-                        "type": "software",
-                        "title": "Component Beta",
-                        "description": "Second component",
-                    },
-                    {
-                        "uuid": "bb000000-0000-4000-8000-000000000003",
-                        "type": "software",
-                        "title": "Component Gamma",
-                        "description": "Third component",
-                    },
-                ],
-            }
-        }
-
-    @pytest.fixture
-    def setup_multi_component_store(
-        self, tmp_path, multi_component_cdef_data, monkeypatch
-    ):
-        """Load a component definition with three components."""
-        _store._reset()
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        with open(comp_defs_dir / "multi.json", "w") as f:
-            json.dump(multi_component_cdef_data, f)
-
-        from mcp_server_for_oscal import config as config_module
-
-        monkeypatch.setattr(
-            config_module.config,
-            "component_definitions_dir",
-            str(comp_defs_dir),
-        )
-        _store.load_from_directory(comp_defs_dir)
-
-    def test_default_pagination_without_explicit_params(
-        self, mock_context, setup_multi_component_store
-    ):
-        """Calling without offset/limit should default to offset=0, limit=10."""
-        result = query_component_definition(
-            ctx=mock_context,
-            query_type="all",
-            return_format="raw",
-        )
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["total_count"] == 3
-        assert result["hasMore"] is False
-        assert len(result["components"]) == 3
-
-    def test_explicit_offset_limit_slicing(
-        self, mock_context, setup_multi_component_store
-    ):
-        """Explicit offset/limit should produce the correct slice."""
-        result = query_component_definition(
-            ctx=mock_context,
-            query_type="all",
-            return_format="raw",
-            offset=0,
-            limit=1,
-        )
-        assert result["offset"] == 0
-        assert result["limit"] == 1
-        assert result["total_count"] == 3
-        assert result["hasMore"] is True
-        assert len(result["components"]) == 1
-
-        # Second page
-        result2 = query_component_definition(
-            ctx=mock_context,
-            query_type="all",
-            return_format="raw",
-            offset=1,
-            limit=1,
-        )
-        assert result2["offset"] == 1
-        assert result2["limit"] == 1
-        assert result2["total_count"] == 3
-        assert result2["hasMore"] is True
-        assert len(result2["components"]) == 1
-        # Ensure different component than first page
-        assert result2["components"][0]["uuid"] != result["components"][0]["uuid"]
-
-    def test_capability_response_wrapping(self, mock_context, tmp_path, monkeypatch):
-        """Capability query should include offset=0, limit=1, total=1, hasMore=False."""
-        _store._reset()
-        cap_path = (
-            Path(__file__).parent.parent
-            / "fixtures"
-            / "sample_component_definition_with_capabilities.json"
-        )
-        comp_defs_dir = tmp_path / "component_definitions"
-        comp_defs_dir.mkdir()
-        import shutil
-
-        shutil.copy(cap_path, comp_defs_dir / "cap.json")
-
-        from mcp_server_for_oscal import config as config_module
-
-        monkeypatch.setattr(
-            config_module.config,
-            "component_definitions_dir",
-            str(comp_defs_dir),
-        )
-        _store.load_from_directory(comp_defs_dir)
-
-        result = query_component_definition(
-            ctx=mock_context,
-            query_type="by_title",
-            query_value="Test Capability",
-            return_format="raw",
-        )
-        assert "capability" in result
-        assert result["offset"] == 0
-        assert result["limit"] == 1
-        assert result["total"] == 1
-        assert result["hasMore"] is False
-
-        # Also verify by UUID
-        result_uuid = query_component_definition(
-            ctx=mock_context,
-            query_type="by_uuid",
-            query_value="d1e2f3a4-5678-4abc-9def-112233445566",
-            return_format="raw",
-        )
-        assert "capability" in result_uuid
-        assert result_uuid["offset"] == 0
-        assert result_uuid["limit"] == 1
-        assert result_uuid["total"] == 1
-        assert result_uuid["hasMore"] is False
-
-    def test_empty_results_include_pagination_metadata(
-        self, mock_context, setup_multi_component_store
-    ):
-        """Query returning no components should still include pagination metadata."""
-        result = query_component_definition(
-            ctx=mock_context,
-            query_type="by_type",
-            query_value="hardware",
-            return_format="raw",
-        )
-        assert result["components"] == []
-        assert result["total_count"] == 0
-        assert "offset" in result
-        assert "limit" in result
-        assert "hasMore" in result
-        assert result["offset"] == 0
-        assert result["limit"] == 10
-        assert result["hasMore"] is False
-
-    def test_has_more_true_when_more_pages_exist(
-        self, mock_context, setup_multi_component_store
-    ):
-        """hasMore should be True when offset+limit < total."""
-        result = query_component_definition(
-            ctx=mock_context,
-            query_type="all",
-            return_format="raw",
-            offset=0,
-            limit=2,
-        )
-        assert result["total_count"] == 3
-        assert result["hasMore"] is True
-        assert len(result["components"]) == 2
-
-        # Last page should have hasMore=False
-        result_last = query_component_definition(
-            ctx=mock_context,
-            query_type="all",
-            return_format="raw",
-            offset=2,
-            limit=2,
-        )
-        assert result_last["total_count"] == 3
-        assert result_last["hasMore"] is False
-        assert len(result_last["components"]) == 1
-
-
-class TestQueryComponentDefinitionProperties:
-    """Property-based tests for query_component_definition pagination.
-
-    **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 3.4**
-    """
-
-    @given(
-        full_list=st.lists(
-            st.fixed_dictionaries({
-                "uuid": st.text(min_size=1, max_size=10),
-                "title": st.text(min_size=1, max_size=10),
-            })
-        ),
-        offset=st.integers(min_value=0, max_value=200),
-        limit=st.integers(min_value=1, max_value=100),
-    )
-    @settings(max_examples=100)
-    def test_component_pagination_slice_correctness(self, full_list, offset, limit):
-        """Property 1: Component pagination slice correctness.
-
-        For any list of components returned by the store and any valid
-        offset/limit, the paginated components must equal
-        full_list[offset:offset+limit] and total_count must equal
-        len(full_list).
-
-        **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 3.4**
-        """
-        store_response = {
-            "components": full_list,
-            "total_count": len(full_list),
-            "query_type": "all",
-            "component_definitions_searched": 1,
-            "filtered_by": None,
-        }
-
-        with (
-            patch(
-                "mcp_server_for_oscal.tools.query_component_definition._oscal_store",
-                None,
-            ),
-            patch.object(_store, "query", return_value=store_response),
-        ):
-            result = query_component_definition(
-                ctx=None,
-                query_type="all",
-                offset=offset,
-                limit=limit,
-            )
-
-        assert result["components"] == full_list[offset : offset + limit]
-        assert result["total_count"] == len(full_list)
-        assert result["hasMore"] == (offset + limit < len(full_list))
-
-
-# ---------------------------------------------------------------------------
-# Hypothesis strategies for store state round-trip property test
-# ---------------------------------------------------------------------------
-
-_simple_dict = st.dictionaries(st.text(max_size=10), st.text(max_size=10), max_size=5)
-_stats_dict = st.fixed_dictionaries(
-    {
-        "loaded_files": st.integers(min_value=0, max_value=1000),
-        "processed_zip_files": st.integers(min_value=0, max_value=1000),
-        "zip_file_contents": st.integers(min_value=0, max_value=1000),
-        "processed_json_files": st.integers(min_value=0, max_value=1000),
-        "component_definitions_indexed": st.integers(min_value=0, max_value=1000),
-        "components_indexed": st.integers(min_value=0, max_value=1000),
-        "processed_external_files": st.integers(min_value=0, max_value=1000),
-        "capabilities_indexed": st.integers(min_value=0, max_value=1000),
-    }
+from ..fixture_store import (
+    CAPABILITIES_CDEF_FILE,
+    SAMPLE_CDEF_FILE,
+    VALID_CDEF_FILES,
+    build_fixture_store,
+    load_fixture_cdef,
 )
 
+# ---------------------------------------------------------------------------
+# Fixture identifiers
+# ---------------------------------------------------------------------------
 
-class TestStoreStateSaveResetRestoreRoundTrip:
-    """Property-based test: store state save/reset/restore round-trip.
+SAMPLE_CDEF_UUID = "a1b2c3d4-5678-4abc-8def-123456789012"
+MULTI_CDEF_UUID = "f1e2d3c4-1234-4abc-8def-111111111111"
+CAPS_CDEF_UUID = "c1d2e3f4-5678-4abc-8def-aabbccddeeff"
+MULTI_CDEF_TITLE = "Multi-Component Definition"
 
-    Feature: parallel-safe-tests, Property 1: Store state save/reset/restore round-trip
+SAMPLE_COMPONENT_UUID = "b2c3d4e5-6789-4bcd-9efa-234567890123"
+DATABASE_UUID = "c1111111-1111-4111-8111-111111111111"
+API_GATEWAY_UUID = "c2222222-2222-4222-8222-222222222223"
+HSM_UUID = "c3333333-3333-4333-8333-333333333333"
+CAPABILITY_COMPONENT_UUID = "e1f2a3b4-5678-4abc-9def-aabbccddeeff"
 
-    For any ComponentDefinitionStore state (arbitrary index dictionaries and
-    stats counters), saving a deep copy of all attributes, calling _reset(),
-    and then restoring the saved values should yield a store state equivalent
-    to the original.
+CAPABILITY_UUID = "d1e2f3a4-5678-4abc-9def-112233445566"
+CAPABILITY_NAME = "Test Capability"
 
-    **Validates: Requirements 1.1, 1.2, 1.4, 2.1, 2.2, 2.4**
+PROP_FALLBACK_VALUE = "PostgreSQL Global Development Group"
+
+TOTAL_CDEFS = 3
+ALL_COMPONENT_UUIDS = {
+    SAMPLE_COMPONENT_UUID,
+    DATABASE_UUID,
+    API_GATEWAY_UUID,
+    HSM_UUID,
+    CAPABILITY_COMPONENT_UUID,
+}
+MULTI_COMPONENT_UUIDS = {DATABASE_UUID, API_GATEWAY_UUID, HSM_UUID}
+
+COMPONENT_QUERY_KEYS = {
+    "components",
+    "total_count",
+    "offset",
+    "limit",
+    "hasMore",
+    "query_type",
+    "component_definitions_searched",
+    "filtered_by",
+}
+CAPABILITY_QUERY_KEYS = {
+    "capability",
+    "component_count",
+    "offset",
+    "limit",
+    "total",
+    "hasMore",
+    "query_type",
+    "component_definitions_searched",
+    "filtered_by",
+}
+PAGE_KEYS = {"items", "total", "offset", "limit", "hasMore"}
+CHILD_PARENT_KEYS = {
+    "uuid",
+    "parentComponentDefinitionTitle",
+    "parentComponentDefinitionUuid",
+    "sizeInBytes",
+}
+
+
+# ---------------------------------------------------------------------------
+# Helpers: expected values computed from the source fixtures via trestle
+# ---------------------------------------------------------------------------
+
+
+def _parse_fixture(filename: str) -> ComponentDefinition:
+    data = load_fixture_cdef(filename)
+    return ComponentDefinition.parse_obj(data["component-definition"])
+
+
+def _expected_components() -> dict[str, dict]:
+    """Map component UUID -> ``DefinedComponent.dict(exclude_none=True)``."""
+    out: dict[str, dict] = {}
+    for filename in VALID_CDEF_FILES:
+        for comp in _parse_fixture(filename).components or []:
+            out[str(comp.uuid)] = comp.dict(exclude_none=True)
+    return out
+
+
+def _expected_capability():
+    caps = _parse_fixture(CAPABILITIES_CDEF_FILE).capabilities or []
+    return next(c for c in caps if str(c.uuid) == CAPABILITY_UUID)
+
+
+def _component_uuids(result: dict[str, Any]) -> set[str]:
+    return {str(c["uuid"]) for c in result["components"]}
+
+
+def _assert_components_match_fixtures(result: dict[str, Any]) -> None:
+    """Each returned component equals the trestle dict from its source (3.7)."""
+    expected = _expected_components()
+    for comp in result["components"]:
+        assert comp == expected[str(comp["uuid"])]
+
+
+# Filter values that select multi_component_definition.json: exact UUID and a
+# case-altered title (CDef_Filter titles match case-insensitively).
+MULTI_FILTERS = [
+    pytest.param(MULTI_CDEF_UUID, id="filter-uuid"),
+    pytest.param(MULTI_CDEF_TITLE.upper(), id="filter-title"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Wrappers against fixture_store (2.1, 7.2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("fixture_store")
+class TestWrappersAgainstFixtureStore:
+    """Each of the five MCP tool wrappers delegates to the real store."""
+
+    def test_query_component_definition(self):
+        result = query_component_definition(ctx=None)
+        assert set(result) == COMPONENT_QUERY_KEYS
+        assert result["total_count"] == len(ALL_COMPONENT_UUIDS)
+
+    def test_list_component_definitions(self):
+        result = list_component_definitions(ctx=None)
+        assert set(result) == PAGE_KEYS
+        assert result["total"] == TOTAL_CDEFS
+        assert result["hasMore"] is False
+        assert {i["uuid"] for i in result["items"]} == {
+            SAMPLE_CDEF_UUID,
+            MULTI_CDEF_UUID,
+            CAPS_CDEF_UUID,
+        }
+
+    def test_list_component_definitions_item_keys(self):
+        """Items keep the existing summary keys (5.8)."""
+        result = list_component_definitions(ctx=None)
+        titles = {
+            str(_parse_fixture(f).uuid): _parse_fixture(f).metadata.title
+            for f in VALID_CDEF_FILES
+        }
+        for item in result["items"]:
+            assert set(item) == {
+                "uuid",
+                "title",
+                "componentCount",
+                "importedComponentDefinitionsCount",
+                "sizeInBytes",
+            }
+            assert item["title"] == titles[item["uuid"]]
+
+    def test_list_components(self):
+        result = list_components(ctx=None)
+        assert set(result) == PAGE_KEYS
+        assert result["total"] == len(ALL_COMPONENT_UUIDS)
+        assert {i["uuid"] for i in result["items"]} == ALL_COMPONENT_UUIDS
+
+    def test_list_capabilities(self):
+        result = list_capabilities(ctx=None)
+        assert set(result) == PAGE_KEYS
+        assert result["total"] == 1
+        assert [i["uuid"] for i in result["items"]] == [CAPABILITY_UUID]
+
+    def test_get_capability(self):
+        result = get_capability(ctx=None, uuid=CAPABILITY_UUID)
+        assert result == _expected_capability().dict()
+
+
+# ---------------------------------------------------------------------------
+# list_components / list_capabilities item shape (5.1, 5.2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("fixture_store")
+class TestListChildElements:
+    """Summary items carry the documented keys; ``uuid`` is the child's id."""
+
+    def test_list_components_items(self):
+        result = list_components(ctx=None)
+        parents = {
+            str(comp.uuid): (str(cd.uuid), cd.metadata.title, comp.title)
+            for cd in (_parse_fixture(f) for f in VALID_CDEF_FILES)
+            for comp in cd.components or []
+        }
+        for item in result["items"]:
+            assert set(item) == CHILD_PARENT_KEYS | {"title"}
+            parent_uuid, parent_title, title = parents[item["uuid"]]
+            assert item["title"] == title
+            assert item["parentComponentDefinitionUuid"] == parent_uuid
+            assert item["parentComponentDefinitionTitle"] == parent_title
+            assert item["sizeInBytes"] > 0
+
+    def test_list_capabilities_items(self):
+        result = list_capabilities(ctx=None)
+        (item,) = result["items"]
+        assert set(item) == CHILD_PARENT_KEYS | {"name"}
+        assert item["uuid"] == CAPABILITY_UUID
+        assert item["name"] == CAPABILITY_NAME
+        assert item["parentComponentDefinitionUuid"] == CAPS_CDEF_UUID
+        assert (
+            item["parentComponentDefinitionTitle"]
+            == _parse_fixture(CAPABILITIES_CDEF_FILE).metadata.title
+        )
+        assert item["sizeInBytes"] > 0
+
+
+# ---------------------------------------------------------------------------
+# query_component_definition matrix (3.1-3.9, 7.3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("fixture_store")
+class TestQueryMatrixNoFilter:
+    """Component queries across every Component Definition in the store."""
+
+    def _query(self, query_type: str, query_value: str | None = None) -> dict:
+        result = query_component_definition(
+            ctx=None,
+            query_type=query_type,  # type: ignore[arg-type]
+            query_value=query_value,
+        )
+        assert set(result) == COMPONENT_QUERY_KEYS
+        assert result["query_type"] == query_type
+        assert result["filtered_by"] is None
+        assert result["component_definitions_searched"] == TOTAL_CDEFS
+        _assert_components_match_fixtures(result)
+        return result
+
+    def test_all(self):
+        result = self._query("all")
+        assert _component_uuids(result) == ALL_COMPONENT_UUIDS
+        assert result["total_count"] == len(ALL_COMPONENT_UUIDS)
+        assert result["hasMore"] is False
+
+    def test_by_uuid(self):
+        result = self._query("by_uuid", API_GATEWAY_UUID)
+        assert _component_uuids(result) == {API_GATEWAY_UUID}
+        assert result["total_count"] == 1
+
+    def test_by_title_case_insensitive(self):
+        result = self._query("by_title", "database SERVICE")
+        assert _component_uuids(result) == {DATABASE_UUID}
+        assert result["total_count"] == 1
+
+    def test_by_title_prop_value_fallback(self):
+        result = self._query("by_title", PROP_FALLBACK_VALUE)
+        assert _component_uuids(result) == {DATABASE_UUID}
+        assert result["total_count"] == 1
+
+    def test_by_type(self):
+        result = self._query("by_type", "software")
+        assert _component_uuids(result) == {
+            SAMPLE_COMPONENT_UUID,
+            DATABASE_UUID,
+            CAPABILITY_COMPONENT_UUID,
+        }
+        assert result["total_count"] == 3
+
+
+@pytest.mark.usefixtures("fixture_store")
+@pytest.mark.parametrize("cdef_filter", MULTI_FILTERS)
+class TestQueryMatrixWithFilter:
+    """Component queries scoped to multi_component_definition.json."""
+
+    def _query(
+        self, cdef_filter: str, query_type: str, query_value: str | None = None
+    ) -> dict:
+        result = query_component_definition(
+            ctx=None,
+            component_definition_filter=cdef_filter,
+            query_type=query_type,  # type: ignore[arg-type]
+            query_value=query_value,
+        )
+        assert set(result) == COMPONENT_QUERY_KEYS
+        assert result["query_type"] == query_type
+        assert result["filtered_by"] == cdef_filter
+        assert result["component_definitions_searched"] == 1
+        _assert_components_match_fixtures(result)
+        assert _component_uuids(result) <= MULTI_COMPONENT_UUIDS
+        return result
+
+    def test_all(self, cdef_filter):
+        result = self._query(cdef_filter, "all")
+        assert _component_uuids(result) == MULTI_COMPONENT_UUIDS
+        assert result["total_count"] == len(MULTI_COMPONENT_UUIDS)
+
+    def test_by_uuid(self, cdef_filter):
+        result = self._query(cdef_filter, "by_uuid", HSM_UUID)
+        assert _component_uuids(result) == {HSM_UUID}
+
+    def test_by_uuid_outside_filter_is_empty(self, cdef_filter):
+        result = self._query(cdef_filter, "by_uuid", SAMPLE_COMPONENT_UUID)
+        assert result["components"] == []
+        assert result["total_count"] == 0
+
+    def test_by_title_case_insensitive(self, cdef_filter):
+        result = self._query(cdef_filter, "by_title", "api gateway")
+        assert _component_uuids(result) == {API_GATEWAY_UUID}
+
+    def test_by_title_prop_value_fallback(self, cdef_filter):
+        result = self._query(cdef_filter, "by_title", PROP_FALLBACK_VALUE)
+        assert _component_uuids(result) == {DATABASE_UUID}
+
+    def test_by_type(self, cdef_filter):
+        result = self._query(cdef_filter, "by_type", "software")
+        assert _component_uuids(result) == {DATABASE_UUID}
+        assert result["total_count"] == 1
+
+
+@pytest.mark.usefixtures("fixture_store")
+class TestQueryCapabilityFirst:
+    """``by_uuid`` / ``by_title`` return a Capability before any Component."""
+
+    @pytest.mark.parametrize(
+        ("query_type", "query_value"),
+        [("by_uuid", CAPABILITY_UUID), ("by_title", CAPABILITY_NAME)],
+    )
+    @pytest.mark.parametrize("cdef_filter", [None, CAPS_CDEF_UUID])
+    def test_capability_response(self, query_type, query_value, cdef_filter):
+        result = query_component_definition(
+            ctx=None,
+            component_definition_filter=cdef_filter,
+            query_type=query_type,
+            query_value=query_value,
+        )
+        cap = _expected_capability()
+        assert set(result) == CAPABILITY_QUERY_KEYS
+        assert result["capability"] == cap.oscal_dict()
+        assert result["component_count"] == len(cap.incorporates_components or [])
+        assert (result["offset"], result["limit"], result["total"]) == (0, 1, 1)
+        assert result["hasMore"] is False
+        assert result["query_type"] == query_type
+        assert result["filtered_by"] == cdef_filter
+        expected_searched = 1 if cdef_filter else TOTAL_CDEFS
+        assert result["component_definitions_searched"] == expected_searched
+
+
+# ---------------------------------------------------------------------------
+# Error and edge cases (2.2, 4.3-4.6, 5.3-5.7, 7.4, 7.5)
+# ---------------------------------------------------------------------------
+
+NO_COMPONENTS_CDEF_UUID = "0a0a0a0a-0000-4000-8000-000000000001"
+
+
+def _no_components_cdef() -> dict:
+    """A minimal Trestle-valid Component Definition with no components."""
+    return {
+        "component-definition": {
+            "uuid": NO_COMPONENTS_CDEF_UUID,
+            "metadata": {
+                "title": "No Components Definition",
+                "last-modified": "2024-01-01T00:00:00+00:00",
+                "version": "1.0",
+                "oscal-version": "1.0.4",
+            },
+        }
+    }
+
+
+@pytest.fixture
+def store_factory(tmp_path):
+    """Build and install a real store from cdef dicts; closes it afterward."""
+    stores = []
+
+    def _build(cdefs: list[dict]):
+        store = build_fixture_store(tmp_path, cdefs)
+        init_store(store)
+        stores.append(store)
+        return store
+
+    yield _build
+    for store in stores:
+        store.close()
+
+
+WRAPPER_CALLS = [
+    pytest.param(lambda: query_component_definition(ctx=None), id="query"),
+    pytest.param(lambda: list_component_definitions(ctx=None), id="list_cdefs"),
+    pytest.param(lambda: list_components(ctx=None), id="list_components"),
+    pytest.param(lambda: list_capabilities(ctx=None), id="list_capabilities"),
+    pytest.param(
+        lambda: get_capability(ctx=None, uuid=CAPABILITY_UUID), id="get_capability"
+    ),
+]
+
+
+class TestUninitialisedStore:
+    """Every wrapper raises RuntimeError before ``init_store`` (2.2)."""
+
+    @pytest.mark.parametrize("call", WRAPPER_CALLS)
+    def test_raises_runtime_error(self, call):
+        # The autouse ``reset_oscal_store`` fixture leaves the singleton unset.
+        with pytest.raises(RuntimeError, match="init_store"):
+            call()
+
+
+@pytest.mark.usefixtures("fixture_store")
+class TestQueryErrorsAndEdgeCases:
+    """Validation, filter misses and query_value normalisation (4.3-4.6)."""
+
+    @pytest.mark.parametrize("query_type", ["by_uuid", "by_title", "by_type"])
+    @pytest.mark.parametrize("query_value", [None, "", "   \t "])
+    def test_missing_query_value(self, query_type, query_value):
+        with pytest.raises(ValueError, match="query_value is required"):
+            query_component_definition(
+                ctx=None, query_type=query_type, query_value=query_value
+            )
+
+    @pytest.mark.parametrize(
+        "cdef_filter", ["no-such-definition", "Multi", "Component"]
+    )
+    def test_unmatched_or_fuzzy_filter_is_empty(self, cdef_filter):
+        """Unknown and partial (fuzzy-only) titles never select a cdef."""
+        result = query_component_definition(
+            ctx=None, component_definition_filter=cdef_filter
+        )
+        assert set(result) == COMPONENT_QUERY_KEYS
+        assert result["components"] == []
+        assert result["total_count"] == 0
+        assert result["hasMore"] is False
+        assert result["component_definitions_searched"] == 0
+        assert result["filtered_by"] == cdef_filter
+
+    @pytest.mark.parametrize(
+        ("query_type", "query_value", "expected"),
+        [
+            ("by_uuid", f"  {HSM_UUID}\n", {HSM_UUID}),
+            ("by_title", "  API Gateway  ", {API_GATEWAY_UUID}),
+            ("by_type", " hardware ", {HSM_UUID}),
+        ],
+    )
+    def test_whitespace_padded_query_value_matches(
+        self, query_type, query_value, expected
+    ):
+        result = query_component_definition(
+            ctx=None, query_type=query_type, query_value=query_value
+        )
+        assert _component_uuids(result) == expected
+
+    def test_whitespace_padded_capability_name_matches(self):
+        result = query_component_definition(
+            ctx=None, query_type="by_title", query_value=f"  {CAPABILITY_NAME} "
+        )
+        assert result["capability"] == _expected_capability().oscal_dict()
+
+
+class TestEmptyStores:
+    """Stores with no cdefs, no components or no capabilities (4.4, 5.3-5.7)."""
+
+    def test_query_on_empty_store(self, store_factory):
+        store_factory([])
+        with pytest.raises(ValueError, match="No Component Definitions loaded"):
+            query_component_definition(ctx=None)
+
+    def test_list_component_definitions_on_empty_store(self, store_factory):
+        store_factory([])
+        with pytest.raises(RuntimeError, match="No Component Definitions loaded"):
+            list_component_definitions(ctx=None)
+
+    def test_list_capabilities_without_capabilities(self, store_factory):
+        store_factory([load_fixture_cdef(SAMPLE_CDEF_FILE)])
+        result = list_capabilities(ctx=None)
+        assert result == {
+            "items": [],
+            "total": 0,
+            "offset": 0,
+            "limit": 10,
+            "hasMore": False,
+        }
+
+    def test_list_components_without_components(self, store_factory):
+        store_factory([_no_components_cdef()])
+        assert list_component_definitions(ctx=None)["total"] == 1
+        with pytest.raises(RuntimeError, match="No Components loaded"):
+            list_components(ctx=None)
+
+
+class TestManyCapabilities:
+    """Capability lookups are not capped at 100 (5.4-5.6, 7.4, 7.5)."""
+
+    def test_get_capability_beyond_position_100(self, many_capabilities_store):
+        target = many_capabilities_store.target
+        result = get_capability(ctx=None, uuid=target["uuid"])
+        assert result is not None
+        assert str(result["uuid"]) == target["uuid"]
+        assert result["name"] == target["name"]
+
+    @pytest.mark.parametrize(
+        ("query_type", "key"), [("by_uuid", "uuid"), ("by_title", "name")]
+    )
+    def test_query_finds_capability_beyond_position_100(
+        self, many_capabilities_store, query_type, key
+    ):
+        target = many_capabilities_store.target
+        result = query_component_definition(
+            ctx=None, query_type=query_type, query_value=target[key]
+        )
+        assert set(result) == CAPABILITY_QUERY_KEYS
+        # oscal_dict() wraps the Capability under its "capability" alias.
+        cap = result["capability"]["capability"]
+        assert str(cap["uuid"]) == target["uuid"]
+        assert cap["name"] == target["name"]
+
+    @pytest.mark.parametrize(
+        "uuid", ["00000000-0000-4000-8000-000000000000", ""], ids=["unknown", "empty"]
+    )
+    @pytest.mark.usefixtures("many_capabilities_store")
+    def test_get_capability_not_found(self, uuid):
+        assert get_capability(ctx=None, uuid=uuid) is None
+
+
+# ---------------------------------------------------------------------------
+# Parse scope: only the needed Component Definitions are parsed (3.10, 3.11)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def parse_spy(fixture_store):
+    """Spy on ``get_parsed_model_by_uuid`` of the installed real store."""
+    with patch.object(
+        fixture_store,
+        "get_parsed_model_by_uuid",
+        wraps=fixture_store.get_parsed_model_by_uuid,
+    ) as spy:
+        yield spy
+
+
+def _parsed_uuids(spy) -> list[str]:
+    return [c.args[0] if c.args else c.kwargs["doc_uuid"] for c in spy.call_args_list]
+
+
+FILTERED_COMPONENT_QUERIES = [
+    pytest.param("all", None, MULTI_COMPONENT_UUIDS, id="all"),
+    pytest.param("by_uuid", HSM_UUID, {HSM_UUID}, id="by_uuid"),
+    pytest.param("by_title", "API Gateway", {API_GATEWAY_UUID}, id="by_title"),
+    pytest.param("by_type", "software", {DATABASE_UUID}, id="by_type"),
+    pytest.param(
+        "by_title", PROP_FALLBACK_VALUE, {DATABASE_UUID}, id="prop-fallback"
+    ),
+]
+
+
+class TestParseScope:
+    """Component results parse only the Component Definitions they need."""
+
+    @pytest.mark.parametrize("cdef_filter", MULTI_FILTERS)
+    @pytest.mark.parametrize(
+        ("query_type", "query_value", "expected"), FILTERED_COMPONENT_QUERIES
+    )
+    def test_filtered_query_parses_only_matched_cdef(
+        self, parse_spy, cdef_filter, query_type, query_value, expected
+    ):
+        """With a CDef_Filter only the matched cdef is parsed (3.10)."""
+        result = query_component_definition(
+            ctx=None,
+            component_definition_filter=cdef_filter,
+            query_type=query_type,
+            query_value=query_value,
+        )
+        assert _component_uuids(result) == expected
+        assert _parsed_uuids(parse_spy) == [MULTI_CDEF_UUID]
+
+    @pytest.mark.parametrize(
+        ("query_type", "query_value", "expected_uuid", "parent_uuid"),
+        [
+            pytest.param(
+                "by_uuid", HSM_UUID, HSM_UUID, MULTI_CDEF_UUID, id="by_uuid-multi"
+            ),
+            pytest.param(
+                "by_uuid",
+                SAMPLE_COMPONENT_UUID,
+                SAMPLE_COMPONENT_UUID,
+                SAMPLE_CDEF_UUID,
+                id="by_uuid-sample",
+            ),
+            pytest.param(
+                "by_title",
+                "api gateway",
+                API_GATEWAY_UUID,
+                MULTI_CDEF_UUID,
+                id="by_title",
+            ),
+            pytest.param(
+                "by_title",
+                PROP_FALLBACK_VALUE,
+                DATABASE_UUID,
+                MULTI_CDEF_UUID,
+                id="prop-fallback",
+            ),
+        ],
+    )
+    def test_unfiltered_lookup_parses_only_candidate_parent(
+        self, parse_spy, query_type, query_value, expected_uuid, parent_uuid
+    ):
+        """Without a filter only the hit's parent cdef is parsed (3.11)."""
+        result = query_component_definition(
+            ctx=None, query_type=query_type, query_value=query_value
+        )
+        assert _component_uuids(result) == {expected_uuid}
+        assert _parsed_uuids(parse_spy) == [parent_uuid]
+
+    def test_unfiltered_lookup_miss_parses_nothing(self, parse_spy):
+        result = query_component_definition(
+            ctx=None, query_type="by_uuid", query_value="no-such-uuid"
+        )
+        assert result["components"] == []
+        assert _parsed_uuids(parse_spy) == []
+
+    @pytest.mark.parametrize(
+        ("query_type", "query_value"),
+        [("by_uuid", CAPABILITY_UUID), ("by_title", CAPABILITY_NAME)],
+    )
+    @pytest.mark.parametrize("cdef_filter", [None, CAPS_CDEF_UUID])
+    def test_capability_lookup_parses_only_its_parent(
+        self, parse_spy, query_type, query_value, cdef_filter
+    ):
+        result = query_component_definition(
+            ctx=None,
+            component_definition_filter=cdef_filter,
+            query_type=query_type,
+            query_value=query_value,
+        )
+        assert set(result) == CAPABILITY_QUERY_KEYS
+        assert _parsed_uuids(parse_spy) == [CAPS_CDEF_UUID]
+
+    def test_get_capability_parses_only_its_parent(self, parse_spy):
+        assert get_capability(ctx=None, uuid=CAPABILITY_UUID) is not None
+        assert _parsed_uuids(parse_spy) == [CAPS_CDEF_UUID]
+
+
+# ---------------------------------------------------------------------------
+# Structural smoke tests (1.1-1.3, 6.3)
+# ---------------------------------------------------------------------------
+
+_CDEF_TOOLS_PATH = Path(qcd_module.__file__)
+_LEGACY_NAMES = (
+    "ComponentDefinitionStore",
+    "_store",
+    "_load_component_definitions_from_directory",
+)
+# Names under which CDef_Tools refers to an OscalStore instance.
+_STORE_NAMES = {"_oscal_store", "store"}
+
+
+def _cdef_tools_tree() -> ast.Module:
+    return ast.parse(_CDEF_TOOLS_PATH.read_text(encoding="utf-8"))
+
+
+class TestLegacyStoreRemoved:
+    """The legacy in-memory store is gone (1.1, 1.2)."""
+
+    @pytest.mark.parametrize("name", _LEGACY_NAMES)
+    def test_module_has_no_legacy_attribute(self, name):
+        assert not hasattr(qcd_module, name)
+
+    def test_source_has_no_legacy_names(self):
+        tree = _cdef_tools_tree()
+        names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        names |= {
+            n.name
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+        }
+        assert names.isdisjoint(_LEGACY_NAMES)
+
+    def test_source_does_not_reference_cdef_dir_setting(self):
+        assert "component_definitions_dir" not in _CDEF_TOOLS_PATH.read_text(
+            encoding="utf-8"
+        )
+
+
+class TestPublicStoreApiOnly:
+    """CDef_Tools touches the OscalStore only via public attributes (6.3)."""
+
+    def test_no_private_store_attribute_access(self):
+        offenders = [
+            f"{node.value.id}.{node.attr} (line {node.lineno})"
+            for node in ast.walk(_cdef_tools_tree())
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in _STORE_NAMES
+            and node.attr.startswith("_")
+        ]
+        assert offenders == []
+
+
+class TestImportReadsNoCdefContent:
+    """Importing CDef_Tools reads nothing from the cdef directory (1.3).
+
+    A fresh copy of the module is executed under a throwaway name with the
+    filesystem entry points patched to record every path they receive. The
+    real ``mcp_server_for_oscal.tools.query_component_definition`` module is
+    never reloaded, so module identity seen by other tests is unchanged.
     """
 
-    @settings(max_examples=100, deadline=None)
-    @given(
-        cdefs_by_path=_simple_dict,
-        cdefs_by_uuid=_simple_dict,
-        cdefs_by_title=_simple_dict,
-        components_by_uuid=_simple_dict,
-        components_by_title=_simple_dict,
-        components_to_cdef_by_uuid=_simple_dict,
-        capabilities_by_uuid=_simple_dict,
-        capabilities_by_name=_simple_dict,
-        capabilities_to_cdef_by_uuid=_simple_dict,
-        stats=_stats_dict,
-    )
-    def test_save_reset_restore_preserves_state(
-        self,
-        cdefs_by_path,
-        cdefs_by_uuid,
-        cdefs_by_title,
-        components_by_uuid,
-        components_by_title,
-        components_to_cdef_by_uuid,
-        capabilities_by_uuid,
-        capabilities_by_name,
-        capabilities_to_cdef_by_uuid,
-        stats,
-    ):
-        """Feature: parallel-safe-tests, Property 1: Store state save/reset/restore round-trip
+    def test_import_performs_no_cdef_reads(self, tmp_path, monkeypatch):
+        cdef_dir = tmp_path / "component_definitions"
+        cdef_dir.mkdir()
+        (cdef_dir / "cdef.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(config, "component_definitions_dir", str(cdef_dir))
 
-        **Validates: Requirements 1.1, 1.2, 1.4, 2.1, 2.2, 2.4**
-        """
-        # 1. Set arbitrary state on _store
-        _store._cdefs_by_path = dict(cdefs_by_path)
-        _store._cdefs_by_uuid = dict(cdefs_by_uuid)
-        _store._cdefs_by_title = dict(cdefs_by_title)
-        _store._components_by_uuid = dict(components_by_uuid)
-        _store._components_by_title = dict(components_by_title)
-        _store._components_to_cdef_by_uuid = dict(components_to_cdef_by_uuid)
-        _store._capabilities_by_uuid = dict(capabilities_by_uuid)
-        _store._capabilities_by_name = dict(capabilities_by_name)
-        _store._capabilities_to_cdef_by_uuid = dict(capabilities_to_cdef_by_uuid)
-        _store._stats = dict(stats)
+        seen: list[str] = []
 
-        # 2. Save via deep copy (simulating the fixture's save step)
-        saved_cdefs_by_path = copy.deepcopy(_store._cdefs_by_path)
-        saved_cdefs_by_uuid = copy.deepcopy(_store._cdefs_by_uuid)
-        saved_cdefs_by_title = copy.deepcopy(_store._cdefs_by_title)
-        saved_components_by_uuid = copy.deepcopy(_store._components_by_uuid)
-        saved_components_by_title = copy.deepcopy(_store._components_by_title)
-        saved_components_to_cdef = copy.deepcopy(_store._components_to_cdef_by_uuid)
-        saved_capabilities_by_uuid = copy.deepcopy(_store._capabilities_by_uuid)
-        saved_capabilities_by_name = copy.deepcopy(_store._capabilities_by_name)
-        saved_capabilities_to_cdef = copy.deepcopy(_store._capabilities_to_cdef_by_uuid)
-        saved_stats = copy.deepcopy(_store._stats)
+        def recorder(real, path_arg: int = 0):
+            def _wrapped(*args, **kwargs):
+                if len(args) > path_arg:
+                    seen.append(str(args[path_arg]))
+                return real(*args, **kwargs)
 
-        # 3. Call _reset() (simulating the fixture's clear step)
-        _store._reset()
+            return _wrapped
 
-        # Verify _reset() actually cleared everything
-        assert _store._cdefs_by_path == {}
-        assert _store._cdefs_by_uuid == {}
-        assert _store._cdefs_by_title == {}
-        assert _store._components_by_uuid == {}
-        assert _store._components_by_title == {}
-        assert _store._components_to_cdef_by_uuid == {}
-        assert _store._capabilities_by_uuid == {}
-        assert _store._capabilities_by_name == {}
-        assert _store._capabilities_to_cdef_by_uuid == {}
-        assert all(v == 0 for v in _store._stats.values())
+        patches = [
+            patch.object(Path, name, recorder(getattr(Path, name)))
+            for name in (
+                "iterdir",
+                "glob",
+                "rglob",
+                "exists",
+                "is_dir",
+                "is_file",
+                "open",
+                "read_text",
+                "read_bytes",
+            )
+        ]
+        patches += [
+            patch("builtins.open", recorder(builtins.open)),
+            patch("os.listdir", recorder(os.listdir)),
+            patch("os.scandir", recorder(os.scandir)),
+            patch("os.walk", recorder(os.walk)),
+            patch("zipfile.ZipFile", recorder(zipfile.ZipFile)),
+        ]
 
-        # 4. Restore the saved values (simulating the fixture's restore step)
-        _store._cdefs_by_path = saved_cdefs_by_path
-        _store._cdefs_by_uuid = saved_cdefs_by_uuid
-        _store._cdefs_by_title = saved_cdefs_by_title
-        _store._components_by_uuid = saved_components_by_uuid
-        _store._components_by_title = saved_components_by_title
-        _store._components_to_cdef_by_uuid = saved_components_to_cdef
-        _store._capabilities_by_uuid = saved_capabilities_by_uuid
-        _store._capabilities_by_name = saved_capabilities_by_name
-        _store._capabilities_to_cdef_by_uuid = saved_capabilities_to_cdef
-        _store._stats = saved_stats
+        name = "_cdef_tools_import_probe"
+        spec = importlib.util.spec_from_file_location(name, _CDEF_TOOLS_PATH)
+        assert spec is not None
+        assert spec.loader is not None
+        fresh = importlib.util.module_from_spec(spec)
+        sys.modules[name] = fresh
+        try:
+            with contextlib.ExitStack() as stack:
+                for p in patches:
+                    stack.enter_context(p)
+                spec.loader.exec_module(fresh)
+                import_seen = list(seen)
+                # Positive control: the patches do record a cdef_dir read.
+                list(cdef_dir.iterdir())
+                assert str(cdef_dir) in seen[len(import_seen) :]
+        finally:
+            sys.modules.pop(name, None)
 
-        # 5. Assert all 10 attributes match the original values
-        assert _store._cdefs_by_path == cdefs_by_path
-        assert _store._cdefs_by_uuid == cdefs_by_uuid
-        assert _store._cdefs_by_title == cdefs_by_title
-        assert _store._components_by_uuid == components_by_uuid
-        assert _store._components_by_title == components_by_title
-        assert _store._components_to_cdef_by_uuid == components_to_cdef_by_uuid
-        assert _store._capabilities_by_uuid == capabilities_by_uuid
-        assert _store._capabilities_by_name == capabilities_by_name
-        assert _store._capabilities_to_cdef_by_uuid == capabilities_to_cdef_by_uuid
-        assert _store._stats == stats
+        # The probe really executed the module and left the real one intact.
+        assert fresh.init_store is not qcd_module.init_store
+        assert sys.modules[qcd_module.__name__] is qcd_module
+        offenders = [
+            p
+            for p in import_seen
+            if str(cdef_dir) in p or "component_definitions" in p
+        ]
+        assert offenders == []
