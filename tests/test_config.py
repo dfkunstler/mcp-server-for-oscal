@@ -10,6 +10,9 @@ from hypothesis import strategies as st
 
 from mcp_server_for_oscal.config import Config
 
+# Only compared as a config value; never created on disk.
+FAKE_SESSION_DIR = "/tmp/my_sessions"  # nosec B108 # never touched on disk
+
 
 class TestConfig:
     """Test cases for the Config class."""
@@ -321,12 +324,12 @@ class TestSessionConversationConfigDefaults:
     def test_session_dir_from_env_var(self):
         """session_dir matches OSCAL_AGENT_SESSION_DIR env var."""
         env = {
-            "OSCAL_AGENT_SESSION_DIR": "/tmp/my_sessions",
+            "OSCAL_AGENT_SESSION_DIR": FAKE_SESSION_DIR,
             "PYTHON_DOTENV_DISABLED": "1",
         }
         with patch.dict(os.environ, env, clear=True):
             cfg = Config()
-            assert cfg.session_dir == "/tmp/my_sessions"
+            assert cfg.session_dir == FAKE_SESSION_DIR
 
     def test_session_s3_bucket_from_env_var(self):
         """session_s3_bucket matches OSCAL_AGENT_SESSION_S3_BUCKET env var."""
