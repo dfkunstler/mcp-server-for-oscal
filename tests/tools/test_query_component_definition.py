@@ -115,15 +115,15 @@ CHILD_PARENT_KEYS = {
 
 def _parse_fixture(filename: str) -> ComponentDefinition:
     data = load_fixture_cdef(filename)
-    return ComponentDefinition.parse_obj(data["component-definition"])
+    return ComponentDefinition.model_validate(data["component-definition"])
 
 
 def _expected_components() -> dict[str, dict]:
-    """Map component UUID -> ``DefinedComponent.dict(exclude_none=True)``."""
+    """Map component UUID -> ``DefinedComponent.model_dump(exclude_none=True)``."""
     out: dict[str, dict] = {}
     for filename in VALID_CDEF_FILES:
         for comp in _parse_fixture(filename).components or []:
-            out[str(comp.uuid)] = comp.dict(exclude_none=True)
+            out[str(comp.uuid)] = comp.model_dump(exclude_none=True)
     return out
 
 
@@ -206,7 +206,7 @@ class TestWrappersAgainstFixtureStore:
 
     def test_get_capability(self):
         result = get_capability(ctx=None, uuid=CAPABILITY_UUID)
-        assert result == _expected_capability().dict()
+        assert result == _expected_capability().model_dump()
 
 
 # ---------------------------------------------------------------------------

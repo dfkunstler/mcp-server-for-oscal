@@ -216,7 +216,7 @@ def _raw(store: OscalStore, child: dict) -> dict:
     )
     for obj in pool:
         if str(obj.uuid) == child["id"]:
-            loaded = json.loads(obj.json(exclude_none=True, by_alias=True))
+            loaded = json.loads(obj.model_dump_json(exclude_none=True, by_alias=True))
             return loaded if isinstance(loaded, dict) else {}
     logger.warning("Child %s missing from parent %s", child["id"], child["parentDocumentUuid"])
     return {}
@@ -279,7 +279,7 @@ def _materialize_components(store: OscalStore, page: list[dict]) -> list[dict]:
     their parent are logged and skipped.
 
     Returns:
-        ``DefinedComponent.dict(exclude_none=True)`` for each found candidate,
+        ``DefinedComponent.model_dump(exclude_none=True)`` for each found candidate,
         in candidate order.
     """
     by_parent: dict[str, dict[str, DefinedComponent]] = {}
@@ -294,7 +294,7 @@ def _materialize_components(store: OscalStore, page: list[dict]) -> list[dict]:
         if comp is None:
             logger.warning("Component %s missing from parent %s", cand["id"], parent)
             continue
-        out.append(comp.dict(exclude_none=True))
+        out.append(comp.model_dump(exclude_none=True))
     return out
 
 
@@ -496,13 +496,13 @@ def _get_capability(store: OscalStore, uuid: str) -> dict | None:
     """Return the full Capability with *uuid* as a dict, or ``None``.
 
     Searches every Capability in the store (no position cap).
-    ``.dict()`` (not ``oscal_dict()``) keeps output compatible with the
+    ``.model_dump()`` (not ``oscal_dict()``) keeps output compatible with the
     original tool.
     """
     if not uuid:
         return None
     cap = _find_capability(store, _Scope(None, 0), "by_uuid", uuid)
-    return cap.dict() if cap is not None else None
+    return cap.model_dump() if cap is not None else None
 
 
 def _list_component_definitions(
