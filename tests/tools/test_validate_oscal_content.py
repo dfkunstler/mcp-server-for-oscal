@@ -281,7 +281,9 @@ class TestValidateOscalCli:
     def test_timeout(self, mock_run, mock_which):
         """Timeout is handled gracefully."""
         mock_which.return_value = "/usr/local/bin/oscal-cli"
-        mock_run.side_effect = __import__("subprocess").TimeoutExpired(cmd="oscal-cli", timeout=60)
+        mock_run.side_effect = __import__("subprocess").TimeoutExpired(  # nosec B404 # mock only
+            cmd="oscal-cli", timeout=60
+        )
         result = _validate_oscal_cli('{"catalog": {}}', OSCALModelType.CATALOG)
         assert result["valid"] is False
         assert "timed out" in result["errors"][0]

@@ -19,6 +19,9 @@ from hypothesis import strategies as st
 from mcp_server_for_oscal.tools import query_documentation
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
+# Stored as a file_path value in test rows; never opened or created.
+FAKE_DOC_PATH = "/tmp/x.json"  # nosec B108 # never touched on disk
+
 
 class TestContentHashSchemaMigration:
     """Tests for content_hash column addition and migration (Req 6.5, 6.6)."""
@@ -59,7 +62,7 @@ class TestContentHashSchemaMigration:
             "INSERT INTO documents "
             "(uuid, title, model_type, file_path, file_size, file_mtime, raw_json) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            ("test-uuid", "Test", "component-definition", "/tmp/f.json", 100, 1.0, "{}"),
+            ("test-uuid", "Test", "component-definition", FAKE_DOC_PATH, 100, 1.0, "{}"),
         )
         conn.commit()
         conn.close()
@@ -91,12 +94,12 @@ class TestContentHashSchemaMigration:
                 "(uuid, title, model_type, file_path, file_size, "
                 "file_mtime, raw_json) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                ("u1", "T", "component-definition", "/tmp/x.json", 50, 2.0, "{}"),
+                ("u1", "T", "component-definition", FAKE_DOC_PATH, 50, 2.0, "{}"),
             )
             store._conn.commit()
 
             # Even with a valid hash, should return False when stored hash is NULL
-            assert store._file_unchanged("/tmp/x.json", "abc123") is False
+            assert store._file_unchanged(FAKE_DOC_PATH, "abc123") is False
         finally:
             store.close()
 

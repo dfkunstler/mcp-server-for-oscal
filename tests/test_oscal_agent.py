@@ -26,6 +26,9 @@ from mcp_server_for_oscal.oscal_agent import (
     create_oscal_agent,
 )
 
+# Passed as a CLI arg to a mocked session-manager builder; never created on disk.
+FAKE_SESSION_DIR = "/tmp/sessions"  # nosec B108 # never touched on disk
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1074,7 +1077,7 @@ class TestCLISessionArgParsing:
             "--session-storage",
             "file",
             "--session-dir",
-            "/tmp/sessions",
+            FAKE_SESSION_DIR,
             "--conversation-manager",
             "summarizing",
         ],
@@ -1103,7 +1106,7 @@ class TestCLISessionArgParsing:
         sm_call_args = mock_build_sm.call_args[0][0]  # first positional arg = args namespace
         assert sm_call_args.session_id == "abc-123"
         assert sm_call_args.session_storage == "file"
-        assert sm_call_args.session_dir == "/tmp/sessions"
+        assert sm_call_args.session_dir == FAKE_SESSION_DIR
 
         # Verify _build_conversation_manager was called with parsed args
         cm_call_args = mock_build_cm.call_args[0][0]
