@@ -153,7 +153,7 @@ def cdef_stores(
 
 def parse_cdefs(cdefs: list[dict]) -> list[ComponentDefinition]:
     """Parse wrapped cdef dicts into Trestle models (validates the strategy)."""
-    return [ComponentDefinition.parse_obj(c["component-definition"]) for c in cdefs]
+    return [ComponentDefinition.model_validate(c["component-definition"]) for c in cdefs]
 
 
 def case_variant(draw: st.DrawFn, text: str) -> str:
@@ -246,7 +246,7 @@ class TestRemoveLegacyCdefStoreProperties:
         and fidelity for `all`.
 
         Paging ``query_type="all"`` yields exactly the in-scope Components,
-        each equal to the source ``DefinedComponent.dict(exclude_none=True)``.
+        each equal to the source ``DefinedComponent.model_dump(exclude_none=True)``.
 
         **Validates: Requirements 3.1, 3.2, 3.7, 3.9, 7.7**
         """
@@ -266,7 +266,9 @@ class TestRemoveLegacyCdefStoreProperties:
         limit = data.draw(st.integers(1, 10), label="limit")
 
         expected = {
-            str(c.uuid): c.dict(exclude_none=True) for m in in_scope for c in m.components or []
+            str(c.uuid): c.model_dump(exclude_none=True)
+            for m in in_scope
+            for c in m.components or []
         }
 
         with installed_store(cdefs):
@@ -341,7 +343,7 @@ class TestRemoveLegacyCdefStoreProperties:
             assert resp["components"] == []
             assert resp["total_count"] == 0
         else:
-            assert resp["components"] == [comp.dict(exclude_none=True)]
+            assert resp["components"] == [comp.model_dump(exclude_none=True)]
             assert resp["total_count"] == 1
 
     @given(cdefs=cdef_stores(), data=st.data())
@@ -373,7 +375,7 @@ class TestRemoveLegacyCdefStoreProperties:
         query_value = data.draw(pad, label="lpad") + value + data.draw(pad, label="rpad")
 
         candidates = {
-            str(c.uuid): c.dict(exclude_none=True)
+            str(c.uuid): c.model_dump(exclude_none=True)
             for m in in_scope
             for c in m.components or []
             if any(p.value == value for p in c.props or [])
@@ -408,7 +410,7 @@ class TestRemoveLegacyCdefStoreProperties:
         Paging ``query_type="by_type"`` with any type string (including one
         absent from the store) yields exactly the in-scope Components whose
         source ``type`` equals it, each equal to the source
-        ``DefinedComponent.dict(exclude_none=True)``.
+        ``DefinedComponent.model_dump(exclude_none=True)``.
 
         **Validates: Requirements 3.6, 3.8**
         """
@@ -438,7 +440,7 @@ class TestRemoveLegacyCdefStoreProperties:
             if comp["type"] == type_value
         }
         expected = {
-            str(c.uuid): c.dict(exclude_none=True)
+            str(c.uuid): c.model_dump(exclude_none=True)
             for i in in_scope_idx
             for c in models[i].components or []
             if str(c.uuid) in expected_uuids
@@ -706,7 +708,7 @@ class TestRemoveLegacyCdefStoreProperties:
 
         For every Capability ``k`` in the store, including stores with more
         than 100 Capabilities, ``get_capability(uuid=k.uuid)`` equals
-        ``k.dict()``; any UUID not belonging to a Capability returns ``None``.
+        ``k.model_dump()``; any UUID not belonging to a Capability returns ``None``.
 
         **Validates: Requirements 5.3, 5.4**
         """
@@ -732,6 +734,6 @@ class TestRemoveLegacyCdefStoreProperties:
 
         with installed_store(cdefs):
             for k in capabilities:
-                assert get_capability(ctx=None, uuid=str(k.uuid)) == k.dict()
+                assert get_capability(ctx=None, uuid=str(k.uuid)) == k.model_dump()
             for u in non_capability_uuids:
                 assert get_capability(ctx=None, uuid=u) is None

@@ -90,7 +90,7 @@ UV_CONSTRAINT = "{root}/requirements.txt"
 [tool.pytest.ini_options]
 addopts = ["--durations=5", "--color=yes"]
 testpaths = ["tests"]
-filterwarnings = []
+filterwarnings = ["error::pydantic.PydanticDeprecatedSince20"]
 
 
 [tool.coverage.run]

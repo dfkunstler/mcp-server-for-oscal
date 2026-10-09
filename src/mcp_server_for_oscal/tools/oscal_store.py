@@ -540,7 +540,7 @@ class OscalStore:
         root_data = data.get(model_type.value, data)
 
         try:
-            return model_class.parse_obj(root_data)
+            return model_class.model_validate(root_data)
         except Exception as exc:
             raise RuntimeError(f"Failed to parse document as {class_name}: {exc}") from exc
 
@@ -931,7 +931,7 @@ class OscalStore:
         """Build a child element dict, serializing the object to JSON."""
         raw_json: str | None = None
         try:
-            json_method = getattr(obj, "json", None)
+            json_method = getattr(obj, "model_dump_json", None)
             if json_method is not None:
                 raw_json = json_method(exclude_none=True, by_alias=True)
         except Exception:
@@ -1278,7 +1278,7 @@ class OscalStore:
             mod = importlib.import_module(module_name)
             model_class = getattr(mod, class_name)
             root_data = data.get(model_type.value, data)
-            model_class.parse_obj(root_data)
+            model_class.model_validate(root_data)
             return True
         except Exception as exc:
             logger.warning(
