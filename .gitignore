@@ -17,6 +17,7 @@ __pycache__/
 .vscode
 *.code-workspace
 .kiro/settings
+.kiro/specs/**/tasks.meta.json
 
 .env
 *.zip
