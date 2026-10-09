@@ -3,11 +3,21 @@
 
 # Contributing Guidelines
 
+<!-- tags: contributing, process, community -->
+
 Thank you for your interest in contributing to our project. Whether it's a bug report, new feature, correction, or additional
 documentation, we greatly value feedback and contributions from our community.
 
 Please read through this document before submitting any issues or pull requests to ensure we have all the necessary
 information to effectively respond to your bug report or contribution.
+
+## Contents
+
+- [Reporting Bugs/Feature Requests](#reporting-bugsfeature-requests): check existing issues first, include reproduction details
+- [Contributing via Pull Requests](#contributing-via-pull-requests): fork, focused change, passing tests, CI
+- [Development standards](#development-standards): setup, required checks, code style, and what to update with each change
+- [Finding contributions to work on](#finding-contributions-to-work-on): issue labels to start from
+- [Code of Conduct](#code-of-conduct), [Security issue notifications](#security-issue-notifications), [Licensing](#licensing)
 
 
 ## Reporting Bugs/Feature Requests
@@ -41,6 +51,23 @@ To send us a pull request, please:
 
 GitHub provides additional document on [forking a repository](https://help.github.com/articles/fork-a-repo/) and
 [creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
+
+
+## Development standards
+
+<!-- tags: development, setup, testing, style -->
+
+Environment setup, configuration, and the full list of hatch scripts are in [DEVELOPING.md](DEVELOPING.md). A map of the code and its conventions, written for AI coding assistants but useful to people too, is in [AGENTS.md](AGENTS.md).
+
+- **Use hatch for everything.** Run tests, type checks, lint, and scripts through `hatch` so they use the locked environment (`requirements.txt`). `hatch run tests` (mypy, pytest on Python 3.11 and 3.12 with coverage, and bandit) must pass before you open a PR. To pass flags to pytest, put them after `--`, for example `hatch test -- -k schema`.
+- **Format and lint** with `hatch check fmt --fix` and `hatch check code --fix`. Ruff settings and the reasons for each ignored rule are in `pyproject.toml`. Prefer a targeted `# noqa: RULE - reason` to adding a new global ignore.
+- **Use compliance-trestle** (`trestle.oscal.*`) to parse, validate, and serialize OSCAL. Don't hand-roll OSCAL parsing or validation.
+- **Reference an issue.** Work on a branch for a single issue and include `#<issue>` in your commit messages.
+- **Keep related files in sync:**
+  - New or changed MCP tool: update `get_tool_list()` in `src/mcp_server_for_oscal/tools/__init__.py`, the tool's docstring (which clients see as the tool description), and `src/mcp_server_for_oscal/tools/README.md`.
+  - New environment variable: update `config.py`, `dotenv.example`, and the table in DEVELOPING.md. If users should be able to set it, also update `server.json` and `conf/mcpb/`.
+  - Changed bundled schemas or content: run `hatch run rehash`, and `hatch run build-db` for anything under `data/`.
+- **Tests:** use pytest, with hypothesis for property tests. Put tool tests under `tests/tools/` and reuse the fixtures in `tests/conftest.py`.
 
 
 ## Finding contributions to work on

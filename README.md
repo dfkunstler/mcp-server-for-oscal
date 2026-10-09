@@ -28,12 +28,25 @@ A Model Context Protocol (MCP) server that provides AI assistants (Claude, Cline
 > [!TIP]
 > To get started, see [Installation](#installation) below.
 
+## Contents
+
+- [Features](#features): what the tools cover, local-only operation, and integrity checks
+- [What is OSCAL?](#what-is-oscal) and [What is MCP?](#what-is-mcp): background
+- [How to use / examples](#how-to-use--examples): sample sessions covering models, templates, catalogs, and AWS component definitions
+- [Installation](#installation): one-click MCP Bundle (`.mcpb`) for Claude Desktop, or the PyPI package with configuration for Kiro, Claude Desktop, and VS Code
+- [Using your own OSCAL Content](#using-your-own-oscal-content): `OSCAL_DOCUMENTS_DIR` and store settings
+- [OSCAL Agent](#oscal-agent): the standalone Strands/Bedrock agent, sessions, and conversation management
+- [Development](#development), [Security](#security), [Known limitations](#known-limitations), [Related projects](#related-projects), [License](#license)
+
 ## Features
+<!-- tags: features, overview, security -->
 Together, the tools provided by this MCP server are meant to enable your preferred AI assistant to provide accurate, authoritative guidance about OSCAL architecture, models, use-cases, requirements, and implementation. You don't need to understand the tools to use them, but details are in the [tools](src/mcp_server_for_oscal/tools/) directory. 
 
 The server is lightweight and meant to run locally without additional setup. By default, it uses `stdio` protocol for MCP transport. Do not attempt to use the server with `streamable-http` transport, as we've not yet implemented transport security or authentication. 
 
-The default tools should not connect to any remote services or resources - all required content is bundled with the server. As a security measure, we've implemented basic file integrity verification for bundled content. At build-time we generate manifests including SHA-256 hashes of all content files. Each time the server starts, all content files are verified against the hash manifests. Any mismatch should produce an error and prevent startup.
+The default tools should not connect to any remote services or resources - all required content is bundled with the server. As a security measure, we've implemented basic file integrity verification for bundled content. At build-time we generate manifests including SHA-256 hashes of the bundled OSCAL schemas and the pre-built content database. Each time the server starts, both are verified against their manifests. A schema mismatch produces an error and prevents startup; a database mismatch causes the server to discard the bundled database and start with an empty one.
+
+The tools cover OSCAL schemas and model metadata, multi-level content validation, Component Definition navigation, query/list/full-text search for every OSCAL model type (catalogs, profiles, SSPs, assessment plans and results, POA&Ms, mapping collections), community resources, and documentation search. See the [tools README](src/mcp_server_for_oscal/tools/README.md) for the full list.
 
 In addition to the MCP server, the package includes a standalone OSCAL agent built with [Strands Agents](https://github.com/strands-agents/sdk-python). See the [OSCAL Agent](#oscal-agent) section below.
 
@@ -356,12 +369,35 @@ Running tool query_component_definition with the param (from mcp server: oscal-d
 ```
 
 ## Installation
-Follow these instructions to setup the MCP server for use with your preferred IDE, AI agent, chatbot, etc. The server is published as Python package on PyPI. The `uvx` command (shown below) automatically downloads the latest version of the server from PyPI on startup. 
+Follow these instructions to setup the MCP server for use with your preferred IDE, AI agent, chatbot, etc. The server is distributed two ways:
+
+- **MCP Bundle (`.mcpb`)**: a single-file, one-click install for MCPB-compatible desktop apps such as Claude Desktop. Attached to every [GitHub release](https://github.com/dfkunstler/mcp-server-for-oscal/releases/latest). See [MCP Bundle](#mcp-bundle) below.
+- **Python package on PyPI**: works with any MCP client. The `uvx` command (shown below) automatically downloads the latest version of the server from PyPI on startup.
 
 > [!NOTE] 
 > To setup for development instead, see [DEVELOPING.md](DEVELOPING.md)
 
+### MCP Bundle
+
+An [MCP Bundle](https://github.com/modelcontextprotocol/mcpb) packages the server, its manifest, and locked dependency versions into one file. The host app installs Python and the dependencies for you, so the prerequisites below don't apply.
+
+1. Download `mcp-server-for-oscal-<version>.mcpb` from the [latest release](https://github.com/dfkunstler/mcp-server-for-oscal/releases/latest).
+2. Open the file with your MCPB-compatible app. In Claude Desktop, double-click it or drag it onto **Settings > Extensions**, then click **Install**.
+3. Optionally, configure the extension's settings. All are optional; the defaults run fully locally with the bundled content.
+
+| Setting | Environment variable | Description |
+|---|---|---|
+| OSCAL documents directory | `OSCAL_DOCUMENTS_DIR` | Directory of your own OSCAL JSON files to index alongside the bundled content. See [Using your own OSCAL Content](#using-your-own-oscal-content). |
+| Allow remote URIs | `OSCAL_ALLOW_REMOTE_URIS` | Allow tools to fetch OSCAL content from `http`/`https` URIs. Off by default. |
+| Bedrock Knowledge Base ID | `OSCAL_KB_ID` | Amazon Bedrock Knowledge Base for documentation queries. Leave empty to use the bundled local documentation search. |
+| AWS profile / AWS region | `AWS_PROFILE` / `AWS_REGION` | Credentials and region for Bedrock Knowledge Base queries. |
+| Log level | `LOG_LEVEL` | `DEBUG`, `INFO` (default), `WARNING`, or `ERROR`. |
+
+Unlike the `uvx` configurations below, which fetch the latest PyPI release on startup, a bundle stays at the version you installed. To upgrade, download and install the `.mcpb` from a newer release.
+
 ### Prerequisites
+
+These apply to the PyPI package (every configuration below that uses `uvx`), not to the MCP Bundle.
 
 - `uv` package manager for Python ([Installation instructions](https://docs.astral.sh/uv/getting-started/installation/))
 - Python 3.11 or higher ([`uv install python 3.12`](https://docs.astral.sh/uv/guides/install-python/)). The server may work with later versions of Python, but we only test 3.11 & 3.12 for now.
@@ -411,7 +447,7 @@ See [Kiro's MCP documentation](https://kiro.dev/docs/mcp/configuration/) for add
 ```
 
 #### Claude Desktop
-The easiest way to install is with the MCP Bundle: download `mcp-server-for-oscal-<version>.mcpb` from the [latest release](https://github.com/dfkunstler/mcp-server-for-oscal/releases/latest) and open it with Claude Desktop (or drag it onto **Settings > Extensions**). Claude Desktop manages Python and dependencies for you, and lets you configure optional settings such as a directory of your own OSCAL documents.
+The easiest way to install is with the [MCP Bundle](#mcp-bundle). Claude Desktop manages Python and dependencies for you, and lets you configure optional settings such as a directory of your own OSCAL documents.
 
 Alternatively, open **Settings > Developer > Edit Config** in Claude Desktop and add the following to `claude_desktop_config.json` (located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
 
@@ -462,7 +498,7 @@ Set the `OSCAL_DOCUMENTS_DIR` environment variable to the path of your OSCAL con
 
 The server scans the directory recursively for `.json` files and indexes any valid OSCAL documents it finds. Your content is merged with the bundled content — both are queryable in the same session.
 
-Two additional environment variables control the OSCAL store behavior:
+These environment variables control the OSCAL store behavior:
 
 | Variable | Default | Description |
 |---|---|---|
