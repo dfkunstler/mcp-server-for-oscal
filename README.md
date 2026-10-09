@@ -33,7 +33,7 @@ A Model Context Protocol (MCP) server that provides AI assistants (Claude, Cline
 - [Features](#features): what the tools cover, local-only operation, and integrity checks
 - [What is OSCAL?](#what-is-oscal) and [What is MCP?](#what-is-mcp): background
 - [How to use / examples](#how-to-use--examples): sample sessions covering models, templates, catalogs, and AWS component definitions
-- [Installation](#installation): prerequisites and configuration for Kiro, Claude Desktop (MCP Bundle), and VS Code
+- [Installation](#installation): one-click MCP Bundle (`.mcpb`) for Claude Desktop, or the PyPI package with configuration for Kiro, Claude Desktop, and VS Code
 - [Using your own OSCAL Content](#using-your-own-oscal-content): `OSCAL_DOCUMENTS_DIR` and store settings
 - [OSCAL Agent](#oscal-agent): the standalone Strands/Bedrock agent, sessions, and conversation management
 - [Development](#development), [Security](#security), [Known limitations](#known-limitations), [Related projects](#related-projects), [License](#license)
@@ -369,12 +369,35 @@ Running tool query_component_definition with the param (from mcp server: oscal-d
 ```
 
 ## Installation
-Follow these instructions to setup the MCP server for use with your preferred IDE, AI agent, chatbot, etc. The server is published as Python package on PyPI. The `uvx` command (shown below) automatically downloads the latest version of the server from PyPI on startup. 
+Follow these instructions to setup the MCP server for use with your preferred IDE, AI agent, chatbot, etc. The server is distributed two ways:
+
+- **MCP Bundle (`.mcpb`)**: a single-file, one-click install for MCPB-compatible desktop apps such as Claude Desktop. Attached to every [GitHub release](https://github.com/dfkunstler/mcp-server-for-oscal/releases/latest). See [MCP Bundle](#mcp-bundle) below.
+- **Python package on PyPI**: works with any MCP client. The `uvx` command (shown below) automatically downloads the latest version of the server from PyPI on startup.
 
 > [!NOTE] 
 > To setup for development instead, see [DEVELOPING.md](DEVELOPING.md)
 
+### MCP Bundle
+
+An [MCP Bundle](https://github.com/modelcontextprotocol/mcpb) packages the server, its manifest, and locked dependency versions into one file. The host app installs Python and the dependencies for you, so the prerequisites below don't apply.
+
+1. Download `mcp-server-for-oscal-<version>.mcpb` from the [latest release](https://github.com/dfkunstler/mcp-server-for-oscal/releases/latest).
+2. Open the file with your MCPB-compatible app. In Claude Desktop, double-click it or drag it onto **Settings > Extensions**, then click **Install**.
+3. Optionally, configure the extension's settings. All are optional; the defaults run fully locally with the bundled content.
+
+| Setting | Environment variable | Description |
+|---|---|---|
+| OSCAL documents directory | `OSCAL_DOCUMENTS_DIR` | Directory of your own OSCAL JSON files to index alongside the bundled content. See [Using your own OSCAL Content](#using-your-own-oscal-content). |
+| Allow remote URIs | `OSCAL_ALLOW_REMOTE_URIS` | Allow tools to fetch OSCAL content from `http`/`https` URIs. Off by default. |
+| Bedrock Knowledge Base ID | `OSCAL_KB_ID` | Amazon Bedrock Knowledge Base for documentation queries. Leave empty to use the bundled local documentation search. |
+| AWS profile / AWS region | `AWS_PROFILE` / `AWS_REGION` | Credentials and region for Bedrock Knowledge Base queries. |
+| Log level | `LOG_LEVEL` | `DEBUG`, `INFO` (default), `WARNING`, or `ERROR`. |
+
+Unlike the `uvx` configurations below, which fetch the latest PyPI release on startup, a bundle stays at the version you installed. To upgrade, download and install the `.mcpb` from a newer release.
+
 ### Prerequisites
+
+These apply to the PyPI package (every configuration below that uses `uvx`), not to the MCP Bundle.
 
 - `uv` package manager for Python ([Installation instructions](https://docs.astral.sh/uv/getting-started/installation/))
 - Python 3.11 or higher ([`uv install python 3.12`](https://docs.astral.sh/uv/guides/install-python/)). The server may work with later versions of Python, but we only test 3.11 & 3.12 for now.
@@ -424,7 +447,7 @@ See [Kiro's MCP documentation](https://kiro.dev/docs/mcp/configuration/) for add
 ```
 
 #### Claude Desktop
-The easiest way to install is with the MCP Bundle: download `mcp-server-for-oscal-<version>.mcpb` from the [latest release](https://github.com/dfkunstler/mcp-server-for-oscal/releases/latest) and open it with Claude Desktop (or drag it onto **Settings > Extensions**). Claude Desktop manages Python and dependencies for you, and lets you configure optional settings such as a directory of your own OSCAL documents.
+The easiest way to install is with the [MCP Bundle](#mcp-bundle). Claude Desktop manages Python and dependencies for you, and lets you configure optional settings such as a directory of your own OSCAL documents.
 
 Alternatively, open **Settings > Developer > Edit Config** in Claude Desktop and add the following to `claude_desktop_config.json` (located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
 
