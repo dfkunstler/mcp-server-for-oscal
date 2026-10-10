@@ -17,7 +17,7 @@ require manual approval.
 | Run tests | `hatch test` | `pytest`, `python -m pytest`, `.venv/bin/pytest` |
 | Run a specific test | `hatch test tests/tools/test_get_schema.py::TestX::test_y` | `python -m pytest tests/...` |
 | Pass pytest flags | `hatch test -- -x -k "schema"` | `pytest -x -k "schema"` |
-| Single Python version | `hatch test -py 3.12 tests/...` | switching interpreters manually |
+| Single Python version | `hatch test -py 3.14 tests/...` | switching interpreters manually |
 | Type checking | `hatch run typing` | `mypy src`, `python -m mypy` |
 | Format | `hatch check fmt --fix` (drop `--fix` to check only) | `ruff format`, `hatch fmt` (deprecated) |
 | Lint | `hatch check code --fix` (drop `--fix` to check only) | `ruff check`, `hatch fmt` (deprecated) |
@@ -30,10 +30,13 @@ require manual approval.
 
 ## Notes
 
-- `hatch test` uses the `hatch-test` environment (matrix: 3.11, 3.12; includes
+- `hatch test` uses the `hatch-test` environment (matrix: 3.13, 3.14; includes
   `pytest-asyncio` and `hypothesis`). `hatch run` uses the `default` environment
-  (Python 3.12, `devtest` group). Use `hatch test` for tests and `hatch run` for
+  (Python 3.14, `devtest` group). Use `hatch test` for tests and `hatch run` for
   everything else.
+- Hatch doesn't recreate an existing env when its configured Python changes.
+  After the `default` env Python changes, run `hatch env remove default` once so
+  the next `hatch run` rebuilds it.
 - Always put pytest flags after `--`. Several short flags collide with
   `hatch test`'s own options (`-x` is matrix exclude, `-p` is parallel, `-c` is
   cover, `-r` is randomize), so `hatch test -x` will not do what pytest's `-x`

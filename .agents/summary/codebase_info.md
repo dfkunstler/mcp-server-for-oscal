@@ -9,7 +9,7 @@
 | Package | `mcp-server-for-oscal` (PyPI), import name `mcp_server_for_oscal` |
 | Purpose | MCP server (plus a standalone Strands agent) that gives AI assistants tools for NIST OSCAL |
 | License | Apache-2.0 |
-| Python | `>=3.11`; CI matrix 3.11 and 3.12; default dev env 3.12 (`mise.toml` pins 3.12, uv, hatch 1.18.1) |
+| Python | `>=3.13`; CI matrix 3.13 and 3.14 on Linux, macOS, Windows; default dev env 3.14 (`mise.toml` pins 3.14, uv, hatch 1.18.1) |
 | Versioning | `hatch-vcs` from git tags (`v*`); `_version.py` is generated and gitignored |
 | Bundled OSCAL release | Read at runtime from the bundled schemas' `$id` (`get_bundled_oscal_version()`); source of truth is `CURRENT_RELEASE_VERSION` in `bin/update-oscal-schemas.sh` |
 

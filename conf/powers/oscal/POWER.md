@@ -199,7 +199,7 @@ list_catalogs()  →  list_catalog_controls(parent_doc_uuid="...")  →  get_chi
 ### Prerequisites
 
 - **uv package manager** for Python ([Installation instructions](https://docs.astral.sh/uv/getting-started/installation/))
-- **Python 3.11 or higher** ([Install with uv](https://docs.astral.sh/uv/guides/install-python/))
+- **Python 3.13 or higher** ([Install with uv](https://docs.astral.sh/uv/guides/install-python/))
 
 ### Installation
 
@@ -352,7 +352,7 @@ Expected response should list the 8 GA OSCAL models across the three layers.
    ```bash
    python --version
    ```
-   Ensure Python 3.11 or higher is installed
+   Ensure Python 3.13 or higher is installed
 
 4. **Restart AI assistant** after configuration changes
 

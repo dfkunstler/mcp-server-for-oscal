@@ -82,7 +82,7 @@ All of these are defined under `[tool.hatch.envs.default.scripts]` in `pyproject
 
 | Script | Use when |
 |---|---|
-| `hatch run tests` | Required before commit: mypy, `hatch test --exitfirst --all --cover` (3.11 + 3.12), bandit. Reports go to `private/docs/` |
+| `hatch run tests` | Required before commit: mypy, `hatch test --exitfirst --all --cover` (3.13 + 3.14), bandit. Reports go to `private/docs/` |
 | `hatch run build-db` | After changing `data/` content or store schema/extraction logic; rebuilds `oscal_store.db` and its hash |
 | `hatch run rehash` | After changing files in `oscal_schemas/` or `data/*`; regenerates `hashes.json` and runs `git add` on the manifests |
 | `hatch run update-oscal-schemas` | After bumping `CURRENT_RELEASE_VERSION` in `bin/update-oscal-schemas.sh`; then `rehash`. That variable also drives the README OSCAL badge and `TestBundledOscalVersion`. Also requires a matching `oscal-bindings` release: `TestBundledOscalVersion` fails unless `oscal_bindings.__oscal_schema_version__` equals the bundled schema version |
@@ -104,12 +104,15 @@ All of these are defined under `[tool.hatch.envs.default.scripts]` in `pyproject
 - Env vars are declared in `config.py`, `dotenv.example`, DEVELOPING.md, and partially in `server.json` and `conf/mcpb/manifest.json` + `conf/mcpb/src/server.py` (`USER_CONFIG_ENV`). Keep them in sync.
 - `OSCAL_COMPONENT_DEFINITIONS_DIR` is deprecated and has no effect; use `OSCAL_DOCUMENTS_DIR`.
 - Known bugs (XSD schema retrieval #13, KB routing with empty `OSCAL_KB_ID` #14, the awesome-oscal workflow path #15) are listed in `.agents/summary/review_notes.md`. Check there before "fixing" behavior that tests appear to rely on.
+- `tests/test_integration_stdio_smoke.py` starts the real server over stdio. By default it launches the installed console script; `OSCAL_SMOKE_SERVER_CMD` (JSON argv array) overrides the command, and `OSCAL_SMOKE_BUNDLE_DIR` launches an unpacked `.mcpb` bundle from its manifest (the CI `mcpb` job uses this).
+- `tests/test_python_version_sites.py` guards every Python-version site (pyproject, CI, docs). Update it when bumping the supported versions.
+- After the default env moved to Python 3.14, existing local envs need `hatch env remove default` once.
 
 ## CI and release facts
 
 <!-- tags: ci, release, github-actions -->
 
-- `build.yml` runs on pushes to `main`, `v*` tags, and PRs to `main`. It validates `server.json` with `mcp-publisher`, then runs `hatch run release` on Python 3.12. Tag builds create a draft GitHub release; the tag must be on `main`.
+- `build.yml` runs on pushes to `main`, `v*` tags, and PRs to `main`. It validates `server.json` with `mcp-publisher`, then runs `hatch run release` on Python 3.14 (`build` job). The `test` job runs `hatch test` on Linux, macOS, and Windows × 3.13/3.14. The `mcpb` job checks the bundle on macOS and Windows: it downloads the build's `.mcpb`, validates/packs/unpacks it, runs `uv sync`, and runs the stdio smoke test. Tag builds create a draft GitHub release (`draft-release` needs `build`, `test`, and `mcpb`); the tag must be on `main`.
 - Publishing the draft triggers `release.yml`: PyPI trusted publishing, then the MCP Registry (version rewritten from the tag; `continue-on-error`).
 - Every build re-downloads OSCAL-Pages from unpinned `main`, so bundled docs can change between builds.
 - Dependabot (uv) runs weekly: minor and patch grouped, majors ignored.

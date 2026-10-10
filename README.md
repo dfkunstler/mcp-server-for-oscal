@@ -400,7 +400,7 @@ Unlike the `uvx` configurations below, which fetch the latest PyPI release on st
 These apply to the PyPI package (every configuration below that uses `uvx`), not to the MCP Bundle.
 
 - `uv` package manager for Python ([Installation instructions](https://docs.astral.sh/uv/getting-started/installation/))
-- Python 3.11 or higher ([`uv install python 3.12`](https://docs.astral.sh/uv/guides/install-python/)). The server may work with later versions of Python, but we only test 3.11 & 3.12 for now.
+- Python 3.13 or higher ([`uv python install 3.14`](https://docs.astral.sh/uv/guides/install-python/)). The server may work with later versions of Python, but we only test 3.13 & 3.14 for now.
 
 ### Configuring IDEs and AI Tools
 
