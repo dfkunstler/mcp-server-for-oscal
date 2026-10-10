@@ -1082,7 +1082,9 @@ class TestPropertyModelTypeDetection:
                 s.close()
 
     @given(root_key=_ingestable_root_keys, title=_titles)
-    @settings(max_examples=100)
+    # Each example opens a SQLite store; I/O time varies too much (especially on
+    # Windows) for Hypothesis's 200 ms default deadline.
+    @settings(max_examples=100, deadline=None)
     @pytest.mark.slow
     def test_valid_docs_ingest_and_query(self, root_key, title):
         """Documents with valid root keys can be ingested and queried back.

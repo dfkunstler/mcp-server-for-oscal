@@ -107,6 +107,7 @@ All of these are defined under `[tool.hatch.envs.default.scripts]` in `pyproject
 - `tests/test_integration_stdio_smoke.py` starts the real server over stdio. By default it launches the installed console script; `OSCAL_SMOKE_SERVER_CMD` (JSON argv array) overrides the command, and `OSCAL_SMOKE_BUNDLE_DIR` launches an unpacked `.mcpb` bundle from its manifest (the CI `mcpb` job uses this).
 - `tests/test_python_version_sites.py` guards every Python-version site (pyproject, CI, docs). Update it when bumping the supported versions.
 - After the default env moved to Python 3.14, existing local envs need `hatch env remove default` once.
+- `OSCAL_TEST_MAX_EXAMPLES=<n>` caps every Hypothesis test's `max_examples` (including explicit `@settings`) via `tests/conftest.py`. CI sets it to 10 on Windows only, where each example's temp files and SQLite setup are slow; leave it unset locally and on Linux/macOS.
 
 ## CI and release facts
 

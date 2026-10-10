@@ -316,7 +316,9 @@ class TestTitleDerivationProperty:
         content=st.one_of(heading_strategy, no_heading_strategy),
         filename=filename_strategy,
     )
-    @settings(max_examples=100)
+    # Each example opens a SQLite store; I/O time varies too much (especially on
+    # Windows) for Hypothesis's 200 ms default deadline.
+    @settings(max_examples=100, deadline=None)
     def test_title_derivation_matches_spec(self, content, filename):
         """For any markdown content, the derived title SHALL equal the text
         of the first markdown heading if one exists; otherwise the title

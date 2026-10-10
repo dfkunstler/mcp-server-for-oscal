@@ -111,9 +111,23 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
+      # Windows runners are ~15x slower than Linux/macOS on this suite: every
+      # Hypothesis example creates temp dirs, JSON files, and a WAL-mode SQLite DB,
+      # and Defender scans each new file. Real-time scanning on a throwaway runner
+      # buys nothing, so turn it off.
+      - name: Disable Defender real-time scanning (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+
       # hatch ships uv as a dependency, so the hatch-test env's
       # `installer = "uv"` needs no separate setup-uv step.
       - name: Run tests
+        env:
+          # Cap Hypothesis examples on Windows only (see tests/conftest.py). The
+          # Windows cells exist to catch portability bugs; Linux and macOS keep the
+          # full example counts for edge-case search.
+          OSCAL_TEST_MAX_EXAMPLES: ${{ runner.os == 'Windows' && '10' || '' }}
         run: |
           pip install -U hatch
           hatch test -py ${{ matrix.python }}
