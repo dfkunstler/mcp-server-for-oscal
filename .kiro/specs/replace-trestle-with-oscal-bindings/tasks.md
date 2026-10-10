@@ -15,21 +15,21 @@ Swap `compliance-trestle` for `oscal-bindings==0.1.0` in four stages, following 
 
 ## Tasks
 
-- [ ] 0. Commit the spec files
-  - [-] 0.1 Make the spec files the first commit on the feature branch
+- [x] 0. Commit the spec files
+  - [x] 0.1 Make the spec files the first commit on the feature branch
     - The spec files already exist: `.kiro/specs/replace-trestle-with-oscal-bindings/{.config.kiro,requirements.md,design.md,tasks.md}`. Do not regenerate them
     - Confirm the current branch is `26-replace-trestle-with-oscal-bindings`
     - Run `hatch run tests` (baseline; code is unchanged)
     - Stage only the four spec files and commit, for example `Add spec for replacing trestle with oscal-bindings (#26); tests pass (baseline)`
     - _Requirements: tracking for all requirements_
 
-- [ ] 1. Step 0: Differential check with both libraries installed
-  - [~] 1.1 Add `oscal-bindings==0.1.0` alongside `compliance-trestle`
+- [x] 1. Step 0: Differential check with both libraries installed
+  - [x] 1.1 Add `oscal-bindings==0.1.0` alongside `compliance-trestle`
     - Add `oscal-bindings==0.1.0` to runtime dependencies in `pyproject.toml`; keep `compliance-trestle` for now
     - Run `hatch run update` to re-lock `requirements.txt`
     - Confirm import with `hatch run python -c "import oscal_bindings; print(oscal_bindings.__oscal_schema_version__)"`
     - _Requirements: 1.1_
-  - [~] 1.2 Write and run the throwaway differential script
+  - [x] 1.2 Write and run the throwaway differential script
     - Create `private/trestle_diff.py` (`private/` is gitignored; never stage it). Run with `hatch run python private/trestle_diff.py`
     - Inputs: every document in the bundled DB (`raw_json`, `model_type`; run `hatch run build-db` first if the DB is missing), `tests/fixtures/*.json`, and JSON and zip members under `data/`
     - For each document compare Trestle class vs Bindings class on:
@@ -38,13 +38,13 @@ Swap `compliance-trestle` for `oscal-bindings==0.1.0` in four stages, following 
       3. Stored_Element_JSON: for every child element, the JSON each library produces with `model_dump_json(exclude_none=True, by_alias=True)` equals the element's JSON in the source document (datetime-equivalent) (Req 6.7, 6.9)
     - Normalize datetime-only differences in child `raw_json` before comparing (Req 8.1 accepts these)
     - _Requirements: 6.7, 6.9, 7.1, 7.2, 7.3, 7.5_
-  - [~] 1.3 Record results, delete the script, and gate on differences
+  - [x] 1.3 Record results, delete the script, and gate on differences
     - Fill in the "Differential check results" section of this file: document counts per source and model type, accept/reject mismatches, child-row mismatches, Stored_Element_JSON vs source mismatches, and how each was resolved
     - Delete `private/trestle_diff.py`
     - If any non-datetime difference remains, STOP. Report it to the user and wait for a decision (fix in the extractor or accept explicitly). Do not start task 3 until resolved
     - _Requirements: 6.7, 6.9, 7.1, 7.2, 7.3_
 
-- [~] 2. Checkpoint: differential check complete
+- [-] 2. Checkpoint: differential check complete
   - Run `hatch run tests`; ensure all tests pass, ask the user if questions arise
   - Stage `pyproject.toml`, `requirements.txt`, and `tasks.md`; commit, for example `Add oscal-bindings alongside trestle and record differential check (#26); tests pass`
 
@@ -60,6 +60,7 @@ Swap `compliance-trestle` for `oscal-bindings==0.1.0` in four stages, following 
     - Rename `_validate_with_trestle` to `_validate_with_model` (update all 3 call sites); missing-class branch rejects with a warning (fail-closed); failure warning reads "OSCAL model validation failed"
     - Reword `cache_size`, `get_parsed_model*`, section comments, and log text to "parsed OSCAL model" with no library name. Leave LRU cache and `_ensure_indexed` logic unchanged
     - Apply any extractor fixes decided in task 1.3
+    - Extractor fix from task 1.3: in the MAPPING branch of `_extract_child_elements`, add `mappings = getattr(mappings, "root", mappings)` before the list check, so the `Mappings` `RootModel` (array form) is unwrapped instead of raising `AttributeError` on `.uuid` (Req 7.3, 7.5)
     - `_child_dict` keeps the explicit `model_dump_json(exclude_none=True, by_alias=True)` arguments (Req 6.9)
     - _Requirements: 2.4, 2.6, 3.1, 5.1, 5.2, 5.3, 6.9, 7.3, 7.4, 7.5_
   - [~] 3.3 Update `tools/validate_oscal_content.py`
@@ -117,7 +118,8 @@ Swap `compliance-trestle` for `oscal-bindings==0.1.0` in four stages, following 
     - In all other test files (for example `tests/tools/test_oscal_store.py`, `tests/fixture_store.py`, `tests/tools/test_nested_catalog_controls_bug.py`), change `from trestle.oscal.<x> import Y` to `from oscal_bindings.models import Y`; update `_validate_with_trestle` references to `_validate_with_model`
     - In `test_nested_catalog_controls_bug.py`, `Group2` → `CatalogGroupWithControls`, `Group1` → `CatalogGroupWithGroups`, and drop "Trestle" from docstrings
     - Replace any other `trestle` mention in tests with library-neutral wording
-    - _Requirements: 10.1, 10.3, 10.4_
+    - Regression test from task 1.3 in `tests/tools/test_oscal_store.py`: a mapping-collection with `mappings` as an array of two or more mappings indexes without error and yields one `mapping` child row per entry (Req 7.3, 7.5)
+    - _Requirements: 7.3, 7.5, 10.1, 10.3, 10.4_
   - [~] 4.6 Remove UTC-normalization expectations
     - Run `hatch test` and inspect datetime-related failures
     - Grep `tests/` for `+00:00`, `timezone.utc`, `astimezone`, `utcoffset`, `tzinfo`, and `Z"`; change any assertion that expects UTC normalization to expect the source offset. Leave input fixtures alone
@@ -203,7 +205,21 @@ Swap `compliance-trestle` for `oscal-bindings==0.1.0` in four stages, following 
 
 ## Differential check results
 
-_To be filled in by task 1.3._
+Run with both libraries installed (oscal-bindings 0.1.0, schema 1.2.3); script deleted after the run.
+
+| Source | Model type: documents |
+|---|---|
+| Bundled DB | catalog: 1, component-definition: 230 |
+| `data/` zip | catalog: 1, component-definition: 230 |
+| `tests/fixtures` | component-definition: 4 (`malformed_component_definition.json` is invalid JSON by design, not counted) |
+| NIST oscal-content (`-min` duplicates skipped) | catalog: 17, profile: 9, system-security-plan: 5, assessment-plan: 2, assessment-results: 2, plan-of-action-and-milestones: 1, component-definition: 2 |
+| Synthetic | mapping-collection: 2 (`mappings` as array and as single object) |
+
+- Accept/reject: 0 mismatches. 505 documents accepted by both; `invalid_component_definition.json` rejected by both. Mutation probe (unknown root key, unknown `metadata` key, delete `uuid`, delete `metadata`): 505 × 4 = 2,020 mutants, all rejected by both.
+- Child rows: identical counts and values for every type (component 1,729, capability 1, group 361, control 2,817, import 9, modify 5, control-implementation 5, system-component 14, task 2, activity 2, result 2, finding 2, poam-item 2) except mapping-collection with `mappings` as an array: Bindings returns a `Mappings` `RootModel`, and the extractor's `.uuid` access raises `AttributeError` outside the `try` in `_ensure_indexed` (Trestle 2 mapping rows, Bindings 1). The single-object form works. Static attribute audit: every extractor attribute path exists in both libraries; no `RootModel`/`AnyUrl` value drift found.
+- Stored_Element_JSON vs source: Bindings 4,952/4,952 exact. Trestle 4,951 exact plus 2 datetime-only (assessment-results `observations[].collected`/`expires` normalized to UTC; accepted under Req 8.1). No non-datetime differences between libraries.
+- Resolution (user decision): fix the mapping extractor in task 3.2 (unwrap `RootModel` before the list check) and add a regression test in task 4.5 (Req 7.3, 7.5). No other differences remain; the gate is cleared.
+- Coverage caveats: mapping-collection coverage is synthetic only; capability coverage is a single fixture element.
 
 ## Req 5.5 logging check
 

@@ -2,16 +2,16 @@
 #    uv pip compile --universal --python-version 3.11 --group devtest -o requirements.txt pyproject.toml
 annotated-doc==0.0.5
     # via typer
-annotated-types==0.7.0
+annotated-types==0.8.0
     # via pydantic
-anyio==4.13.0
+anyio==4.15.1
     # via
     #   httpx
     #   httpx2
     #   mcp
     #   sse-starlette
     #   starlette
-ast-serialize==0.12.0
+ast-serialize==0.12.1
     # via mypy
 attrs==26.1.0
     # via
@@ -27,19 +27,19 @@ bandit==1.9.4
     # via mcp-server-for-oscal (pyproject.toml:devtest)
 bcrypt==5.0.0
     # via paramiko
-bedrock-agentcore==1.24.0
+bedrock-agentcore==1.24.1
     # via bedrock-agentcore-starter-toolkit
-bedrock-agentcore-starter-toolkit==0.3.13
+bedrock-agentcore-starter-toolkit==0.3.14
     # via mcp-server-for-oscal (pyproject.toml:devtest)
-boto3==1.43.108
+boto3==1.43.111
     # via
     #   mcp-server-for-oscal (pyproject.toml)
     #   bedrock-agentcore
     #   bedrock-agentcore-starter-toolkit
     #   strands-agents
-boto3-stubs==1.43.108
+boto3-stubs==1.43.111
     # via mcp-server-for-oscal (pyproject.toml:devtest)
-botocore==1.43.108
+botocore==1.43.111
     # via
     #   bedrock-agentcore
     #   bedrock-agentcore-starter-toolkit
@@ -48,31 +48,30 @@ botocore==1.43.108
     #   strands-agents
 botocore-stubs==1.43.67
     # via boto3-stubs
-certifi==2026.2.25
+certifi==2026.7.22
     # via
     #   httpcore
     #   httpx
     #   requests
-cffi==2.0.0
+cffi==2.1.1
     # via
     #   cmarkgfm
     #   cryptography
     #   pynacl
 chardet==7.6.0
     # via prance
-charset-normalizer==3.4.7
+charset-normalizer==3.5.2
     # via requests
-click==8.3.2
+click==8.5.0
     # via uvicorn
 cmarkgfm==2025.10.22
     # via compliance-trestle
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
     #   bandit
-    #   click
     #   pytest
     #   typer
-compliance-trestle==5.1.0
+compliance-trestle==5.2.0
     # via mcp-server-for-oscal (pyproject.toml)
 cryptography==50.0.2
     # via
@@ -82,9 +81,9 @@ cryptography==50.0.2
     #   securesystemslib
 defusedxml==0.7.1
     # via compliance-trestle
-dnspython==2.8.0
+dnspython==2.9.0
     # via email-validator
-docstring-parser==0.17.0
+docstring-parser==0.18.0
     # via
     #   bedrock-agentcore-starter-toolkit
     #   strands-agents
@@ -111,7 +110,7 @@ httpx2==2.13.1
     # via mcp
 httpx2-jsfetch==1.0 ; python_full_version >= '3.12' and sys_platform == 'emscripten'
     # via httpx2
-hypothesis==6.168.3
+hypothesis==6.168.5
     # via mcp-server-for-oscal (pyproject.toml:devtest)
 idna==3.20
     # via
@@ -122,11 +121,9 @@ idna==3.20
     #   requests
 ilcli==0.3.2
     # via compliance-trestle
-importlib-metadata==8.7.1
-    # via opentelemetry-api
-importlib-resources==6.5.2
+importlib-resources==7.1.0
     # via compliance-trestle
-iniconfig==2.3.0
+iniconfig==2.3.1
     # via pytest
 invoke==3.0.3
     # via paramiko
@@ -156,7 +153,7 @@ librt==0.16.0 ; platform_python_implementation != 'PyPy'
     # via mypy
 markdown-it-py==4.2.0
     # via rich
-markupsafe==3.0.3
+markupsafe==3.0.4
     # via jinja2
 mcp==2.1.1
     # via
@@ -176,7 +173,7 @@ openapi-spec-validator==0.9.0
     # via bedrock-agentcore-starter-toolkit
 openpyxl==3.1.5
     # via compliance-trestle
-opentelemetry-api==1.40.0
+opentelemetry-api==1.45.1
     # via
     #   mcp
     #   opentelemetry-instrumentation
@@ -184,21 +181,23 @@ opentelemetry-api==1.40.0
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
     #   strands-agents
-opentelemetry-instrumentation==0.61b0
+opentelemetry-instrumentation==0.66b1
     # via opentelemetry-instrumentation-threading
-opentelemetry-instrumentation-threading==0.61b0
+opentelemetry-instrumentation-threading==0.66b1
     # via strands-agents
-opentelemetry-sdk==1.40.0
+opentelemetry-sdk==1.45.1
     # via strands-agents
-opentelemetry-semantic-conventions==0.61b0
+opentelemetry-semantic-conventions==0.66b1
     # via
     #   opentelemetry-instrumentation
     #   opentelemetry-sdk
 orderedmultidict==1.0.2
     # via furl
-orjson==3.11.8
+orjson==3.13.0
     # via compliance-trestle
-packaging==26.0
+oscal-bindings==0.1.0
+    # via mcp-server-for-oscal (pyproject.toml)
+packaging==26.3
     # via
     #   opentelemetry-instrumentation
     #   prance
@@ -221,9 +220,9 @@ py-openapi-schema-to-json-schema==0.0.3
     # via bedrock-agentcore-starter-toolkit
 pycodestyle==2.15.0
     # via autopep8
-pycparser==3.0 ; implementation_name != 'PyPy'
+pycparser==3.11 ; implementation_name != 'PyPy'
     # via cffi
-pydantic==2.12.5
+pydantic==2.14.0
     # via
     #   bedrock-agentcore
     #   bedrock-agentcore-starter-toolkit
@@ -232,9 +231,10 @@ pydantic==2.12.5
     #   mcp-types
     #   openapi-schema-validator
     #   openapi-spec-validator
+    #   oscal-bindings
     #   pydantic-settings
     #   strands-agents
-pydantic-core==2.41.5
+pydantic-core==2.50.0
     # via pydantic
 pydantic-settings==2.15.0
     # via
@@ -244,7 +244,7 @@ pygments==2.21.0
     # via
     #   pytest
     #   rich
-pyjwt==2.12.1
+pyjwt==2.15.1
     # via mcp
 pynacl==1.6.2
     # via paramiko
@@ -256,13 +256,13 @@ pytest-asyncio==1.4.0
     # via mcp-server-for-oscal (pyproject.toml:devtest)
 python-dateutil==2.9.0.post0
     # via botocore
-python-dotenv==1.2.2
+python-dotenv==1.2.4
     # via
     #   compliance-trestle
     #   pydantic-settings
-python-frontmatter==1.1.0
+python-frontmatter==1.3.0
     # via compliance-trestle
-python-multipart==0.0.24
+python-multipart==0.0.32
     # via mcp
 pywin32==312 ; sys_platform == 'win32'
     # via
@@ -284,9 +284,9 @@ referencing==0.37.0
     #   jsonschema-specifications
     #   openapi-schema-validator
     #   types-jsonschema
-regex==2026.4.4
+regex==2026.9.29
     # via mcp-server-for-oscal (pyproject.toml)
-requests==2.33.1
+requests==2.34.2
     # via
     #   bedrock-agentcore-starter-toolkit
     #   compliance-trestle
@@ -300,7 +300,7 @@ rich==15.0.0
     #   bandit
     #   bedrock-agentcore-starter-toolkit
     #   typer
-rpds-py==0.30.0
+rpds-py==2026.9.1
     # via
     #   jsonschema
     #   referencing
@@ -323,9 +323,9 @@ six==1.17.0
     #   rfc3339-validator
 sortedcontainers==2.4.0
     # via hypothesis
-sse-starlette==3.3.4
+sse-starlette==3.5.0
     # via mcp
-starlette==1.0.0
+starlette==1.7.0
     # via
     #   bedrock-agentcore
     #   bedrock-agentcore-starter-toolkit
@@ -333,7 +333,7 @@ starlette==1.0.0
     #   sse-starlette
 stevedore==5.9.1
     # via bandit
-strands-agents==1.57.1
+strands-agents==1.59.0
     # via mcp-server-for-oscal (pyproject.toml)
 toml==0.10.2
     # via bedrock-agentcore-starter-toolkit
@@ -341,19 +341,19 @@ truststore==0.10.4 ; sys_platform != 'emscripten'
     # via
     #   httpcore2
     #   httpx2
-typer==0.27.2
+typer==0.27.3
     # via bedrock-agentcore-starter-toolkit
-types-jsonschema==4.26.0.20260518
+types-jsonschema==4.26.0.20261006
     # via mcp-server-for-oscal (pyproject.toml:devtest)
 types-pyyaml==6.0.12.20260906
     # via mcp-server-for-oscal (pyproject.toml:devtest)
-types-regex==2026.9.10.20260911
+types-regex==2026.9.29.20261005
     # via mcp-server-for-oscal (pyproject.toml:devtest)
-types-requests==2.33.0.20260906
+types-requests==2.33.0.20261006
     # via mcp-server-for-oscal (pyproject.toml:devtest)
 types-s3transfer==0.16.0
     # via boto3-stubs
-typing-extensions==4.15.0
+typing-extensions==4.16.0
     # via
     #   anyio
     #   bedrock-agentcore
@@ -373,32 +373,30 @@ typing-extensions==4.15.0
     #   starlette
     #   strands-agents
     #   typing-inspection
-typing-inspection==0.4.2
+typing-inspection==0.4.4
     # via
     #   mcp
     #   pydantic
     #   pydantic-settings
-urllib3==2.6.3
+urllib3==2.8.0
     # via
     #   bedrock-agentcore
     #   bedrock-agentcore-starter-toolkit
     #   botocore
     #   requests
     #   types-requests
-uvicorn==0.44.0
+uvicorn==0.54.0
     # via
     #   bedrock-agentcore
     #   bedrock-agentcore-starter-toolkit
     #   mcp
 watchdog==6.0.0
     # via strands-agents
-wcwidth==0.9.1
+wcwidth==0.9.2
     # via prompt-toolkit
-websockets==17.1
+websockets==17.2
     # via bedrock-agentcore
-wrapt==1.17.3
+wrapt==2.5.0
     # via
     #   opentelemetry-instrumentation
     #   opentelemetry-instrumentation-threading
-zipp==3.23.0
-    # via importlib-metadata
