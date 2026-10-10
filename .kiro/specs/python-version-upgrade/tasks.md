@@ -220,15 +220,15 @@ Language: Python (hatch-managed). Run all Python through hatch (`hatch test`, `h
     - Use the exact phrases the guard test's `REQUIRED_PHRASES` expects
     - _Requirements: 6.6, 6.7, 6.8_
 
-- [-] 12. Final checkpoint: full local verification
+- [x] 12. Final checkpoint: full local verification
   - Run `hatch run tests`, `hatch check fmt`, and `hatch check code`. All must exit 0, including every guard-test assertion
   - Run `hatch build`, then read `METADATA` from the wheel in `dist/` (for example `unzip -p dist/*.whl '*/METADATA'`) and confirm it contains `Requires-Python: >=3.13`
   - Remove any temporary files, including probe scripts under `private/`. Commit tasks 7–11 with `#<issue>` and "tested locally on macOS; Windows/Linux CI unverified", staging only feature files
   - Ensure all tests pass, and ask the user if questions arise
   - _Requirements: 1.4, 2.3, 2.4, 3.2_
 
-- [ ] 13. Cross-platform CI verification (needs user approval)
-  - [~] 13.1 Ask the user for explicit approval to push the feature branch
+- [x] 13. Cross-platform CI verification (needs user approval)
+  - [x] 13.1 Ask the user for explicit approval to push the feature branch
     - The Linux and Windows matrix cells and both MCPB cells (CRLF handling, file locking, `taskkill` cleanup, `uv` on Windows, both smoke-test eras in bundle mode) can only be verified by a CI run on a pushed branch. Don't push without approval
     - After an approved push and CI run, triage Windows failures with the design-component-3 policy: fix code or assertions that assume POSIX, and skip a test only when it needs a POSIX-only facility, naming that facility in the reason. Each fix is a new commit with `#<issue>`
     - _Requirements: 8.1, 8.4, 8.5, 9.16, 9.18, 10.1, 10.8_

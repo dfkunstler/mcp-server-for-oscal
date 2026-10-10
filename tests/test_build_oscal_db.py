@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -160,6 +161,43 @@ class TestBuildOscalDb:
 
             assert db_path.exists()
             assert stats["docs_indexed"] == 0
+
+    def test_build_db_closes_store_when_scan_fails(self):
+        """A failing scan still closes the store, and the original error propagates.
+
+        Without the close, Windows can't remove the temp dir (WinError 32), which
+        would mask the real error.
+        """
+        from bin.build_oscal_db import build_db
+        from mcp_server_for_oscal.tools.oscal_store import OscalStore
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            comp_dir = tmp / "component_definitions"
+            comp_dir.mkdir()
+            db_path = tmp / "test_oscal_store.db"
+
+            real_close = OscalStore.close
+            closed: list[OscalStore] = []
+
+            def spy_close(self):
+                closed.append(self)
+                real_close(self)
+
+            with (
+                patch.object(OscalStore, "scan_directory", side_effect=RuntimeError("scan boom")),
+                patch.object(OscalStore, "close", spy_close),
+                pytest.raises(RuntimeError, match="scan boom"),
+            ):
+                build_db(
+                    db_path=db_path,
+                    component_defs_dir=comp_dir,
+                    oscal_docs_dir=tmp / "nonexistent_docs",
+                )
+
+            assert len(closed) == 1
+            # The DB file is released, so it can be removed on every OS.
+            db_path.unlink()
 
 
 class TestComputeSha256:
