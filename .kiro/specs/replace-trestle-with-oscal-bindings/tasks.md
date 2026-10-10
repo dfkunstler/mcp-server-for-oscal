@@ -164,30 +164,30 @@ Swap `compliance-trestle` for `oscal-bindings==0.1.0` in four stages, following 
     - `@settings(max_examples=100)`; tag comment with Property 4
     - **Validates: Requirements 4.1, 4.2, 10.2**
 
-- [-] 5. Checkpoint: swap and tests complete
+- [x] 5. Checkpoint: swap and tests complete
   - Run `hatch check fmt --fix`, `hatch check code --fix`, `hatch run typing`, then `hatch run tests` (Python 3.11 and 3.12, coverage, bandit); ensure all tests pass, ask the user if questions arise
   - Stage only the changed source, test, `pyproject.toml`, `requirements.txt`, and `tasks.md` files by name; commit, for example `Replace compliance-trestle with oscal-bindings (#26); tests pass`
   - _Requirements: 10.5_
 
-- [ ] 6. Update docs and steering
-  - [~] 6.1 Replace the trestle steering file
+- [x] 6. Update docs and steering
+  - [x] 6.1 Replace the trestle steering file
     - `git mv .kiro/steering/compliance-trestle.md .kiro/steering/oscal-bindings.md`, then rewrite: use `oscal_bindings.models` typed classes with `Model.model_validate(root_data)`; never use `parse_oscal()` or other union `parse_*` helpers; get classes from `MODEL_MAP` in `tools/utils.py`; models forbid extra fields; datetimes keep their offset; serialize with `model_dump`/`model_dump_json(by_alias=True, exclude_none=True)`; keep `oscal_bindings.__oscal_schema_version__` in step with bundled schemas (guard test enforces it)
     - _Requirements: 11.1, 11.2_
-  - [~] 6.2 Update `AGENTS.md`
+  - [x] 6.2 Update `AGENTS.md`
     - Rules table points to `oscal-bindings.md`; remove the "model map is duplicated" gotcha; describe `MODEL_MAP` in `tools/utils.py` as the single source of model classes; validation levels read "JSON → JSON Schema → model → oscal-cli"; schema bumps also bump `oscal-bindings`
     - _Requirements: 11.3, 11.4, 11.5_
-  - [~] 6.3 Update `src/mcp_server_for_oscal/tools/README.md`
+  - [x] 6.3 Update `src/mcp_server_for_oscal/tools/README.md`
     - Level 3 named `"model"` in the tools table, level table, and notes; remove the "mapping-collection skips Level 3" note; list `oscal-bindings` as the model library; describe `MODEL_MAP` as the single source
     - This file is under `src/`, so it must contain no "trestle" string at all, not even a historical "replaces Trestle" note (Req 10.4)
     - _Requirements: 4.6, 10.4, 11.3, 11.5_
-  - [~] 6.4 Update remaining project docs and steering
+  - [x] 6.4 Update remaining project docs and steering
     - `.kiro/steering/tech.md`, `.agents/summary/*`, `conf/powers/oscal/POWER.md`, `README.md`, `CONTRIBUTING.md`: replace Trestle with oscal-bindings as the model library
     - `.kiro/steering/hatch.md` (one-off snippet example) and `.kiro/steering/product.md` (validator line): remove the Trestle references
     - Historical mentions ("replaced compliance-trestle") are allowed here, outside `src/`; current-dependency references are not
     - _Requirements: 11.3_
 
-- [ ] 7. Step 2: Verification greps
-  - [~] 7.1 Run the verification greps and record results
+- [x] 7. Step 2: Verification greps
+  - [x] 7.1 Run the verification greps and record results
     - `grep -rIil trestle src bin tests pyproject.toml requirements.txt` → expect no output (Req 1.2–1.4, 2.6, 5.4, 10.4)
     - `grep -rnE "importlib|parse_oscal|from oscal_bindings import parse" src/mcp_server_for_oscal/tools/oscal_store.py src/mcp_server_for_oscal/tools/validate_oscal_content.py` → expect no output (Req 2.3, 3.3)
     - `grep -rnE "parse_oscal|from oscal_bindings import parse" src bin tests` → expect no output (Req 3.3)
@@ -198,7 +198,7 @@ Swap `compliance-trestle` for `oscal-bindings==0.1.0` in four stages, following 
     - Fix any hits, then record each command's outcome in the "Verification grep results" section of this file
     - _Requirements: 1.2, 1.3, 1.4, 2.3, 2.6, 3.3, 5.4, 6.6, 10.3, 10.4, 11.3, 11.6_
 
-- [~] 8. Final checkpoint
+- [-] 8. Final checkpoint
   - Run `hatch check fmt --fix`, `hatch check code --fix`, then `hatch run tests`; ensure all tests pass, ask the user if questions arise
   - Stage only the docs, steering, and `tasks.md` changes for this feature by name; commit, for example `Update docs and steering for oscal-bindings (#26); tests pass`
   - Do not push. Report to the user that the branch is ready and ask whether to push and open a PR
@@ -236,7 +236,17 @@ Decision: removed the three `logging.getLogger("trestle").setLevel(config.log_le
 
 ## Verification grep results
 
-_To be filled in by task 7.1._
+Run on branch `26-replace-trestle-with-oscal-bindings`. No `--exclude-dir` flags were needed; no cache or bundled-content hits appeared.
+
+| # | Command | Result |
+|---|---|---|
+| 1 | `grep -rIil trestle src bin tests pyproject.toml requirements.txt` | First run: one hit, a historical comment in `pyproject.toml` ("previously only available transitively via compliance-trestle"). Reworded to "declared explicitly rather than relied on transitively". Rerun: no output (Req 1.2–1.4, 2.6, 5.4, 10.4) |
+| 2 | `grep -rnE "importlib\|parse_oscal\|from oscal_bindings import parse" .../oscal_store.py .../validate_oscal_content.py` | No output (Req 2.3, 3.3) |
+| 3 | `grep -rnE "parse_oscal\|from oscal_bindings import parse" src bin tests` | No output (Req 3.3) |
+| 4 | `grep -rnE "Group1\|Group2" tests` | No output (Req 10.3) |
+| 5 | `grep -rnE "oscal_dict\|_wrap_capability" src tests` | No output (Req 6.6) |
+| 6 | `grep -rIil trestle AGENTS.md README.md CONTRIBUTING.md .agents/summary .kiro/steering conf/powers/oscal src/mcp_server_for_oscal/tools/README.md` | 4 hits, all historical and accepted: `.agents/summary/dependencies.md:18` (why deps were declared directly), `.agents/summary/review_notes.md:30` and `:46` (resolved review notes), `.kiro/steering/oscal-bindings.md:9` ("It replaces compliance-trestle"). No current-dependency references (Req 11.3) |
+| 7 | `git diff --stat main -- .kiro/specs ':!.kiro/specs/replace-trestle-with-oscal-bindings'` | Empty (Req 11.6) |
 
 ## Notes
 

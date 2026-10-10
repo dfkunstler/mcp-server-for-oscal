@@ -10,8 +10,8 @@ Every tool except `about` comes from `tools.get_tool_list()`. `ctx: Context | No
 |---|---|---|---|
 | Static | `list_oscal_models`, `get_oscal_schema` | `model_name` (default `complete`), `schema_type` `json`/`xsd` | `list_models.py`, `oscal_schemas/` |
 | Resources/docs | `list_oscal_resources`, `query_oscal_documentation` | `query` | store `documentation` rows; Bedrock KB |
-| Validation | `validate_oscal_content`, `validate_oscal_file` | `content` / `file_uri`, optional `model_type` | schemas, trestle, oscal-cli |
-| Component Definition | `query_component_definition`, `list_component_definitions`, `list_components`, `list_capabilities`, `get_capability` | `component_definition_filter`, `query_type` ∈ `all, by_uuid, by_title, by_type`, `query_value`, `uuid` | `OscalStore` + trestle `ComponentDefinition` |
+| Validation | `validate_oscal_content`, `validate_oscal_file` | `content` / `file_uri`, optional `model_type` | schemas, oscal-bindings models, oscal-cli |
+| Component Definition | `query_component_definition`, `list_component_definitions`, `list_components`, `list_capabilities`, `get_capability` | `component_definition_filter`, `query_type` ∈ `all, by_uuid, by_title, by_type`, `query_value`, `uuid` | `OscalStore` + oscal-bindings `ComponentDefinition`; components/capabilities are returned as stored OSCAL JSON (hyphenated keys) |
 | Per-model query/list | `query_{catalog, ssp, profile, assessment_plan, assessment_results, poam, mapping_collection}`, `list_{catalogs, ssps, profiles, assessment_plans, assessment_results, poams, mapping_collections}` | `query_type`, `query_value` | `OscalStore.query` / `list_documents` |
 | Child elements | `list_catalog_controls`, `list_catalog_groups`, `list_ssp_control_implementations`, `list_ssp_system_components`, `list_profile_imports`, `list_profile_modify`, `list_assessment_plan_tasks`, `list_assessment_plan_activities`, `list_assessment_results_results`, `list_assessment_results_findings`, `list_poam_items`, `list_mapping_collection_mappings` | `parent_doc_uuid` | `OscalStore.list_child_elements` |
 | Cross-cutting | `text_search_oscal`, `get_child_element` | `query_text`, `oscal_model_type`; `element_id`, `parent_doc_uuid` | FTS5; ambiguous token IDs return `{"error": "ambiguous_element_id", ...}` |
@@ -26,7 +26,7 @@ flowchart LR
     L1 -- ok --> MT{model_type given<br/>or detected from root key?}
     MT -- no --> Err[invalid result]
     MT -- yes --> L2[2. json_schema<br/>Draft7 + regex pattern handler<br/>max 20 errors]
-    L2 --> L3[3. trestle<br/>pydantic parse_obj]
+    L2 --> L3[3. model<br/>oscal-bindings model_validate]
     L3 --> L4{4. oscal-cli on PATH?}
     L4 -- no --> S4[skipped]
     L4 -- yes --> R4[subprocess, 60s timeout]

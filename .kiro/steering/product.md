@@ -23,6 +23,6 @@ Most LLMs produce inconsistent OSCAL output due to limited public examples. This
 - `list_oscal_resources` — list bundled OSCAL resources
 - `query_component_definition` — query AWS component definitions
 - `list_component_definitions`, `list_components`, `list_capabilities`, `get_capability` — navigate component definition content
-- `validate_oscal_content` / `validate_oscal_file` — validate OSCAL JSON against schemas using compliance-trestle
+- `validate_oscal_content` / `validate_oscal_file` — validate OSCAL JSON against schemas and oscal-bindings models
 - `query_oscal_documentation` — RAG-based doc query (requires AWS Bedrock Knowledge Base, conditionally registered)
 - `about` — server metadata

@@ -570,7 +570,7 @@ See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more inform
 ## Related projects
 Experimental Component Definitions for AWS services are bundled with this MCP server. You can find that content in the AWS Labs project [OSCAL Content for AWS Services](https://github.com/awslabs/oscal-content-for-aws-services).
 
-MCP Server for OSCAL uses [compliance-trestle](https://github.com/oscal-compass/compliance-trestle) for certain capabilities, including OSCAL content validation.
+MCP Server for OSCAL uses [oscal-bindings](https://pypi.org/project/oscal-bindings/) for its typed OSCAL models, including model-level content validation.
 
 ## License
 This project is licensed under the [Apache-2.0](LICENSE) License.

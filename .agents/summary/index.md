@@ -7,7 +7,7 @@
 1. Load this file first. It is meant to be the only file you need in context to decide where to look next.
 2. Use the routing table below to choose one or two detail files, and open only those.
 3. Treat the source as authoritative. These docs were generated from a snapshot. If a doc disagrees with the code, trust the code, and check `review_notes.md`, which lists known drift and bugs.
-4. Repo rules from `.kiro/steering/` apply to all work: run Python only through `hatch`; never prefix commands with `cd`; use compliance-trestle for OSCAL parsing and validation; use feature branches and never commit to `main` or push without approval.
+4. Repo rules from `.kiro/steering/` apply to all work: run Python only through `hatch`; never prefix commands with `cd`; use oscal-bindings for OSCAL parsing and validation; use feature branches and never commit to `main` or push without approval.
 
 ## Project in one paragraph
 
@@ -21,7 +21,7 @@
 | [architecture.md](architecture.md) | Server vs agent front ends, shared registry, store design decisions table, startup sequence, deployment targets | Design questions; adding a cross-cutting feature; startup or integrity behavior |
 | [components.md](components.md) | Per-module responsibilities and gotchas for `src/`, `tools/`, `bin/`, `conf/`, and the tests layout | Finding the right file to change; understanding a module before editing |
 | [interfaces.md](interfaces.md) | Every MCP tool grouped with key params, validation pipeline contract, CLI flags, env var groups, external services | Adding or changing a tool, flag, or env var; client integration questions |
-| [data_models.md](data_models.md) | `OSCALModelType` table (root keys, schemas, trestle classes, child types), SQLite ER diagram, response key sets, `hashes.json` manifests | Store/SQL changes; response format questions; integrity manifest questions |
+| [data_models.md](data_models.md) | `OSCALModelType` table (root keys, schemas, oscal-bindings classes, child types), SQLite ER diagram, response key sets, `hashes.json` manifests | Store/SQL changes; response format questions; integrity manifest questions |
 | [workflows.md](workflows.md) | Request flow through the store, doc-query routing, dev loop, CI/release pipeline, content-update procedures, git process | "How do I release/update schemas/rebuild the DB"; debugging tool request paths |
 | [dependencies.md](dependencies.md) | Runtime and dev dependencies and their usage, undeclared transitive imports, toolchain, lock and Dependabot policy, upstream content sources | Adding or upgrading a dependency; build-environment problems |
 | [review_notes.md](review_notes.md) | Consistency issues across docs and code, verified bugs, completeness gaps, recommendations | Before trusting README, DEVELOPING, or `tools/README.md`; choosing cleanup work |

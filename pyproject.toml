@@ -13,7 +13,7 @@ dependencies = [
   "strands-agents>=1.55.0",
   "oscal-bindings==0.1.0",
   "regex>=2024.0.0",
-  # Imported directly by src/; previously only available transitively via compliance-trestle
+  # Imported directly by src/; declared explicitly rather than relied on transitively
   "jsonschema>=4.26.0",
   "python-dotenv>=1.2.4",
   "requests>=2.34.2",

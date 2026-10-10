@@ -23,7 +23,7 @@ require manual approval.
 | Lint | `hatch check code --fix` (drop `--fix` to check only) | `ruff check`, `hatch fmt` (deprecated) |
 | Security scan | `hatch run bandito` | `bandit -r src` |
 | Run a script | `hatch run python bin/some_script.py` | `python3 bin/some_script.py`, `.venv/bin/python ...` |
-| One-off snippet | `hatch run python -c "import trestle; print(trestle.__version__)"` | `python3 -c ...` |
+| One-off snippet | `hatch run python -c "import oscal_bindings; print(oscal_bindings.__oscal_schema_version__)"` | `python3 -c ...` |
 | Run a module | `hatch run python -m mcp_server_for_oscal.main` | `python -m mcp_server_for_oscal.main` |
 | Project scripts | `hatch run <script>` (see `[tool.hatch.envs.default.scripts]` in `pyproject.toml`) | re-implementing the script's steps inline |
 | Install / sync deps | edit `pyproject.toml`, then `hatch run update` or let hatch sync on next run | `pip install`, `uv pip install` |
