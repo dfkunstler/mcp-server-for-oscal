@@ -11,7 +11,7 @@
 
 ## Project in one paragraph
 
-`mcp-server-for-oscal` is a Python 3.11+ MCP server (MCP SDK v2 `MCPServer`, stdio by default) and a Strands/Bedrock agent. Both expose about 40 OSCAL tools from a single registry (`tools/__init__.get_tool_list()`). The tools cover schema lookup, 4-level validation, Component Definition navigation, query/list/search for all 8 OSCAL model types, community resources, and doc search. Content lives in a SQLite + FTS5 `OscalStore`. A pre-built `oscal_store.db` ships in the wheel and is verified by SHA-256 at startup, and users can add their own documents through `OSCAL_DOCUMENTS_DIR`. The project is built and tested with hatch, and is distributed through PyPI (`uvx`), the MCP Registry, an MCP Bundle (`.mcpb`), an AgentCore Dockerfile, and a Kiro Power.
+`mcp-server-for-oscal` is a Python 3.13+ MCP server (MCP SDK v2 `MCPServer`, stdio by default) and a Strands/Bedrock agent. Both expose about 40 OSCAL tools from a single registry (`tools/__init__.get_tool_list()`). The tools cover schema lookup, 4-level validation, Component Definition navigation, query/list/search for all 8 OSCAL model types, community resources, and doc search. Content lives in a SQLite + FTS5 `OscalStore`. A pre-built `oscal_store.db` ships in the wheel and is verified by SHA-256 at startup, and users can add their own documents through `OSCAL_DOCUMENTS_DIR`. The project is built and tested with hatch, and is distributed through PyPI (`uvx`), the MCP Registry, an MCP Bundle (`.mcpb`), an AgentCore Dockerfile, and a Kiro Power.
 
 ## Table of contents
 

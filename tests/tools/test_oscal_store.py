@@ -1082,7 +1082,9 @@ class TestPropertyModelTypeDetection:
                 s.close()
 
     @given(root_key=_ingestable_root_keys, title=_titles)
-    @settings(max_examples=100)
+    # Each example opens a SQLite store; I/O time varies too much (especially on
+    # Windows) for Hypothesis's 200 ms default deadline.
+    @settings(max_examples=100, deadline=None)
     @pytest.mark.slow
     def test_valid_docs_ingest_and_query(self, root_key, title):
         """Documents with valid root keys can be ingested and queried back.
@@ -1647,10 +1649,11 @@ class TestThreadSafety:
     def test_close_closes_connections_from_all_threads(self, tmp_path):
         """close() shuts down connections opened by other threads."""
         s = OscalStore(db_path=str(tmp_path / "t.db"), seed_from_bundled=False)
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            worker_conn = pool.submit(lambda: s._conn).result()
-
-        s.close()
+        try:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                worker_conn = pool.submit(lambda: s._conn).result()
+        finally:
+            s.close()
 
         with pytest.raises(sqlite3.ProgrammingError):
             worker_conn.execute("SELECT 1")

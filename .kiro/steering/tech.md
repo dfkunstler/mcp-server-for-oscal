@@ -2,7 +2,7 @@
 
 ## Language & Runtime
 
-- Python 3.11+ (tested on 3.11 and 3.12, default dev environment is 3.12)
+- Python 3.13+ (tested on 3.13 and 3.14, default dev environment is 3.14)
 - Package: `mcp-server-for-oscal`
 
 ## Build System
@@ -67,7 +67,7 @@ hatch run http-server
 
 ## Code Quality Settings (ruff)
 
-- Target: Python 3.11
+- Target: Python 3.13
 - Line length: 100
 - Double quotes, space indentation
 - Lint rules are hatch's default ruleset plus the ignores in `[tool.ruff.lint]`; each ignore has a rationale comment in `pyproject.toml`

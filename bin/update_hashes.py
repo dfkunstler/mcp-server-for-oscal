@@ -86,6 +86,7 @@ def capture_file_state(directory=".", outdir: str = "."):
             ["git", "log", "-1", "--format='%H'", "--", directory],  # noqa: S607 - dev script, git on PATH
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=True,
             cwd=directory,
         ).stdout.strip()
@@ -106,7 +107,7 @@ def capture_file_state(directory=".", outdir: str = "."):
 
     # Save hashes.json in the specified directory
     output_file = os.path.join(outdir, "hashes.json")
-    with open(output_file, "w") as output_f:
+    with open(output_file, "w", encoding="utf-8") as output_f:
         json.dump(state, output_f, indent=2)
 
     return state, output_file

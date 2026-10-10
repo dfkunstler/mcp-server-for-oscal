@@ -180,7 +180,9 @@ def _validate_oscal_cli(content: str, model_type: OSCALModelType) -> dict:  # no
 
     tmp_file = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", suffix=".json", delete=False
+        ) as tmp_file:
             tmp_file.write(content)
 
         result = subprocess.run(
@@ -257,7 +259,7 @@ def validate_oscal_file(
             raise ValueError("URI must point to a file")
 
         try:
-            with open(lf) as oftv:
+            with open(lf, encoding="utf-8") as oftv:
                 return validate_oscal_content(oftv.read(), model_type, ctx=ctx)
         except Exception:
             logger.exception("OSCAL validation error.")

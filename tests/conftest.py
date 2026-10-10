@@ -401,3 +401,48 @@ def pytest_collection_modifyitems(config, items):
         # Mark async tests
         if hasattr(item.function, "__code__") and inspect.iscoroutinefunction(item.function):
             item.add_marker(pytest.mark.asyncio)
+
+    cap = hypothesis_example_cap()
+    if cap is not None:
+        for item in items:
+            cap_hypothesis_examples(getattr(item, "function", None), cap)
+
+
+# Env var that caps Hypothesis examples per test. CI sets it only on the Windows cells,
+# where every generated example pays for temp-dir, file, and SQLite creation (an order of
+# magnitude slower than on Linux/macOS). Linux and macOS keep the full example counts.
+MAX_EXAMPLES_ENV = "OSCAL_TEST_MAX_EXAMPLES"
+
+
+def hypothesis_example_cap() -> int | None:
+    """Return the example cap from ``OSCAL_TEST_MAX_EXAMPLES``, or None when unset/empty."""
+    raw = os.environ.get(MAX_EXAMPLES_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        cap = int(raw)
+    except ValueError:
+        raise pytest.UsageError(
+            f"{MAX_EXAMPLES_ENV} must be a positive integer, got {raw!r}"
+        ) from None
+    if cap < 1:
+        raise pytest.UsageError(f"{MAX_EXAMPLES_ENV} must be a positive integer, got {raw!r}")
+    return cap
+
+
+def cap_hypothesis_examples(fn, cap: int) -> bool:
+    """Lower a Hypothesis test's ``max_examples`` to ``cap``; return True if it changed.
+
+    A settings profile can't do this: explicit ``@settings(max_examples=...)`` on the test
+    overrides any profile. Hypothesis keeps the decorator's settings on the wrapped test as
+    ``_hypothesis_internal_use_settings`` (private, present in 6.x). If a future release
+    renames it, this becomes a no-op and the full example counts run; the guard test in
+    ``tests/test_conftest_hypothesis_cap.py`` fails so the drift is noticed.
+    """
+    from hypothesis import settings
+
+    current = getattr(fn, "_hypothesis_internal_use_settings", None)
+    if not isinstance(current, settings) or current.max_examples <= cap:
+        return False
+    fn._hypothesis_internal_use_settings = settings(current, max_examples=cap)
+    return True

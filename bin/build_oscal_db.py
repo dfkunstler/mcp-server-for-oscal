@@ -58,7 +58,7 @@ def update_hashes_json(db_hash: str) -> None:
     manifest: dict = {}
     if HASHES_FILE.exists():
         try:
-            manifest = json.loads(HASHES_FILE.read_text())
+            manifest = json.loads(HASHES_FILE.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             logger.warning("Could not read existing %s; creating new", HASHES_FILE)
 
@@ -69,7 +69,7 @@ def update_hashes_json(db_hash: str) -> None:
 
     manifest["file_hashes"]["oscal_store.db"] = db_hash
 
-    HASHES_FILE.write_text(json.dumps(manifest, indent=2) + "\n")
+    HASHES_FILE.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     logger.info("Updated %s with oscal_store.db hash", HASHES_FILE)
 
 
@@ -105,37 +105,39 @@ def build_db(
         os.remove(db_path)
         logger.info("Removed existing DB at %s", db_path)
 
-    # Initialize store with explicit db_path
+    # Initialize store with explicit db_path. Close it in `finally` so a failed
+    # scan or index doesn't leave the SQLite file open (Windows can't delete or
+    # replace an open file, which would mask the real error with WinError 32).
     store = OscalStore(db_path=str(db_path), cache_size=200, seed_from_bundled=False)
+    try:
+        # --- Scan directories ---
+        total_scanned = 0
+        if component_defs_dir.exists():
+            n = store.scan_directory(component_defs_dir)
+            logger.info("Scanned component_definitions/: %d document(s)", n)
+            total_scanned += n
+        else:
+            logger.info("component_definitions/ not found, skipping")
 
-    # --- Scan directories ---
-    total_scanned = 0
-    if component_defs_dir.exists():
-        n = store.scan_directory(component_defs_dir)
-        logger.info("Scanned component_definitions/: %d document(s)", n)
-        total_scanned += n
-    else:
-        logger.info("component_definitions/ not found, skipping")
+        if oscal_docs_dir.exists():
+            n = store.scan_directory(oscal_docs_dir)
+            logger.info("Scanned oscal_docs/: %d document(s)", n)
+            total_scanned += n
+        else:
+            logger.info("oscal_docs/ not found, skipping")
 
-    if oscal_docs_dir.exists():
-        n = store.scan_directory(oscal_docs_dir)
-        logger.info("Scanned oscal_docs/: %d document(s)", n)
-        total_scanned += n
-    else:
-        logger.info("oscal_docs/ not found, skipping")
+        # --- Eagerly index every document ---
+        rows = store._conn.execute("SELECT id FROM documents").fetchall()
+        for row in rows:
+            store._ensure_indexed(row["id"])
 
-    # --- Eagerly index every document ---
-    rows = store._conn.execute("SELECT id FROM documents").fetchall()
-    for row in rows:
-        store._ensure_indexed(row["id"])
-
-    # --- Gather stats ---
-    doc_count = store._conn.execute("SELECT COUNT(*) AS cnt FROM documents").fetchone()["cnt"]
-    child_count = store._conn.execute("SELECT COUNT(*) AS cnt FROM child_elements").fetchone()[
-        "cnt"
-    ]
-
-    store.close()
+        # --- Gather stats ---
+        doc_count = store._conn.execute("SELECT COUNT(*) AS cnt FROM documents").fetchone()["cnt"]
+        child_count = store._conn.execute("SELECT COUNT(*) AS cnt FROM child_elements").fetchone()[
+            "cnt"
+        ]
+    finally:
+        store.close()
 
     db_size = db_path.stat().st_size
 

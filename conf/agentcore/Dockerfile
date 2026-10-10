@@ -1,6 +1,6 @@
 # Standalone Dockerfile for manual container builds/testing.
 # hatch run build-agentcore-container
-FROM public.ecr.aws/docker/library/python:3.12-slim
+FROM public.ecr.aws/docker/library/python:3.14-slim
 ARG VERSION
 ARG WHL_FILE=mcp_server_for_oscal-${VERSION}-py3-none-any.whl
 WORKDIR /app

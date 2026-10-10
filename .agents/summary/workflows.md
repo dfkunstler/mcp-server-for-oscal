@@ -45,13 +45,13 @@ The hatch steering file requires all Python to run through hatch.
 flowchart LR
     Edit[edit src/tests] --> T1[hatch test path::Test -- -x]
     T1 --> Lint[hatch check fmt --fix<br/>hatch check code --fix]
-    Lint --> Full[hatch run tests<br/>mypy + pytest matrix 3.11/3.12 + coverage + bandit]
+    Lint --> Full[hatch run tests<br/>mypy + pytest matrix 3.13/3.14 + coverage + bandit]
     Full --> Commit[commit on feature branch, reference #issue]
 ```
 
 - `hatch run tests` uses `--exitfirst --all --cover` and writes `private/docs/pytest.xml`.
 - pytest flags go after `--`, because `-x`, `-p`, `-c`, and `-r` mean something else to `hatch test`.
-- Dependencies: edit `pyproject.toml`, then `hatch run update` re-locks `requirements.txt` (universal, py3.11) and syncs.
+- Dependencies: edit `pyproject.toml`, then `hatch run update` re-locks `requirements.txt` (universal, py3.13) and syncs.
 
 ## Build and release
 
@@ -62,11 +62,13 @@ sequenceDiagram
     participant Rel as release.yml (release published)
     Dev->>CI: push / PR
     CI->>CI: mcp-publisher validate (server.json)
-    CI->>CI: hatch run release
+    CI->>CI: build job (Linux, Python 3.14): hatch run release
     Note over CI: tests -> git status -> refresh-nist-docs.sh -> build-db -> hatch build -> build-mcpb
     CI->>CI: upload private/docs, wheel+sdist, .mcpb artifacts
+    CI->>CI: test job: hatch test on Linux, macOS, Windows x 3.13/3.14
+    CI->>CI: mcpb job (macOS, Windows): download .mcpb, validate/pack/unpack, uv sync, stdio smoke test
     Dev->>CI: push tag vX.Y.Z (on main)
-    CI->>CI: draft-release: verify tag on main, gh release create --draft with artifacts
+    CI->>CI: draft-release (needs build, test, mcpb): verify tag on main, gh release create --draft with artifacts
     Dev->>Rel: publish the draft release (manual)
     Rel->>Rel: download wheel/sdist from release -> PyPI (trusted publishing)
     Rel->>Rel: rewrite server.json versions from tag -> mcp-publisher publish (continue-on-error)

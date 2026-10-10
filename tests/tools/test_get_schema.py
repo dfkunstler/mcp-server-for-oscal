@@ -3,6 +3,7 @@ Tests for the get_schema tool.
 """
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, mock_open, patch
 
 import pytest
@@ -229,7 +230,7 @@ class TestGetSchema:
             # Verify file was opened correctly (the path will be a PosixPath object)
             assert mock_file.called
             call_args = mock_file.call_args[0][0]
-            assert str(call_args).endswith("oscal_schemas/schema.json")
+            assert Path(call_args).parts[-2:] == ("oscal_schemas", "schema.json")
             assert result is not None
 
     def test_open_schema_file_with_path_cleaning(self):
@@ -249,7 +250,7 @@ class TestGetSchema:
 
                 # Verify the file path ends with the cleaned filename
                 call_args = mock_file.call_args[0][0]
-                assert str(call_args).endswith("oscal_schemas/schema.json")
+                assert Path(call_args).parts[-2:] == ("oscal_schemas", "schema.json")
 
     def test_open_schema_file_not_found(self):
         """Test error handling when schema file is not found."""

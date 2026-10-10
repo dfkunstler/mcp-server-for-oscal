@@ -59,7 +59,7 @@ GitHub provides additional document on [forking a repository](https://help.githu
 
 Environment setup, configuration, and the full list of hatch scripts are in [DEVELOPING.md](DEVELOPING.md). A map of the code and its conventions, written for AI coding assistants but useful to people too, is in [AGENTS.md](AGENTS.md).
 
-- **Use hatch for everything.** Run tests, type checks, lint, and scripts through `hatch` so they use the locked environment (`requirements.txt`). `hatch run tests` (mypy, pytest on Python 3.11 and 3.12 with coverage, and bandit) must pass before you open a PR. To pass flags to pytest, put them after `--`, for example `hatch test -- -k schema`.
+- **Use hatch for everything.** Run tests, type checks, lint, and scripts through `hatch` so they use the locked environment (`requirements.txt`). `hatch run tests` (mypy, pytest on Python 3.13 and 3.14 with coverage, and bandit) must pass before you open a PR. To pass flags to pytest, put them after `--`, for example `hatch test -- -k schema`.
 - **Format and lint** with `hatch check fmt --fix` and `hatch check code --fix`. Ruff settings and the reasons for each ignored rule are in `pyproject.toml`. Prefer a targeted `# noqa: RULE - reason` to adding a new global ignore.
 - **Use oscal-bindings** (`oscal_bindings.models`) to parse, validate, and serialize OSCAL. Don't hand-roll OSCAL parsing or validation.
 - **Reference an issue.** Work on a branch for a single issue and include `#<issue>` in your commit messages.

@@ -5,7 +5,7 @@
 name = "mcp-server-for-oscal-mcpb"
 version = "0.0.0"
 description = "MCPB bundle for mcp-server-for-oscal"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = ["mcp-server-for-oscal"]
 
 [tool.uv.sources]

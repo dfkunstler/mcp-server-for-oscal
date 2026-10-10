@@ -182,7 +182,10 @@ class TestSHA256ChangeDetectionProperty:
             store = OscalStore(db_path=db_path, seed_from_bundled=False)
             try:
                 # --- Phase 1: Write first content and scan ---
-                md_file.write_text(content_a, encoding="utf-8")
+                # newline="" keeps the on-disk bytes equal to content.encode() on
+                # every OS (Windows text mode writes "\n" as "\r\n"); the store
+                # hashes raw file bytes.
+                md_file.write_text(content_a, encoding="utf-8", newline="")
                 count_first = store.scan_directory(doc_dir)
                 assert count_first == 1, "First scan should ingest the new file"
 
@@ -200,7 +203,7 @@ class TestSHA256ChangeDetectionProperty:
                 assert count_noop == 0, "Second scan of unchanged file should return 0"
 
                 # --- Phase 3: Replace content and scan again ---
-                md_file.write_text(content_b, encoding="utf-8")
+                md_file.write_text(content_b, encoding="utf-8", newline="")
                 count_update = store.scan_directory(doc_dir)
                 assert count_update == 1, "Scan after content change should re-index the file"
 
@@ -237,12 +240,12 @@ class TestSHA256ChangeDetectionProperty:
             store = OscalStore(db_path=db_path, seed_from_bundled=False)
             try:
                 # Write first content, scan
-                md_file.write_text(content_a, encoding="utf-8")
+                md_file.write_text(content_a, encoding="utf-8", newline="")
                 count_first = store.scan_directory(doc_dir)
                 assert count_first == 1
 
                 # Write second content (same byte length), scan
-                md_file.write_text(content_b, encoding="utf-8")
+                md_file.write_text(content_b, encoding="utf-8", newline="")
                 count_update = store.scan_directory(doc_dir)
                 assert count_update == 1, (
                     "Same byte length but different content must trigger re-index"
@@ -313,7 +316,9 @@ class TestTitleDerivationProperty:
         content=st.one_of(heading_strategy, no_heading_strategy),
         filename=filename_strategy,
     )
-    @settings(max_examples=100)
+    # Each example opens a SQLite store; I/O time varies too much (especially on
+    # Windows) for Hypothesis's 200 ms default deadline.
+    @settings(max_examples=100, deadline=None)
     def test_title_derivation_matches_spec(self, content, filename):
         """For any markdown content, the derived title SHALL equal the text
         of the first markdown heading if one exists; otherwise the title

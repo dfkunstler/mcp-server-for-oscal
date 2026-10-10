@@ -18,7 +18,7 @@ dependencies = [
   "python-dotenv>=1.2.4",
   "requests>=2.34.2",
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 description = "AI agent tools for Open Security Controls Assessment Language (OSCAL)."
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -36,8 +36,8 @@ keywords = [
 
 classifiers = [
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
 ]
 
 [dependency-groups]
@@ -81,7 +81,7 @@ version-file = "_version.py"
 # This controls what version of Python you want to be the default
 # when running any scripts or tools to do things like debug test failures
 # or do general development. 
-python = "3.12"
+python = "3.14"
 dependency-groups = ["devtest"]
 installer = "uv"
 
@@ -121,7 +121,7 @@ directory = "private/docs/coverage/"
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
 
 [tool.ruff.format]
 quote-style = "double"
@@ -190,7 +190,7 @@ update = [
   # Re-lock requirements.txt to the latest versions allowed by pyproject.toml,
   # then sync this env to the new lock. UV_CONSTRAINT is unset for the compile
   # step, otherwise the existing lock would prevent any upgrade.
-  "env -u UV_CONSTRAINT uv pip compile --upgrade --universal --python-version 3.11 --group devtest -o requirements.txt pyproject.toml",
+  "env -u UV_CONSTRAINT uv pip compile --upgrade --universal --python-version 3.13 --group devtest -o requirements.txt pyproject.toml",
   "uv pip install -r requirements.txt",
 ]
 
@@ -280,7 +280,7 @@ cov-combine = "coverage combine"
 cov-report = ["coverage report", "coverage html", "coverage xml"]
 
 [[tool.hatch.envs.hatch-test.matrix]]
-python = ["3.11", "3.12"]
+python = ["3.13", "3.14"]
 
 # This is necessary to use 'uv' as the resolver if this is the top-level package
 # in a monorepo (which is usually the case).  Remove this if copying the

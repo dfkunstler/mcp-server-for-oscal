@@ -1,4 +1,4 @@
 [tools]
-python = "3.12"
+python = "3.14"
 uv = "latest"
 "pypi:hatch" = "1.18.1"

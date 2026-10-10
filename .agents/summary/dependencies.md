@@ -35,7 +35,7 @@ A change upstream can drop it silently. See review_notes.
 |---|---|
 | hatch + hatchling + hatch-vcs | envs, scripts, build, test matrix, git-tag versioning |
 | uv | installer for hatch envs; `uv pip compile` lock; `uv lock` inside the MCPB bundle |
-| mise | pins python 3.12, uv, hatch 1.18.1 |
+| mise | pins python 3.14, uv, hatch 1.18.1 |
 | Node.js / npx | `@anthropic-ai/mcpb@2` CLI for bundle validate/pack |
 | jq, curl, unzip, zip | content update scripts |
 | finch | `build-agentcore-container` |
@@ -45,7 +45,7 @@ A change upstream can drop it silently. See review_notes.
 ## Dependency management
 
 - `UV_CONSTRAINT={root}/requirements.txt` pins every hatch env, including `hatch-test`, to the lock.
-- `hatch run update` re-locks with `--upgrade --universal --python-version 3.11`.
+- `hatch run update` re-locks with `--upgrade --universal --python-version 3.13`.
 - Dependabot (`uv` ecosystem) runs weekly, groups minor and patch updates, ignores major versions, and has a cooldown (3 days by default, 30 for semver-major).
 
 ## External content sources

@@ -43,7 +43,13 @@ def build_fixture_store(directory: Path, cdefs: Iterable[dict]) -> OscalStore:
         cache_size=10,
         seed_from_bundled=False,
     )
-    store.scan_directory(docs)
+    try:
+        store.scan_directory(docs)
+    except BaseException:
+        # Close before re-raising so the caller's temp dir can be removed
+        # (Windows cannot delete an open SQLite file).
+        store.close()
+        raise
     return store
 
 

@@ -1,0 +1,8 @@
+# Default: normalize to LF in the repo and keep LF in working trees.
+* text=auto eol=lf
+# Bundled content is integrity-checked by SHA-256 at startup; it must be
+# byte-identical to the committed blobs on every OS. These lines must stay
+# after the `*` line: for each attribute, the last matching line wins.
+src/mcp_server_for_oscal/oscal_schemas/** -text
+data/** -text
+tests/fixtures/** -text
