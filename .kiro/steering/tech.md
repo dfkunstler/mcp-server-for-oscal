@@ -14,7 +14,7 @@
 ## Core Dependencies
 
 - `mcp` — Model Context Protocol SDK (FastMCP server)
-- `compliance-trestle` (imported as `trestle`) — OSCAL Pydantic models, validation, serialization
+- `oscal-bindings` (imported as `oscal_bindings`) — typed OSCAL Pydantic v2 models generated from the NIST JSON Schema (parsing, validation, serialization)
 - `boto3` — AWS SDK (Bedrock Knowledge Base queries)
 - `strands-agents` — agent framework
 - `regex` — enhanced regex support

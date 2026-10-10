@@ -6,20 +6,20 @@
 
 `utils.OSCALModelType` is a `StrEnum` whose values equal the JSON root keys. Model-type detection reads the first non-`$schema` root key through `ROOT_KEY_TO_MODEL_TYPE`.
 
-| Enum | Value / root key | Schema file stem | Trestle class | Child element types (`CHILD_ELEMENT_TYPES`) |
+| Enum | Value / root key | Schema file stem | oscal-bindings class | Child element types (`CHILD_ELEMENT_TYPES`) |
 |---|---|---|---|---|
-| CATALOG | `catalog` | `oscal_catalog_schema` | `catalog.Catalog` | `control`, `group` (recursive through groups) |
-| PROFILE | `profile` | `oscal_profile_schema` | `profile.Profile` | `import`, `modify` |
-| COMPONENT_DEFINITION | `component-definition` | `oscal_component_schema` | `component.ComponentDefinition` | `component`, `capability` |
-| SYSTEM_SECURITY_PLAN | `system-security-plan` | `oscal_ssp_schema` | `ssp.SystemSecurityPlan` | `control-implementation`, `system-component` |
-| ASSESSMENT_PLAN | `assessment-plan` | `oscal_assessment-plan_schema` | `assessment_plan.AssessmentPlan` | `task`, `activity` |
-| ASSESSMENT_RESULTS | `assessment-results` | `oscal_assessment-results_schema` | `assessment_results.AssessmentResults` | `result`, `finding` |
-| PLAN_OF_ACTION_AND_MILESTONES | `plan-of-action-and-milestones` | `oscal_poam_schema` | `poam.PlanOfActionAndMilestones` | `poam-item` |
-| MAPPING | `mapping-collection` | `oscal_mapping_schema` | `mapping.MappingCollection` | `mapping` |
+| CATALOG | `catalog` | `oscal_catalog_schema` | `Catalog` | `control`, `group` (recursive through groups) |
+| PROFILE | `profile` | `oscal_profile_schema` | `Profile` | `import`, `modify` |
+| COMPONENT_DEFINITION | `component-definition` | `oscal_component_schema` | `ComponentDefinition` | `component`, `capability` |
+| SYSTEM_SECURITY_PLAN | `system-security-plan` | `oscal_ssp_schema` | `SystemSecurityPlan` | `control-implementation`, `system-component` |
+| ASSESSMENT_PLAN | `assessment-plan` | `oscal_assessment-plan_schema` | `AssessmentPlan` | `task`, `activity` |
+| ASSESSMENT_RESULTS | `assessment-results` | `oscal_assessment-results_schema` | `AssessmentResults` | `result`, `finding` |
+| PLAN_OF_ACTION_AND_MILESTONES | `plan-of-action-and-milestones` | `oscal_poam_schema` | `PlanOfActionAndMilestones` | `poam-item` |
+| MAPPING | `mapping-collection` | `oscal_mapping_schema` | `MappingCollection` | `mapping` |
 
 `schema_names` also maps `"complete"` → `oscal_complete_schema`. The store also uses a pseudo model type, `documentation`, for markdown files; it is not in the enum.
 
-The trestle model map is defined twice: `oscal_store.TRESTLE_MODEL_MAP` and `validate_oscal_content._TRESTLE_MODEL_MAP`. Keep them in sync.
+All classes are imported from `oscal_bindings.models` (Pydantic v2, generated from the NIST JSON Schema). The enum-to-class map is defined once, as `utils.MODEL_MAP`, and shared by `OscalStore` and the validator. The store re-serializes parsed models with `model_dump_json(exclude_none=True, by_alias=True)`, so stored `raw_json` uses OSCAL's hyphenated keys.
 
 ## SQLite schema (`OscalStore._init_schema`)
 
@@ -71,8 +71,8 @@ erDiagram
 | Query item | `uuid`, `title`, `model_type`, `file_path`, `sizeInBytes`, `children[]` (`uuid`, `title`, `element_type`, `description`) | `OscalStore.query` |
 | Child item | `id`, `title`, `element_type`, `description`, `parentDocumentTitle`, `parentDocumentUuid` (+ `raw_json` for `get_child_element`) | child listers, `get_child_element` |
 | Search item | `entity_type`, `entity_id`, `title`, `description`, `model_type` | `text_search_oscal` |
-| Validation result | `valid`, `model_type`, `levels{well_formedness, json_schema, trestle, oscal_cli}` each `{level, valid, errors[], warnings[], skipped, skip_reason}` | `validate_oscal_*` |
-| cdef query | `components[]`, `total_count`, `query_type`, `component_definitions_searched`, `filtered_by`, plus pagination | `query_component_definition` |
+| Validation result | `valid`, `model_type`, `levels{well_formedness, json_schema, model, oscal_cli}` each `{level, valid, errors[], warnings[], skipped, skip_reason}` | `validate_oscal_*` |
+| cdef query | `components[]` (stored OSCAL JSON, hyphenated keys such as `control-implementations`), `total_count`, `query_type`, `component_definitions_searched`, `filtered_by`, plus pagination | `query_component_definition` |
 
 Tests pin the exact key sets (for example `TestPageResponseFormat`, `TestPropertyBackwardCompatibleReturnFormat`), so a renamed key breaks them.
 

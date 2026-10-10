@@ -14,7 +14,7 @@ This power provides AI assistants with comprehensive tools to work with NIST's O
 
 The power enables AI assistants to provide accurate, authoritative guidance about OSCAL architecture, models, use cases, requirements, and implementation by accessing:
 - All OSCAL model schemas (JSON and XSD)
-- Multi-level OSCAL content validation (well-formedness, JSON Schema, Trestle, oscal-cli)
+- Multi-level OSCAL content validation (well-formedness, JSON Schema, OSCAL model, oscal-cli)
 - Bundled AWS component definitions with capability and component navigation
 - Community resources and tools
 - Structured data about OSCAL's three-layer architecture
@@ -48,7 +48,7 @@ OSCAL (Open Security Controls Assessment Language) is a set of framework-agnosti
 | `list_oscal_models` | List all 8 OSCAL model types with metadata (layer, status, descriptions) |
 | `get_oscal_schema` | Retrieve JSON or XSD schema for any OSCAL model |
 | `list_oscal_resources` | Browse curated OSCAL community resources, tools, and educational content |
-| `validate_oscal_content` | Validate OSCAL JSON content through a 4-level pipeline (well-formedness, JSON Schema, Trestle, oscal-cli) |
+| `validate_oscal_content` | Validate OSCAL JSON content through a 4-level pipeline (well-formedness, JSON Schema, OSCAL model, oscal-cli) |
 | `validate_oscal_file` | Validate an OSCAL JSON file (local or remote URI) through the same 4-level pipeline |
 | `query_component_definition` | Query component definitions to find capabilities and components by UUID, title, or type |
 | `list_component_definitions` | List all loaded component definitions with summary metadata |
@@ -282,7 +282,7 @@ Expected response should list the 8 GA OSCAL models across the three layers.
 3. **Interpret results:** The validation pipeline returns per-level results:
    - Level 1: Well-formedness (valid JSON object?)
    - Level 2: JSON Schema conformance (matches NIST schema?)
-   - Level 3: Trestle semantic checks (Pydantic model validation)
+   - Level 3: Model checks (oscal-bindings Pydantic model validation, reported as `model`)
    - Level 4: oscal-cli validation (if installed)
 
 ### Workflow 3: Explore Component Definitions

@@ -27,11 +27,11 @@ graph TB
     Registry --> StoreTools[Store-backed tools<br/>cdef, model query/list, search, resources, docs]
     Static --> Schemas[(oscal_schemas/*.json, *.xsd)]
     Validate --> Schemas
-    Validate --> Trestle[compliance-trestle models]
+    Validate --> Bindings[oscal-bindings models<br/>utils.MODEL_MAP]
     Validate -. optional .-> OscalCli[oscal-cli on PATH]
     StoreTools --> Store[OscalStore<br/>SQLite + FTS5 + LRU parse cache]
     Store --> DB[(oscal_store.db copy)]
-    Store --> Trestle
+    Store --> Bindings
     StoreTools -. optional .-> KB[(Bedrock Knowledge Base)]
     Config[config.py<br/>singleton Config] --> Server
     Config --> Agent
@@ -48,7 +48,7 @@ graph TB
 | Pre-built SQLite DB shipped in the wheel | `oscal_store.db` + package `hashes.json`, built by `bin/build_oscal_db.py` | Bundled content (AWS cdefs, docs) is indexed at build time, not at startup. `data/` is not shipped |
 | Database mode resolution | `OscalStore._resolve_db_path` | bundled: verified copy to a temp dir (default). persistent: `OSCAL_STORE_DB_PATH`; seeded from the bundled DB if the file is missing. ephemeral: empty temp DB if the bundled DB is missing or fails its integrity check |
 | Lazy indexing | `documents.indexed` flag, `_ensure_indexed` | Scanning stores `raw_json` and metadata only. Child elements and FTS rows are extracted on first query (the build script indexes everything up front) |
-| Parsing through trestle | `OscalStore._do_parse`, `TRESTLE_MODEL_MAP` | Parsed pydantic models are cached in an `lru_cache` sized by `OSCAL_STORE_CACHE_SIZE` |
+| Parsing through oscal-bindings | `OscalStore._do_parse`, `utils.MODEL_MAP` (`model_validate`) | Parsed pydantic models are cached in an `lru_cache` sized by `OSCAL_STORE_CACHE_SIZE` |
 | One SQLite connection per thread | `OscalStore._conn` (thread-local), WAL mode | MCP runs sync tools on worker threads; `close()` closes the connections from every thread |
 | Startup integrity checks | `utils.verify_package_integrity(oscal_schemas)`; `OscalStore._verify_bundled_db` | Schema tampering exits with code 2. A DB hash mismatch only falls back to an ephemeral DB (logged as a warning) |
 | Paginated responses | `utils.paginate`, `OscalStore._page_response` | `{items, total, offset, limit, hasMore}`; `limit` is 1–100 |

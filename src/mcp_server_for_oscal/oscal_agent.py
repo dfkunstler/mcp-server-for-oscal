@@ -414,7 +414,6 @@ def main() -> None:
     try:
         logging.basicConfig(level=config.log_level)
         logging.getLogger("strands").setLevel(config.log_level)
-        logging.getLogger("trestle").setLevel(config.log_level)
         logging.getLogger(__package__).setLevel(config.log_level)
         logging.getLogger(__name__).setLevel(config.log_level)
     except ValueError:

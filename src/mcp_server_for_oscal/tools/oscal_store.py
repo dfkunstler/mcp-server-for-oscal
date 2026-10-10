@@ -11,7 +11,6 @@ from __future__ import annotations
 import contextlib
 import functools
 import hashlib
-import importlib
 import json
 import logging
 import re
@@ -25,7 +24,7 @@ from urllib.parse import urlparse
 from uuid import NAMESPACE_URL, uuid5
 
 from mcp_server_for_oscal.config import config
-from mcp_server_for_oscal.tools.utils import ROOT_KEY_TO_MODEL_TYPE, OSCALModelType
+from mcp_server_for_oscal.tools.utils import MODEL_MAP, ROOT_KEY_TO_MODEL_TYPE, OSCALModelType
 
 logger = logging.getLogger(__name__)
 
@@ -48,36 +47,6 @@ CHILD_ELEMENT_TYPES: dict[OSCALModelType, tuple[str, ...]] = {
     OSCALModelType.ASSESSMENT_RESULTS: ("result", "finding"),
     OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES: ("poam-item",),
     OSCALModelType.MAPPING: ("mapping",),
-}
-
-# Maps OSCALModelType to (trestle module, class name) for validation.
-TRESTLE_MODEL_MAP: dict[OSCALModelType, tuple[str, str]] = {
-    OSCALModelType.CATALOG: ("trestle.oscal.catalog", "Catalog"),
-    OSCALModelType.PROFILE: ("trestle.oscal.profile", "Profile"),
-    OSCALModelType.COMPONENT_DEFINITION: (
-        "trestle.oscal.component",
-        "ComponentDefinition",
-    ),
-    OSCALModelType.SYSTEM_SECURITY_PLAN: (
-        "trestle.oscal.ssp",
-        "SystemSecurityPlan",
-    ),
-    OSCALModelType.ASSESSMENT_PLAN: (
-        "trestle.oscal.assessment_plan",
-        "AssessmentPlan",
-    ),
-    OSCALModelType.ASSESSMENT_RESULTS: (
-        "trestle.oscal.assessment_results",
-        "AssessmentResults",
-    ),
-    OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES: (
-        "trestle.oscal.poam",
-        "PlanOfActionAndMilestones",
-    ),
-    OSCALModelType.MAPPING: (
-        "trestle.oscal.mapping",
-        "MappingCollection",
-    ),
 }
 
 
@@ -104,7 +73,7 @@ class OscalStore:
         Args:
             db_path: Path to SQLite database file. None = auto-resolve.
                      When None, falls back to config.oscal_store_db_path if set.
-            cache_size: Max number of parsed Trestle models to cache.
+            cache_size: Max number of parsed OSCAL models to cache.
             seed_from_bundled: If True (default), seed from the bundled DB
                      when db_path does not exist. If False, always start
                      with an empty database.
@@ -452,7 +421,7 @@ class OscalStore:
     # ------------------------------------------------------------------
 
     def get_parsed_model(self, doc_id: int) -> object:
-        """Get a fully parsed Trestle model for a document, using LRU cache.
+        """Get a fully parsed OSCAL model for a document, using LRU cache.
 
         Fetches ``raw_json`` and ``model_type`` from SQLite, then delegates
         to an instance-level LRU-cached parser so repeated accesses for the
@@ -466,11 +435,11 @@ class OscalStore:
             doc_id: The integer primary key of the document row.
 
         Returns:
-            A parsed Trestle Pydantic model instance.
+            A parsed OSCAL Pydantic model instance.
 
         Raises:
             ValueError: If no document exists for *doc_id* or the model
-                type has no Trestle mapping.
+                type has no OSCAL model class.
             RuntimeError: If parsing fails.
         """
         row = self._conn.execute(
@@ -486,7 +455,7 @@ class OscalStore:
         return self._cached_parse(doc_id, raw_json, model_type_str)
 
     def get_parsed_model_by_uuid(self, doc_uuid: str) -> object | None:
-        """Get a fully parsed Trestle model for the document with *doc_uuid*.
+        """Get a fully parsed OSCAL model for the document with *doc_uuid*.
 
         Resolves ``documents.uuid`` to the row id and delegates to
         :meth:`get_parsed_model`, so the same LRU cache is used.
@@ -495,11 +464,11 @@ class OscalStore:
             doc_uuid: The OSCAL document UUID (``documents.uuid``).
 
         Returns:
-            A parsed Trestle Pydantic model instance, or ``None`` when
+            A parsed OSCAL Pydantic model instance, or ``None`` when
             *doc_uuid* is empty or matches no document.
 
         Raises:
-            ValueError: If the model type has no Trestle mapping.
+            ValueError: If the model type has no OSCAL model class.
             RuntimeError: If parsing fails.
         """
         if not doc_uuid:
@@ -514,7 +483,7 @@ class OscalStore:
 
     @staticmethod
     def _do_parse(raw_json: str, model_type_str: str) -> object:
-        """Parse *raw_json* into the Trestle model for *model_type_str*.
+        """Parse *raw_json* into the parsed OSCAL model for *model_type_str*.
 
         This is the actual parsing logic, separated from caching so it
         can be tested independently.
@@ -524,17 +493,9 @@ class OscalStore:
         except ValueError as exc:
             raise ValueError(f"Unknown model type '{model_type_str}'") from exc
 
-        if model_type not in TRESTLE_MODEL_MAP:
-            raise ValueError(f"No Trestle model mapping for type '{model_type_str}'")
-
-        module_name, class_name = TRESTLE_MODEL_MAP[model_type]
-        try:
-            mod = importlib.import_module(module_name)
-            model_class = getattr(mod, class_name)
-        except (ImportError, AttributeError) as exc:
-            raise RuntimeError(
-                f"Cannot load Trestle model {module_name}.{class_name}: {exc}"
-            ) from exc
+        model_class = MODEL_MAP.get(model_type)
+        if model_class is None:
+            raise ValueError(f"No OSCAL model class for type '{model_type_str}'")
 
         data = json.loads(raw_json)
         root_data = data.get(model_type.value, data)
@@ -542,7 +503,9 @@ class OscalStore:
         try:
             return model_class.model_validate(root_data)
         except Exception as exc:
-            raise RuntimeError(f"Failed to parse document as {class_name}: {exc}") from exc
+            raise RuntimeError(
+                f"Failed to parse document as {model_class.__name__}: {exc}"
+            ) from exc
 
     def _build_cached_parse(self) -> functools._lru_cache_wrapper:
         """Build an LRU-cached wrapper around ``_do_parse``.
@@ -600,7 +563,7 @@ class OscalStore:
             )
             return
 
-        # Parse the full Trestle model (uses LRU cache)
+        # Parse the full OSCAL model (uses LRU cache)
         parsed_model = self.get_parsed_model(doc_id)
 
         # Extract child elements
@@ -688,14 +651,14 @@ class OscalStore:
         model_type: OSCALModelType,
         parsed_model: object,
     ) -> list[dict]:
-        """Extract child element metadata from a parsed Trestle model.
+        """Extract child element metadata from a parsed OSCAL model.
 
         Each returned dict has keys: uuid, title, element_type,
         description (optional), raw_json (optional).
 
         Args:
             model_type: The OSCAL model type of the document.
-            parsed_model: A parsed Trestle Pydantic model instance.
+            parsed_model: A parsed OSCAL Pydantic model instance.
 
         Returns:
             A list of child element dicts.
@@ -875,6 +838,8 @@ class OscalStore:
             # mappings
             mappings = getattr(parsed_model, "mappings", None)
             if mappings is not None:
+                # Unwrap the Mappings RootModel (array form) to its list
+                mappings = getattr(mappings, "root", mappings)
                 # mappings can be a single Mapping or a list
                 if not isinstance(mappings, list):
                     mappings = [mappings]
@@ -1255,38 +1220,37 @@ class OscalStore:
         return None
 
     # ------------------------------------------------------------------
-    # Trestle validation
+    # OSCAL model validation
     # ------------------------------------------------------------------
 
-    def _validate_with_trestle(self, data: dict, model_type: OSCALModelType) -> bool:
-        """Validate document data using the corresponding Trestle model.
+    def _validate_with_model(self, data: dict, model_type: OSCALModelType) -> bool:
+        """Validate document data with the OSCAL model class for *model_type*.
 
         Args:
             data: The full parsed JSON dict (with root key).
             model_type: The detected OSCAL model type.
 
         Returns:
-            True if validation succeeds, False otherwise.
+            True if validation succeeds, False otherwise (including when no
+            model class is registered for *model_type*).
         """
-        if model_type not in TRESTLE_MODEL_MAP:
-            # No trestle model available (e.g. mapping-collection)
-            # Accept without validation
-            return True
+        model_class = MODEL_MAP.get(model_type)
+        if model_class is None:
+            # Fail closed: MODEL_MAP covers every OSCALModelType, so this is
+            # unreachable unless the map is incomplete.
+            logger.warning("No OSCAL model class for %s document", model_type.value)
+            return False
 
-        module_name, class_name = TRESTLE_MODEL_MAP[model_type]
         try:
-            mod = importlib.import_module(module_name)
-            model_class = getattr(mod, class_name)
-            root_data = data.get(model_type.value, data)
-            model_class.model_validate(root_data)
-            return True
+            model_class.model_validate(data.get(model_type.value, data))
         except Exception as exc:
             logger.warning(
-                "Trestle validation failed for %s document: %s",
+                "OSCAL model validation failed for %s document: %s",
                 model_type.value,
                 exc,
             )
             return False
+        return True
 
     # ------------------------------------------------------------------
     # Directory scanning
@@ -1496,8 +1460,8 @@ class OscalStore:
             logger.debug("Cannot parse %s: %s", json_file, exc)
             return False
 
-        # Validate with Trestle
-        if not self._validate_with_trestle(data, model_type):
+        # Validate with the OSCAL model
+        if not self._validate_with_model(data, model_type):
             logger.warning("Skipping invalid document: %s", json_file)
             return False
 
@@ -1584,8 +1548,8 @@ class OscalStore:
                     if model_type_filter is not None and model_type != model_type_filter:
                         continue
 
-                    # Validate with Trestle
-                    if not self._validate_with_trestle(data, model_type):
+                    # Validate with the OSCAL model
+                    if not self._validate_with_model(data, model_type):
                         logger.warning(
                             "Skipping invalid document in zip: %s/%s",
                             zip_path,
@@ -2500,7 +2464,7 @@ class OscalStore:
             if model_type != OSCALModelType.COMPONENT_DEFINITION:
                 raise ValueError("Remote document is not a Component Definition")
 
-            if not self._validate_with_trestle(data, model_type):
+            if not self._validate_with_model(data, model_type):
                 raise ValueError("Remote Component Definition failed validation")
 
             meta = self._extract_metadata(data, model_type)

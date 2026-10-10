@@ -6,7 +6,7 @@ Starting point for AI agents working in this repo. Detailed generated docs are i
 
 ## Contents
 
-- [Rules that always apply](#rules-that-always-apply): hatch-only execution, no `cd`, trestle-first, git and branch policy (pointers to `.kiro/steering`)
+- [Rules that always apply](#rules-that-always-apply): hatch-only execution, no `cd`, oscal-bindings-first, git and branch policy (pointers to `.kiro/steering`)
 - [Code map](#code-map): where each subsystem lives and its entry points
 - [How a tool is wired](#how-a-tool-is-wired): what to touch when you add or change an MCP tool
 - [OscalStore essentials](#oscalstore-essentials): DB modes, lazy indexing, integrity
@@ -25,7 +25,7 @@ These rules are defined in `.kiro/steering/`. Read the files for detail; they ta
 |---|---|
 | Run all Python through `hatch` (`hatch test`, `hatch run <script>`, `hatch run python ...`). Never call `python`, `pytest`, `mypy`, `ruff`, or `bandit` directly, and pass pytest flags after `--` | `hatch.md` |
 | Never prefix commands with `cd`; set the working directory instead. Repeat this rule to any subagent you delegate to | `~/.kiro/steering/no-cd-prefix.md` |
-| Use `compliance-trestle` (`trestle.oscal.*`) for OSCAL models, validation, and serialization; document why if you don't | `compliance-trestle.md` |
+| Use `oscal-bindings` (`oscal_bindings.models` classes via `MODEL_MAP`, `model_validate`) for OSCAL models, validation, and serialization; never the union `parse_*` helpers; document why if you don't | `oscal-bindings.md` |
 | Work on a feature branch tied to a GitHub issue, put `#<issue>` in commits, run `hatch run tests` before committing, and stage only your own files. Never commit to `main` or push without explicit approval | `git-strategy.md` |
 | `structure.md`, `product.md`, and `tech.md` are partly stale (see `.agents/summary/review_notes.md`). Prefer this file and the code | |
 
@@ -39,12 +39,12 @@ These rules are defined in `.kiro/steering/`. Read the files for detail; they ta
 | `src/mcp_server_for_oscal/oscal_agent.py` | Strands + Bedrock agent: `create_oscal_agent()`, session (file/S3) and conversation managers, observability hook | `main()`; `oscal-agent` |
 | `src/mcp_server_for_oscal/config.py` | `Config` singleton `config`, read from env and `.env` at import | |
 | `src/mcp_server_for_oscal/tools/__init__.py` | `get_tool_list()`: the single tool registry used by both server and agent | |
-| `tools/oscal_store.py` | `OscalStore`: SQLite + FTS5 index of all OSCAL docs, lazy child extraction, trestle parsing with an LRU cache | |
+| `tools/oscal_store.py` | `OscalStore`: SQLite + FTS5 index of all OSCAL docs, lazy child extraction, oscal-bindings model parsing with an LRU cache | |
 | `tools/query_component_definition.py` | Component Definition tools (capability-first, scoped by cdef UUID or exact title) | |
 | `tools/query_oscal_models.py` | `query_*`/`list_*` for the other 7 model types, child-element listers, `text_search_oscal`, `get_child_element` | |
-| `tools/validate_oscal_content.py` | 4-level validation: JSON → JSON Schema (`regex` pattern handler) → trestle → `oscal-cli` if on PATH | |
+| `tools/validate_oscal_content.py` | 4-level validation: JSON → JSON Schema (`regex` pattern handler) → model (oscal-bindings via `MODEL_MAP`) → `oscal-cli` if on PATH | |
 | `tools/query_documentation.py`, `tools/list_oscal_resources.py` | Bedrock KB query with a local FTS fallback; awesome-oscal list read from the DB | |
-| `tools/utils.py` | `OSCALModelType`, schema loading, bundled OSCAL version, `verify_package_integrity`, `paginate`, MCP client logging | |
+| `tools/utils.py` | `OSCALModelType`, `MODEL_MAP` (the single source of oscal-bindings model classes per model type), schema loading, bundled OSCAL version, `verify_package_integrity`, `paginate`, MCP client logging | |
 | `src/mcp_server_for_oscal/oscal_schemas/` | NIST JSON/XSD schemas + `hashes.json` (verified at startup; exit 2 on mismatch) | |
 | `data/` | Source content for the bundled DB (AWS cdef zip, awesome-oscal, fetched OSCAL-Pages). Not shipped in the wheel | |
 | `bin/` | DB build, hash, MCPB, and content-update scripts | |
@@ -69,7 +69,7 @@ These rules are defined in `.kiro/steering/`. Read the files for detail; they ta
 
 - DB modes: `bundled` (default; the verified `oscal_store.db` is copied to a temp dir), `persistent` (`OSCAL_STORE_DB_PATH`; seeded from the bundled DB if the file is missing), `ephemeral` (empty temp DB when the bundled DB is missing or fails its hash check). A hash mismatch is not fatal; it only falls back.
 - The bundled DB and its manifest (`src/mcp_server_for_oscal/oscal_store.db`, `src/mcp_server_for_oscal/hashes.json`) are gitignored build artifacts. Run `hatch run build-db` to create them locally. Without them the server starts with an empty store.
-- Scanning (`scan_directory`) ingests `.json`, `.zip` members, and `.md` (as `model_type='documentation'`), validates through trestle, and stores `raw_json` with `indexed=0`. Child elements and FTS rows are extracted on first access (`_ensure_indexed`).
+- Scanning (`scan_directory`) ingests `.json`, `.zip` members, and `.md` (as `model_type='documentation'`), validates through the oscal-bindings model class from `MODEL_MAP`, and stores `raw_json` with `indexed=0`. Child elements and FTS rows are extracted on first access (`_ensure_indexed`).
 - Child types per model live in `CHILD_ELEMENT_TYPES`. Catalog controls are extracted recursively through nested groups.
 - SQLite connections are thread-local (MCP runs sync tools on worker threads). Use the public store API; tests reject private-attribute access from cdef tools.
 - Dynamic SQL composes internal fragments only, with values bound. Each site has `# nosec B608`.
@@ -85,7 +85,7 @@ All of these are defined under `[tool.hatch.envs.default.scripts]` in `pyproject
 | `hatch run tests` | Required before commit: mypy, `hatch test --exitfirst --all --cover` (3.11 + 3.12), bandit. Reports go to `private/docs/` |
 | `hatch run build-db` | After changing `data/` content or store schema/extraction logic; rebuilds `oscal_store.db` and its hash |
 | `hatch run rehash` | After changing files in `oscal_schemas/` or `data/*`; regenerates `hashes.json` and runs `git add` on the manifests |
-| `hatch run update-oscal-schemas` | After bumping `CURRENT_RELEASE_VERSION` in `bin/update-oscal-schemas.sh`; then `rehash`. That variable also drives the README OSCAL badge and `TestBundledOscalVersion` |
+| `hatch run update-oscal-schemas` | After bumping `CURRENT_RELEASE_VERSION` in `bin/update-oscal-schemas.sh`; then `rehash`. That variable also drives the README OSCAL badge and `TestBundledOscalVersion`. Also requires a matching `oscal-bindings` release: `TestBundledOscalVersion` fails unless `oscal_bindings.__oscal_schema_version__` equals the bundled schema version |
 | `hatch run update` | Re-lock `requirements.txt` after editing dependencies (`UV_CONSTRAINT` pins every env to it) |
 | `hatch run release` | Full CI pipeline locally: tests, fetch NIST docs, build-db, build, build-mcpb (needs `uv` and `npx`) |
 | `hatch run http-server` / `hatch run oscal-agent` | Dev-only streamable-http server (no auth) / agent CLI (needs Bedrock) |
@@ -97,7 +97,8 @@ All of these are defined under `[tool.hatch.envs.default.scripts]` in `pyproject
 - Ruff: line length 100, double quotes. The ignored rules are listed with rationale in `pyproject.toml` (broad excepts, lazy imports, and f-string logging are deliberate). Prefer a targeted `# noqa: RULE - reason` over a new global ignore.
 - `.git-blame-ignore-revs` lists the repo-wide ruff format commit.
 - The `MCPServer` and `config` are created at import time, so tests patch `mcp_server_for_oscal.<module>.config` rather than environment variables.
-- The trestle model map is duplicated in `oscal_store.py` and `validate_oscal_content.py`; change both together.
+- `MODEL_MAP` in `tools/utils.py` is the single source of OSCAL model classes; the store and validator both read it. Don't map or import model classes elsewhere.
+- Tools return stored OSCAL JSON (child `raw_json`) with hyphenated keys. Never return Pydantic models from tools; when you must serialize, pass `by_alias=True, exclude_none=True` explicitly.
 - The OSCAL version reported by `about` comes from the schema `$id` and is never hard-coded.
 - `README.md` must keep its first-line `<!-- mcp-name: io.github.dfkunstler/mcp-server-for-oscal -->`, which must match `server.json` `name` (tested).
 - Env vars are declared in `config.py`, `dotenv.example`, DEVELOPING.md, and partially in `server.json` and `conf/mcpb/manifest.json` + `conf/mcpb/src/server.py` (`USER_CONFIG_ENV`). Keep them in sync.

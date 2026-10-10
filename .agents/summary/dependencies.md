@@ -8,20 +8,22 @@
 |---|---|---|
 | `mcp` (≥2.1.1) | `MCPServer`, `Context`, `MCPDeprecationWarning` | `main.py`, every tool (ctx type), `utils.py` |
 | `strands-agents` (≥1.55.0) | `@tool` decorator on all tools; `Agent`, `BedrockModel`, hooks, retry, session/conversation managers | `tools/*`, `oscal_agent.py` |
-| `compliance-trestle` (≥5.1.0) | OSCAL pydantic models (parse/validate), level-3 validation | `oscal_store.py`, `validate_oscal_content.py`, `query_component_definition.py` |
+| `oscal-bindings` (==0.1.0, exact pin) | Typed OSCAL Pydantic v2 models generated from the NIST JSON Schema (`oscal_bindings.models`); parse/validate on ingest, level-3 ("model") validation | `utils.MODEL_MAP` (shared by `oscal_store.py` and `validate_oscal_content.py`), `query_component_definition.py` |
 | `boto3` (≥1.42.7) | Bedrock KB retrieve, Bedrock model session | `query_documentation.py`, `oscal_agent.py` |
 | `regex` | ECMA-262 Unicode property escapes in OSCAL schema patterns | `validate_oscal_content.py` |
+| `jsonschema` (≥4.26.0) | Level-2 JSON Schema validation | `validate_oscal_content.py` (lazy import) |
+| `python-dotenv` (≥1.2.4) | `.env` loading | `config.py` |
+| `requests` (≥2.34.2) | Remote file fetch | `validate_oscal_file` |
 
-Used directly but only installed as transitive dependencies:
+`jsonschema`, `python-dotenv`, and `requests` were declared directly when oscal-bindings replaced compliance-trestle (#26), which had been supplying them transitively.
+
+Used directly but only installed as a transitive dependency:
 
 | Package | Comes via | Used in |
 |---|---|---|
-| `python-dotenv` | mcp / strands | `config.py` |
-| `jsonschema` | trestle / mcp | `validate_oscal_content.py` (lazy import) |
-| `requests` | trestle / boto ecosystem | `validate_oscal_file` remote fetch |
 | `anyio` | mcp | `utils.safe_log_mcp` |
 
-A change to any of these upstream projects can drop them silently. See review_notes.
+A change upstream can drop it silently. See review_notes.
 
 ## Dev/test (`[dependency-groups].devtest` and `hatch-test` env)
 

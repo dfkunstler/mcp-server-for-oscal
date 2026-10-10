@@ -61,7 +61,7 @@ Environment setup, configuration, and the full list of hatch scripts are in [DEV
 
 - **Use hatch for everything.** Run tests, type checks, lint, and scripts through `hatch` so they use the locked environment (`requirements.txt`). `hatch run tests` (mypy, pytest on Python 3.11 and 3.12 with coverage, and bandit) must pass before you open a PR. To pass flags to pytest, put them after `--`, for example `hatch test -- -k schema`.
 - **Format and lint** with `hatch check fmt --fix` and `hatch check code --fix`. Ruff settings and the reasons for each ignored rule are in `pyproject.toml`. Prefer a targeted `# noqa: RULE - reason` to adding a new global ignore.
-- **Use compliance-trestle** (`trestle.oscal.*`) to parse, validate, and serialize OSCAL. Don't hand-roll OSCAL parsing or validation.
+- **Use oscal-bindings** (`oscal_bindings.models`) to parse, validate, and serialize OSCAL. Don't hand-roll OSCAL parsing or validation.
 - **Reference an issue.** Work on a branch for a single issue and include `#<issue>` in your commit messages.
 - **Keep related files in sync:**
   - New or changed MCP tool: update `get_tool_list()` in `src/mcp_server_for_oscal/tools/__init__.py`, the tool's docstring (which clients see as the tool description), and `src/mcp_server_for_oscal/tools/README.md`.

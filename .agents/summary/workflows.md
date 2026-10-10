@@ -10,7 +10,7 @@ sequenceDiagram
     participant T as query_catalog (tool)
     participant S as OscalStore
     participant DB as SQLite (thread-local conn)
-    participant P as trestle (LRU cached)
+    participant P as oscal-bindings (LRU cached)
     C->>T: query_type=by_title, query_value="NIST 800-53"
     T->>S: query(model_type=catalog, ...)
     S->>DB: SELECT documents (NOCASE title; FTS fallback)

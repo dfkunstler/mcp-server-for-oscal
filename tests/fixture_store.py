@@ -73,7 +73,7 @@ def load_valid_fixture_cdefs() -> list[dict]:
 
 
 def make_many_capabilities_cdef(n: int = 120) -> tuple[dict, dict]:
-    """Build one Trestle-valid Component Definition with ``n`` capabilities.
+    """Build one model-valid Component Definition with ``n`` capabilities.
 
     Capability names are zero-padded (``"Capability 000"`` ... ``"Capability
     119"``), so name order matches list order. The target is the last

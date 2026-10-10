@@ -27,7 +27,7 @@ Generated alongside the summary. Items marked "verified" were confirmed by runni
 | `src/.../tools/README.md`, `conf/powers/oscal/POWER.md`, `.kiro/steering/product.md`, `.kiro/steering/tech.md` | `query_oscal_documentation` is "conditionally registered" / "only registered when a KB ID is configured" | Always registered; local FTS fallback exists (`test_tool_registry.py::TestProperty1UnconditionalToolInclusion`) |
 | DEVELOPING.md env table | `OSCAL_KB_ID` default "tool not registered"; `OSCAL_STORE_DB_PATH` default "in-memory only" | Tool is always present; the default DB is a temp-file copy of the bundled DB |
 | tools/README `about` | `oscal-version` "currently 1.2.1" | Derived from the schemas (1.2.3 in `update-oscal-schemas.sh`) |
-| tools/README validation | "`mapping-collection` skips Level 3 (trestle does not support it)" | Trestle `MappingCollection` is mapped; `test_mapping_collection_validated` exists |
+| tools/README validation | "`mapping-collection` skips Level 3" (written when compliance-trestle was the model library) | `MappingCollection` is mapped in `utils.MODEL_MAP` (oscal-bindings, #26); `test_mapping_collection_validated` exists |
 | tools/README `query_component_definition` | "Loads … from local directory (including zip files)", "Supports remote URI loading", "Maintains global indexes" | Legacy store behavior; reads exclusively from `OscalStore` |
 | tools/README list tools | `list_component_definitions` / `list_components` / `list_capabilities` "return list of dictionaries" | Return a paginated page response |
 | tools/README | "Optional: Set `OSCAL_AWS_PROFILE`" | Variable does not exist; it is `AWS_PROFILE` |
@@ -43,8 +43,8 @@ Generated alongside the summary. Items marked "verified" were confirmed by runni
 
 - No architectural doc for `OscalStore` (mode resolution, lazy indexing, FTS fallback) outside code docstrings and `.kiro/specs/scalable-oscal-store`. This summary is the first consolidated description.
 - Nothing explains that every CI build pulls OSCAL-Pages from unpinned `main`, so builds are not reproducible for bundled documentation.
-- The trestle model map is duplicated (`oscal_store.TRESTLE_MODEL_MAP`, `validate_oscal_content._TRESTLE_MODEL_MAP`) with no note to keep the two in sync.
-- Imports of `python-dotenv`, `jsonschema`, `requests`, and `anyio` rely on transitive dependencies. Nothing documents this, and nothing guards against them disappearing.
+- Resolved by #26: the model map was duplicated in `oscal_store.py` and `validate_oscal_content.py` under compliance-trestle; it is now the single `utils.MODEL_MAP` of oscal-bindings classes.
+- The `anyio` import relies on a transitive dependency (via `mcp`), with nothing guarding against it disappearing. `python-dotenv`, `jsonschema`, and `requests` were declared directly in #26.
 - `.kiro/specs/*` (17 feature specs) are the design history but are not linked from any human-facing doc.
 - Language-support limits: shell scripts, workflows, and the Dockerfile were read manually and not symbol-analyzed. Their behavior (for example the scripts' `mkdir tmp` failing if `tmp/` already exists) was not exercised.
 
@@ -53,6 +53,6 @@ Generated alongside the summary. Items marked "verified" were confirmed by runni
 1. Fix B1–B3 (small, user-visible), each with a test that does not mock the failure away.
 2. Make `src/.../tools/README.md` the single tool reference: regenerate its tables from `get_tool_list()` docstrings, as `bin/build_mcpb.py` already does, and have POWER.md and steering link to it instead of copying it.
 3. Update or remove `.kiro/steering/structure.md` and `product.md`, since agents load them on every request and they are stale. AGENTS.md now carries the current map.
-4. Declare directly-imported transitive packages in `pyproject.toml`.
+4. Declare `anyio` in `pyproject.toml` (the other directly-imported transitive packages were declared in #26).
 5. Pin OSCAL-Pages to a commit, or record the fetched SHA in `data/oscal_docs/hashes.json`'s `commit` field.
 6. Re-run this summary after structural changes; keep the `Custom Instructions` section of AGENTS.md hand-maintained.

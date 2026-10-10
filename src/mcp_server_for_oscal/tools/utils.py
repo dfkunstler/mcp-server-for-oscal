@@ -11,11 +11,22 @@ import warnings
 from enum import StrEnum
 from functools import cache
 from pathlib import Path
-from typing import Literal
+from typing import Final, Literal
 
 import anyio.from_thread
 from mcp import MCPDeprecationWarning
 from mcp.server.mcpserver import Context
+from oscal_bindings.models import (
+    AssessmentPlan,
+    AssessmentResults,
+    Catalog,
+    ComponentDefinition,
+    MappingCollection,
+    PlanOfActionAndMilestones,
+    Profile,
+    SystemSecurityPlan,
+)
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +59,21 @@ class OSCALModelType(StrEnum):
     ASSESSMENT_RESULTS = "assessment-results"
     PLAN_OF_ACTION_AND_MILESTONES = "plan-of-action-and-milestones"
     MAPPING = "mapping-collection"
+
+
+# Single source of OSCAL model classes, shared by OscalStore and the validator.
+# A plain dict (not a read-only proxy) so tests can use unittest.mock.patch.dict.
+# The bindings classes have no common base beyond pydantic's BaseModel.
+MODEL_MAP: Final[dict[OSCALModelType, type[BaseModel]]] = {
+    OSCALModelType.CATALOG: Catalog,
+    OSCALModelType.PROFILE: Profile,
+    OSCALModelType.COMPONENT_DEFINITION: ComponentDefinition,
+    OSCALModelType.SYSTEM_SECURITY_PLAN: SystemSecurityPlan,
+    OSCALModelType.ASSESSMENT_PLAN: AssessmentPlan,
+    OSCALModelType.ASSESSMENT_RESULTS: AssessmentResults,
+    OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES: PlanOfActionAndMilestones,
+    OSCALModelType.MAPPING: MappingCollection,
+}
 
 
 schema_names = {

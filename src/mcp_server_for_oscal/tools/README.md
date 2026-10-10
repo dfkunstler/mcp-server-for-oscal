@@ -9,13 +9,13 @@ This package contains all tool implementations for the OSCAL MCP server. Each to
 | `list_oscal_models` | List all 8 OSCAL model types with metadata (layer, status, descriptions) |
 | `get_oscal_schema` | Retrieve JSON or XSD schema for any OSCAL model |
 | `list_oscal_resources` | Browse curated OSCAL community resources, tools, and educational content |
-| `validate_oscal_content` | Validate OSCAL JSON content through a 4-level pipeline (well-formedness, JSON Schema, Trestle, oscal-cli) |
+| `validate_oscal_content` | Validate OSCAL JSON content through a 4-level pipeline (well-formedness, JSON Schema, model, oscal-cli) |
 | `validate_oscal_file` | Validate an OSCAL JSON file (local path or remote URI) through the same 4-level pipeline |
 | `query_component_definition` | Query component definitions to find capabilities and components by UUID, title, or type |
 | `list_component_definitions` | List all loaded component definitions with summary metadata |
 | `list_components` | List all loaded components with summary metadata |
 | `list_capabilities` | List all loaded capabilities with summary metadata |
-| `get_capability` | Retrieve a single capability by UUID with full OSCAL representation |
+| `get_capability` | Retrieve a single capability by UUID as OSCAL JSON |
 | `query_oscal_documentation` | RAG-based documentation query (requires AWS Bedrock Knowledge Base; conditionally registered) |
 | `about` | Server metadata including version and supported OSCAL version |
 | **Catalog tools** | |
@@ -108,25 +108,33 @@ Provides access to a curated collection of OSCAL community resources from [Aweso
 ### 4. Query Component Definitions
 **Tool**: `query_component_definition`
 
-Queries OSCAL Component Definition documents to extract information about components (services, software, regions, etc.) and their control implementations.
+Queries OSCAL Component Definition documents to find capabilities and components (services, software, regions, etc.) and their control implementations. Capabilities are checked first for `by_uuid` and `by_title` queries; the search falls through to components only when no capability matches.
 
 **Parameters**:
 - `component_definition_filter` (str, optional): UUID or title to limit search to specific Component Definition
 - `query_type` (str, default="all"): One of "all", "by_uuid", "by_title", "by_type"
 - `query_value` (str, optional): Value to search for (required for by_uuid, by_title, by_type queries)
 - `return_format` (str, default="raw"): Format of returned data (currently only "raw" supported)
+- `offset` (int, default=0), `limit` (int, default=10, 1–100): Pagination
 
-**Returns**: Dictionary with:
-- `components`: List of matching components in OSCAL JSON format
-- `total_count`: Number of components found
-- `query_type`: Type of query executed
-- `component_definitions_searched`: Number of Component Definitions searched
-- `filtered_by`: Filter applied (if any)
+**Returns**: When a capability matches, a dictionary with:
+- `capability`: The capability as OSCAL JSON
+- `component_count`: Number of entries in the capability's `incorporates-components` list (0 if absent)
+- `offset`, `limit`, `total`, `hasMore`: Pagination metadata (always 0, 1, 1, false)
+- `query_type`, `component_definitions_searched`, `filtered_by`
+
+Otherwise, a dictionary with:
+- `components`: Page of matching components as OSCAL JSON
+- `total_count`: Total number of matching components across all pages
+- `offset`, `limit`, `hasMore`: Pagination metadata
+- `query_type`, `component_definitions_searched`, `filtered_by`
+
+Capabilities and components are returned as the element's stored OSCAL JSON: hyphenated OSCAL property names (for example `incorporates-components`, `control-implementations`) with unset fields omitted rather than set to `null`. The output can be embedded in a component definition and validated as-is.
 
 **Features**:
 - Loads Component Definitions from local directory (including zip files)
 - Supports remote URI loading when `OSCAL_ALLOW_REMOTE_URIS=true`
-- Maintains global indexes for fast lookups by UUID, title, and type
+- Looks up capabilities and components through the OSCAL Store index by UUID, title, and type
 - Can search by component properties
 
 ---
@@ -189,8 +197,10 @@ Validates OSCAL JSON content through a multi-level pipeline:
 |-------|---------------|----------------|
 | 1. Well-formedness | Valid JSON, is a dict | `json.loads()` |
 | 2. JSON Schema | Conforms to NIST OSCAL schema | `jsonschema.Draft7Validator` with bundled schemas |
-| 3. Trestle | Semantic checks via Pydantic models | `trestle.oscal.*` model instantiation |
+| 3. Model | Semantic checks via OSCAL Pydantic models | `model_validate()` on the class from `MODEL_MAP` (`oscal_bindings.models`) |
 | 4. oscal-cli | Full NIST validation | `subprocess.run()` if on PATH |
+
+Each entry in `levels` carries the level name: `well_formedness`, `json_schema`, `model`, or `oscal_cli`.
 
 **Parameters**:
 - `content` (str): OSCAL JSON content as a string
@@ -204,7 +214,8 @@ Validates OSCAL JSON content through a multi-level pipeline:
 **Key behaviors**:
 - If Level 1 fails, Levels 2-4 are skipped
 - If `oscal-cli` is not installed, Level 4 is gracefully skipped
-- `mapping-collection` skips Level 3 (trestle does not support it)
+- The `model` level runs for all 8 OSCAL model types, including `mapping-collection`
+- If the model class cannot be loaded, the `model` level reports an error starting with `Failed to load OSCAL model class`
 - Errors capped at 20 per level
 
 ---
@@ -252,7 +263,7 @@ Retrieves a single capability by UUID with its full OSCAL representation.
 **Parameters**:
 - `uuid` (str): UUID of the capability. Use `list_capabilities` to discover UUIDs.
 
-**Returns**: Dictionary with the full OSCAL capability object, or None if not found
+**Returns**: The capability's stored OSCAL JSON (hyphenated OSCAL property names, unset fields omitted), or None if not found
 
 ---
 
@@ -351,7 +362,7 @@ Tools are registered in `main.py` using the MCP Python SDK's `MCPServer` (former
 ### Dependencies
 - **strands**: Provides the `@tool` decorator for tool definitions
 - **MCPServer** (MCP Python SDK v2): MCP server framework
-- **compliance-trestle**: OSCAL Pydantic models and utilities
+- **oscal-bindings**: OSCAL Pydantic models (`oscal_bindings.models`), used for model validation and document parsing
 - **OscalStore**: SQLite-backed content indexing and full-text search (`oscal_store.py`)
 - **boto3**: AWS SDK (for documentation queries)
 - **requests**: HTTP client (for remote Component Definition loading)
@@ -360,6 +371,7 @@ Tools are registered in `main.py` using the MCP Python SDK's `MCPServer` (former
 ### Utilities
 The `utils.py` module provides shared functionality:
 - `OSCALModelType`: Enum of OSCAL model types
+- `MODEL_MAP`: Mapping of each `OSCALModelType` to its `oscal_bindings.models` class. This is the single source of OSCAL model classes; the validator (`validate_oscal_content.py`) and the store (`oscal_store.py`) both read it
 - `schema_names`: Mapping of model names to schema file names
 - `ROOT_KEY_TO_MODEL_TYPE`: Reverse mapping from JSON root keys to model types
 - `load_oscal_json_schema()`: Load bundled OSCAL JSON schemas
