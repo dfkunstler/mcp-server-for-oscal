@@ -272,7 +272,7 @@ For any input string (generated valid OSCAL JSON, mutated OSCAL JSON, JSON objec
 
 ### Property 5: Datetime offsets are preserved
 
-For any UTC offset in the range −14:00 to +14:00 at minute granularity, and any naive timestamp, a Component Definition whose `metadata.last-modified` carries that offset parses (via `OscalStore._do_parse`) to a model where `metadata.last_modified.utcoffset()` equals the input offset.
+For any UTC offset permitted by the OSCAL DateTimeWithTimezoneDatatype pattern, and any naive timestamp, a Component Definition whose `metadata.last-modified` carries that offset parses (via `OscalStore._do_parse`) to a model where `metadata.last_modified.utcoffset()` equals the input offset.
 
 **Validates: Requirements 8.1**
 

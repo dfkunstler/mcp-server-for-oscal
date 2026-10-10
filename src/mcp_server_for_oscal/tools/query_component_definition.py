@@ -21,8 +21,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.mcpserver import Context  # noqa: TC002 - MCP resolves ctx annotations at runtime
+from oscal_bindings.models import ComponentDefinition
 from strands import tool
-from trestle.oscal.component import Capability, ComponentDefinition, DefinedComponent
 
 from mcp_server_for_oscal.tools.utils import (
     OSCALModelType,
@@ -194,8 +194,9 @@ def _first(items: Iterable[dict]) -> list[dict]:
 
 
 def _raw(store: OscalStore, child: dict) -> dict:
-    """Return the child's OSCAL JSON as a dict for dict-level checks.
+    """Return the child's stored OSCAL JSON as a dict.
 
+    The result uses OSCAL (hyphenated) keys with nulls omitted.
     Uses ``child["raw_json"]`` when present. When it is ``None`` (the store
     could not serialize the child at index time), the child is materialized
     from its parent Component Definition and serialized the same way the
@@ -250,11 +251,13 @@ def _select_component_candidates(
         ValueError: If *query_type* is not a supported query type.
     """
     if query_type == "all":
-        return list(_iter_children(store, "component", scope))
+        return list(_iter_children(store, "component", scope, include_raw_json=True))
     if query_type == "by_uuid":
-        return _first(_iter_children(store, "component", scope, element_id=value))
+        return _first(
+            _iter_children(store, "component", scope, element_id=value, include_raw_json=True)
+        )
     if query_type == "by_title":
-        hit = _first(_iter_children(store, "component", scope, title=value))
+        hit = _first(_iter_children(store, "component", scope, title=value, include_raw_json=True))
         if hit or value is None:
             return hit
         return _first(
@@ -273,29 +276,16 @@ def _select_component_candidates(
 
 
 def _materialize_components(store: OscalStore, page: list[dict]) -> list[dict]:
-    """Materialize component candidates from their parent Component Definitions.
+    """Return the stored OSCAL JSON of each component candidate.
 
-    Each distinct parent is parsed once. Candidates no longer present in
-    their parent are logged and skipped.
+    Candidates whose JSON cannot be read (``_raw`` returns ``{}``) are
+    skipped; ``_raw`` logs a warning for them.
 
     Returns:
-        ``DefinedComponent.model_dump(exclude_none=True)`` for each found candidate,
-        in candidate order.
+        One OSCAL component dict (hyphenated keys, nulls omitted) per found
+        candidate, in candidate order.
     """
-    by_parent: dict[str, dict[str, DefinedComponent]] = {}
-    out: list[dict] = []
-    for cand in page:
-        parent = cand["parentDocumentUuid"]
-        if parent not in by_parent:
-            model = store.get_parsed_model_by_uuid(parent)
-            comps = model.components if isinstance(model, ComponentDefinition) else None
-            by_parent[parent] = {str(c.uuid): c for c in comps or []}
-        comp = by_parent[parent].get(cand["id"])
-        if comp is None:
-            logger.warning("Component %s missing from parent %s", cand["id"], parent)
-            continue
-        out.append(comp.model_dump(exclude_none=True))
-    return out
+    return [d for c in page if (d := _raw(store, c))]
 
 
 def _find_capability(
@@ -303,30 +293,24 @@ def _find_capability(
     scope: _Scope,
     query_type: str,
     value: str,
-) -> Capability | None:
+) -> dict | None:
     """Find a capability by UUID (``by_uuid``) or exact title (otherwise).
 
-    Searches every capability in *scope* (no result cap) and materializes
-    the first hit from its parent Component Definition.
+    Searches every capability in *scope* (no result cap) and returns the
+    first hit's stored OSCAL JSON (hyphenated keys, nulls omitted).
+
+    Returns:
+        The capability dict, or ``None`` if nothing matched or its JSON
+        could not be read.
     """
     if query_type == "by_uuid":
-        it = _iter_children(store, "capability", scope, element_id=value)
+        it = _iter_children(store, "capability", scope, element_id=value, include_raw_json=True)
     else:
-        it = _iter_children(store, "capability", scope, title=value)
+        it = _iter_children(store, "capability", scope, title=value, include_raw_json=True)
     hit = _first(it)
     if not hit:
         return None
-    cap_id = hit[0]["id"]
-    model = store.get_parsed_model_by_uuid(hit[0]["parentDocumentUuid"])
-    caps = model.capabilities if isinstance(model, ComponentDefinition) else None
-    found = next((c for c in caps or [] if str(c.uuid) == cap_id), None)
-    if found is None:
-        logger.warning(
-            "Capability %s missing from parent %s",
-            cap_id,
-            hit[0]["parentDocumentUuid"],
-        )
-    return found
+    return _raw(store, hit[0]) or None
 
 
 def _query_component_definition(
@@ -389,10 +373,10 @@ def _query_component_definition(
         try:
             cap = _find_capability(store, scope, query_type, query_value)
             if cap is not None:
-                logger.debug("Returning capability %s", cap.uuid)
+                logger.debug("Returning capability %s", cap.get("uuid"))
                 return {
-                    "capability": cap.oscal_dict(),
-                    "component_count": len(cap.incorporates_components or []),
+                    "capability": cap,
+                    "component_count": len(cap.get("incorporates-components", [])),
                     "offset": 0,
                     "limit": 1,
                     "total": 1,
@@ -493,16 +477,14 @@ def _list_capabilities(
 
 
 def _get_capability(store: OscalStore, uuid: str) -> dict | None:
-    """Return the full Capability with *uuid* as a dict, or ``None``.
+    """Return the stored OSCAL JSON of the Capability with *uuid*, or ``None``.
 
-    Searches every Capability in the store (no position cap).
-    ``.model_dump()`` (not ``oscal_dict()``) keeps output compatible with the
-    original tool.
+    Searches every Capability in the store (no position cap). The dict uses
+    OSCAL (hyphenated) keys with nulls omitted.
     """
     if not uuid:
         return None
-    cap = _find_capability(store, _Scope(None, 0), "by_uuid", uuid)
-    return cap.model_dump() if cap is not None else None
+    return _find_capability(store, _Scope(None, 0), "by_uuid", uuid)
 
 
 def _list_component_definitions(
@@ -602,20 +584,21 @@ def query_component_definition(
         query_value: The value to search for. Required for by_uuid, by_title,
             and by_type queries.
         return_format: Response format. Currently only "raw" is supported, returning
-            complete OSCAL objects as JSON.
+            complete OSCAL objects as OSCAL JSON (hyphenated keys, nulls omitted).
         offset: Zero-based pagination offset (default 0).
         limit: Maximum items to return, 1-100 (default 10).
 
     Returns:
         dict: When a Capability matches, the response contains:
-            - capability: Full OSCAL Capability object as JSON
-            - component_count: Number of Components the Capability incorporates
+            - capability: Full OSCAL Capability object as OSCAL JSON
+            - component_count: Number of entries in the Capability's
+              ``incorporates-components`` list (0 if absent)
             - offset, limit, total, hasMore: Pagination metadata
               (always 0, 1, 1, False for single-capability results)
             - query_type, component_definitions_searched, filtered_by
 
         When Components are returned instead, the response contains:
-            - components: Paginated list of OSCAL Component objects as JSON
+            - components: Paginated list of OSCAL Component objects as OSCAL JSON
             - total_count: Total number of matching Components across all pages
             - offset, limit, hasMore: Pagination metadata
             - query_type, component_definitions_searched, filtered_by
@@ -731,8 +714,8 @@ def get_capability(
         uuid: UUID of the Capability to retrieve.
 
     Returns:
-        dict | None: Full OSCAL Capability object as a dict, or None if the
-            UUID is not found.
+        dict | None: Full OSCAL Capability object as OSCAL JSON (hyphenated
+            keys, nulls omitted), or None if the UUID is not found.
     """
     store = _require_store()
     return _get_capability(store, uuid)

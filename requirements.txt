@@ -15,7 +15,6 @@ ast-serialize==0.12.1
     # via mypy
 attrs==26.1.0
     # via
-    #   compliance-trestle
     #   jsonschema
     #   jsonschema-path
     #   referencing
@@ -25,8 +24,6 @@ awscrt==0.36.0
     # via botocore
 bandit==1.9.4
     # via mcp-server-for-oscal (pyproject.toml:devtest)
-bcrypt==5.0.0
-    # via paramiko
 bedrock-agentcore==1.24.1
     # via bedrock-agentcore-starter-toolkit
 bedrock-agentcore-starter-toolkit==0.3.14
@@ -53,34 +50,21 @@ certifi==2026.7.22
     #   httpcore
     #   httpx
     #   requests
-cffi==2.1.1
-    # via
-    #   cmarkgfm
-    #   cryptography
-    #   pynacl
+cffi==2.1.1 ; platform_python_implementation != 'PyPy'
+    # via cryptography
 chardet==7.6.0
     # via prance
 charset-normalizer==3.5.2
     # via requests
 click==8.5.0
     # via uvicorn
-cmarkgfm==2025.10.22
-    # via compliance-trestle
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
     #   bandit
     #   pytest
     #   typer
-compliance-trestle==5.2.0
-    # via mcp-server-for-oscal (pyproject.toml)
 cryptography==50.0.2
-    # via
-    #   compliance-trestle
-    #   paramiko
-    #   pyjwt
-    #   securesystemslib
-defusedxml==0.7.1
-    # via compliance-trestle
+    # via pyjwt
 dnspython==2.9.0
     # via email-validator
 docstring-parser==0.18.0
@@ -89,10 +73,6 @@ docstring-parser==0.18.0
     #   strands-agents
 email-validator==2.3.0
     # via pydantic
-et-xmlfile==2.0.0
-    # via openpyxl
-furl==2.1.4
-    # via compliance-trestle
 h11==0.16.0
     # via
     #   httpcore
@@ -119,24 +99,17 @@ idna==3.20
     #   httpx
     #   httpx2
     #   requests
-ilcli==0.3.2
-    # via compliance-trestle
-importlib-resources==7.1.0
-    # via compliance-trestle
 iniconfig==2.3.1
     # via pytest
-invoke==3.0.3
-    # via paramiko
 jinja2==3.1.6
-    # via
-    #   bedrock-agentcore-starter-toolkit
-    #   compliance-trestle
+    # via bedrock-agentcore-starter-toolkit
 jmespath==1.1.0
     # via
     #   boto3
     #   botocore
 jsonschema==4.26.0
     # via
+    #   mcp-server-for-oscal (pyproject.toml)
     #   mcp
     #   openapi-schema-validator
     #   openapi-spec-validator
@@ -171,8 +144,6 @@ openapi-schema-validator==0.9.0
     # via openapi-spec-validator
 openapi-spec-validator==0.9.0
     # via bedrock-agentcore-starter-toolkit
-openpyxl==3.1.5
-    # via compliance-trestle
 opentelemetry-api==1.45.1
     # via
     #   mcp
@@ -191,10 +162,6 @@ opentelemetry-semantic-conventions==0.66b1
     # via
     #   opentelemetry-instrumentation
     #   opentelemetry-sdk
-orderedmultidict==1.0.2
-    # via furl
-orjson==3.13.0
-    # via compliance-trestle
 oscal-bindings==0.1.0
     # via mcp-server-for-oscal (pyproject.toml)
 packaging==26.3
@@ -202,8 +169,6 @@ packaging==26.3
     #   opentelemetry-instrumentation
     #   prance
     #   pytest
-paramiko==5.0.0
-    # via compliance-trestle
 pathable==0.6.0
     # via jsonschema-path
 pathspec==1.1.1
@@ -220,13 +185,12 @@ py-openapi-schema-to-json-schema==0.0.3
     # via bedrock-agentcore-starter-toolkit
 pycodestyle==2.15.0
     # via autopep8
-pycparser==3.11 ; implementation_name != 'PyPy'
+pycparser==3.11 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
     # via cffi
 pydantic==2.14.0
     # via
     #   bedrock-agentcore
     #   bedrock-agentcore-starter-toolkit
-    #   compliance-trestle
     #   mcp
     #   mcp-types
     #   openapi-schema-validator
@@ -246,8 +210,6 @@ pygments==2.21.0
     #   rich
 pyjwt==2.15.1
     # via mcp
-pynacl==1.6.2
-    # via paramiko
 pytest==9.1.1
     # via
     #   mcp-server-for-oscal (pyproject.toml:devtest)
@@ -258,22 +220,17 @@ python-dateutil==2.9.0.post0
     # via botocore
 python-dotenv==1.2.4
     # via
-    #   compliance-trestle
+    #   mcp-server-for-oscal (pyproject.toml)
     #   pydantic-settings
-python-frontmatter==1.3.0
-    # via compliance-trestle
 python-multipart==0.0.32
     # via mcp
 pywin32==312 ; sys_platform == 'win32'
-    # via
-    #   compliance-trestle
-    #   mcp
+    # via mcp
 pyyaml==6.0.3
     # via
     #   bandit
     #   bedrock-agentcore-starter-toolkit
     #   jsonschema-path
-    #   python-frontmatter
     #   strands-agents
 questionary==2.1.1
     # via bedrock-agentcore-starter-toolkit
@@ -288,13 +245,11 @@ regex==2026.9.29
     # via mcp-server-for-oscal (pyproject.toml)
 requests==2.34.2
     # via
+    #   mcp-server-for-oscal (pyproject.toml)
     #   bedrock-agentcore-starter-toolkit
-    #   compliance-trestle
     #   prance
 rfc3339-validator==0.1.4
     # via openapi-schema-validator
-rfc8785==0.1.4
-    # via compliance-trestle
 rich==15.0.0
     # via
     #   bandit
@@ -307,18 +262,13 @@ rpds-py==2026.9.1
 ruamel-yaml==0.19.1
     # via
     #   bedrock-agentcore-starter-toolkit
-    #   compliance-trestle
     #   prance
 s3transfer==0.19.2
     # via boto3
-securesystemslib==1.5.1
-    # via compliance-trestle
 shellingham==1.5.4
     # via typer
 six==1.17.0
     # via
-    #   furl
-    #   orderedmultidict
     #   python-dateutil
     #   rfc3339-validator
 sortedcontainers==2.4.0

@@ -3,20 +3,25 @@ Tests for the validate_oscal_content tool.
 """
 
 import json
+import uuid as uuid_mod
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from mcp_server_for_oscal.tools.utils import OSCALModelType
+from mcp_server_for_oscal.tools.utils import MODEL_MAP, OSCALModelType
 from mcp_server_for_oscal.tools.validate_oscal_content import (
     MAX_ERRORS_PER_LEVEL,
     _detect_model_type,
     _validate_json_schema,
+    _validate_model,
     _validate_oscal_cli,
-    _validate_trestle,
     _validate_well_formedness,
     validate_oscal_content,
 )
+
+from .test_oscal_store import _VALID_DOC_BUILDERS
 
 
 @pytest.fixture
@@ -192,56 +197,43 @@ class TestValidateJsonSchema:
         assert "Failed to load schema" in result["errors"][0]
 
 
-class TestValidateTrestle:
-    """Test Level 3: Trestle Pydantic model validation."""
+class TestValidateModel:
+    """Test Level 3: OSCAL Pydantic model validation."""
 
-    @patch("mcp_server_for_oscal.tools.validate_oscal_content.importlib")
-    def test_valid_model_passes(self, mock_importlib):
-        """A valid model instantiation passes."""
-        mock_module = MagicMock()
-        mock_model_cls = MagicMock()
-        mock_module.Catalog = mock_model_cls
-        mock_importlib.import_module.return_value = mock_module
-        # getattr will be called with the class name
-        mock_model_cls.return_value = MagicMock()
-
-        # Patch getattr behavior by setting attribute on mock_module
-        result = _validate_trestle(
-            {"catalog": {"uuid": "test"}},
-            OSCALModelType.CATALOG,
-        )
+    def test_valid_model_passes(self):
+        """A successful model_validate call yields a valid 'model' level."""
+        mock_cls = MagicMock()
+        with patch.dict(MODEL_MAP, {OSCALModelType.CATALOG: mock_cls}):
+            result = _validate_model({"catalog": {"uuid": "test"}}, OSCALModelType.CATALOG)
         assert result["valid"] is True
+        assert result["level"] == "model"
+        # The root key is unwrapped before validation
+        mock_cls.model_validate.assert_called_once_with({"uuid": "test"})
 
     def test_mapping_collection_validated(self):
-        """mapping-collection should be validated via trestle (not skipped)."""
-        result = _validate_trestle({"mapping-collection": {}}, OSCALModelType.MAPPING)
-        # Empty mapping-collection fails trestle validation (missing required fields)
+        """mapping-collection should be validated via the model class (not skipped)."""
+        result = _validate_model({"mapping-collection": {}}, OSCALModelType.MAPPING)
+        # Empty mapping-collection fails model validation (missing required fields)
         assert result["skipped"] is False
         assert result["valid"] is False
 
-    @patch("mcp_server_for_oscal.tools.validate_oscal_content.importlib")
-    def test_parse_error(self, mock_importlib):
-        """Trestle validation error is captured."""
-        mock_module = MagicMock()
-        mock_model_cls = MagicMock()
-        mock_model_cls.side_effect = Exception("validation failed\nfield required\nmissing uuid")
-        mock_module.Catalog = mock_model_cls
-        mock_importlib.import_module.return_value = mock_module
-
-        result = _validate_trestle(
-            {"catalog": {"bad": "data"}},
-            OSCALModelType.CATALOG,
-        )
+    def test_parse_error(self):
+        """A model_validate exception is captured and split into error lines."""
+        mock_cls = MagicMock()
+        mock_cls.model_validate.side_effect = Exception("a\nb\nc")
+        with patch.dict(MODEL_MAP, {OSCALModelType.CATALOG: mock_cls}):
+            result = _validate_model({"catalog": {"bad": "data"}}, OSCALModelType.CATALOG)
         assert result["valid"] is False
-        assert len(result["errors"]) >= 1
+        assert result["level"] == "model"
+        assert result["errors"] == ["a", "b", "c"]
 
-    @patch("mcp_server_for_oscal.tools.validate_oscal_content.importlib")
-    def test_import_failure(self, mock_importlib):
-        """Handles trestle module import failure."""
-        mock_importlib.import_module.side_effect = ImportError("no module")
-        result = _validate_trestle({"catalog": {}}, OSCALModelType.CATALOG)
+    def test_load_failure(self):
+        """A model type missing from MODEL_MAP is reported as a load failure."""
+        with patch.dict(MODEL_MAP, {}, clear=True):
+            result = _validate_model({"catalog": {}}, OSCALModelType.CATALOG)
         assert result["valid"] is False
-        assert "Failed to load trestle model" in result["errors"][0]
+        assert result["level"] == "model"
+        assert result["errors"][0].startswith("Failed to load OSCAL model class")
 
 
 class TestValidateOscalCli:
@@ -293,10 +285,10 @@ class TestValidateOscalContentEndToEnd:
     """End-to-end tests for the full validation pipeline."""
 
     @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_oscal_cli")
-    @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_trestle")
+    @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_model")
     @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_json_schema")
     def test_valid_catalog_auto_detect(
-        self, mock_schema, mock_trestle, mock_cli, mock_context, valid_catalog_json
+        self, mock_schema, mock_model, mock_cli, mock_context, valid_catalog_json
     ):
         """Full pipeline with auto-detected model type."""
         mock_schema.return_value = {
@@ -307,8 +299,8 @@ class TestValidateOscalContentEndToEnd:
             "skipped": False,
             "skip_reason": None,
         }
-        mock_trestle.return_value = {
-            "level": "trestle",
+        mock_model.return_value = {
+            "level": "model",
             "valid": True,
             "errors": [],
             "warnings": [],
@@ -331,10 +323,10 @@ class TestValidateOscalContentEndToEnd:
         assert len(result["levels"]) == 4
 
     @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_oscal_cli")
-    @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_trestle")
+    @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_model")
     @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_json_schema")
     def test_model_type_override(
-        self, mock_schema, mock_trestle, mock_cli, mock_context, valid_catalog_json
+        self, mock_schema, mock_model, mock_cli, mock_context, valid_catalog_json
     ):
         """Explicit model_type overrides auto-detection."""
         mock_schema.return_value = {
@@ -345,8 +337,8 @@ class TestValidateOscalContentEndToEnd:
             "skipped": False,
             "skip_reason": None,
         }
-        mock_trestle.return_value = {
-            "level": "trestle",
+        mock_model.return_value = {
+            "level": "model",
             "valid": True,
             "errors": [],
             "warnings": [],
@@ -405,10 +397,10 @@ class TestValidateOscalContentEndToEnd:
             assert "undetectable model type" in lvl["skip_reason"]
 
     @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_oscal_cli")
-    @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_trestle")
+    @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_model")
     @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_json_schema")
     def test_overall_validity_false_when_any_level_fails(
-        self, mock_schema, mock_trestle, mock_cli, mock_context, valid_catalog_json
+        self, mock_schema, mock_model, mock_cli, mock_context, valid_catalog_json
     ):
         """Overall valid is False if any non-skipped level fails."""
         mock_schema.return_value = {
@@ -419,8 +411,8 @@ class TestValidateOscalContentEndToEnd:
             "skipped": False,
             "skip_reason": None,
         }
-        mock_trestle.return_value = {
-            "level": "trestle",
+        mock_model.return_value = {
+            "level": "model",
             "valid": True,
             "errors": [],
             "warnings": [],
@@ -440,10 +432,10 @@ class TestValidateOscalContentEndToEnd:
         assert result["valid"] is False
 
     @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_oscal_cli")
-    @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_trestle")
+    @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_model")
     @patch("mcp_server_for_oscal.tools.validate_oscal_content._validate_json_schema")
     def test_skipped_levels_dont_affect_validity(
-        self, mock_schema, mock_trestle, mock_cli, mock_context, valid_catalog_json
+        self, mock_schema, mock_model, mock_cli, mock_context, valid_catalog_json
     ):
         """Skipped levels don't make the overall result invalid."""
         mock_schema.return_value = {
@@ -454,8 +446,8 @@ class TestValidateOscalContentEndToEnd:
             "skipped": False,
             "skip_reason": None,
         }
-        mock_trestle.return_value = {
-            "level": "trestle",
+        mock_model.return_value = {
+            "level": "model",
             "valid": True,
             "errors": [],
             "warnings": [],
@@ -487,3 +479,71 @@ class TestValidateOscalContentEndToEnd:
         assert result["levels"][0]["level"] == "well_formedness"
         assert result["levels"][0]["valid"] is False
         assert len(result["levels"]) == 4
+
+
+# Feature: oscal-bindings migration (#26), Property 4: Level names are stable
+_EXPECTED_LEVEL_NAMES = ["well_formedness", "json_schema", "model", "oscal_cli"]
+
+_titles = st.text(
+    alphabet=st.characters(categories=("L", "N", "Zs")), min_size=1, max_size=40
+).filter(lambda s: s.strip())
+
+
+def _apply_mutation(doc: dict, mutation: str) -> dict:
+    """Apply one structural mutation to a valid OSCAL document."""
+    root_key = next(iter(doc))
+    body = doc[root_key]
+    if mutation == "unknown-root-key":
+        body["unexpected-field"] = "x"
+    elif mutation == "unknown-metadata-key":
+        body["metadata"]["unexpected-field"] = "x"
+    elif mutation == "drop-uuid":
+        body.pop("uuid", None)
+    elif mutation == "drop-metadata":
+        body.pop("metadata", None)
+    return doc
+
+
+@st.composite
+def _oscal_json_docs(draw: st.DrawFn) -> str:
+    """Valid OSCAL JSON, optionally with one mutation applied."""
+    root_key = draw(st.sampled_from(sorted(_VALID_DOC_BUILDERS)))
+    doc = _VALID_DOC_BUILDERS[root_key](str(uuid_mod.uuid4()), draw(_titles))
+    mutation = draw(
+        st.sampled_from(
+            ["none", "unknown-root-key", "unknown-metadata-key", "drop-uuid", "drop-metadata"]
+        )
+    )
+    return json.dumps(_apply_mutation(doc, mutation))
+
+
+_json_scalars = st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False) | st.text()
+
+_validation_inputs = st.one_of(
+    _oscal_json_docs(),
+    # JSON objects with arbitrary root keys (mostly undetectable model types)
+    st.dictionaries(st.text(max_size=20), _json_scalars, max_size=4).map(json.dumps),
+    # Non-object JSON
+    st.one_of(_json_scalars, st.lists(_json_scalars, max_size=4)).map(json.dumps),
+    # Arbitrary text, usually not JSON
+    st.text(max_size=200),
+)
+
+
+class TestPropertyLevelNamesStable:
+    """Property 4: Level names are stable.
+
+    **Validates: Requirements 4.1, 4.2, 10.2**
+    """
+
+    @settings(max_examples=100, deadline=None)
+    @given(content=_validation_inputs)
+    def test_level_names_are_stable(self, content):
+        """Every input yields the four levels, in order, whether or not later levels run."""
+        # Hide oscal-cli so the real level-4 function runs and skips instead of shelling out.
+        with patch(
+            "mcp_server_for_oscal.tools.validate_oscal_content.shutil.which", return_value=None
+        ):
+            result = validate_oscal_content(content, ctx=None)
+
+        assert [lvl["level"] for lvl in result["levels"]] == _EXPECTED_LEVEL_NAMES

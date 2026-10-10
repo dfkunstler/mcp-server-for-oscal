@@ -6,8 +6,10 @@ import re
 from pathlib import Path
 
 import pytest
+from oscal_bindings import models
 
 from mcp_server_for_oscal.tools.utils import (
+    MODEL_MAP,
     OSCALModelType,
     get_bundled_oscal_version,
     load_oscal_json_schema,
@@ -197,6 +199,29 @@ class TestOSCALModelType:
         assert actual_order == expected_order
 
 
+class TestModelMap:
+    """MODEL_MAP must map every OSCALModelType to its oscal_bindings model class."""
+
+    def test_keys_match_model_types(self):
+        assert set(MODEL_MAP) == set(OSCALModelType)
+
+    @pytest.mark.parametrize(
+        ("model_type", "expected_cls"),
+        [
+            (OSCALModelType.CATALOG, models.Catalog),
+            (OSCALModelType.PROFILE, models.Profile),
+            (OSCALModelType.COMPONENT_DEFINITION, models.ComponentDefinition),
+            (OSCALModelType.SYSTEM_SECURITY_PLAN, models.SystemSecurityPlan),
+            (OSCALModelType.ASSESSMENT_PLAN, models.AssessmentPlan),
+            (OSCALModelType.ASSESSMENT_RESULTS, models.AssessmentResults),
+            (OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES, models.PlanOfActionAndMilestones),
+            (OSCALModelType.MAPPING, models.MappingCollection),
+        ],
+    )
+    def test_value_is_bindings_class(self, model_type, expected_cls):
+        assert MODEL_MAP[model_type] is expected_cls
+
+
 class TestBundledOscalVersion:
     """The reported OSCAL version must come from, and agree with, the bundled schemas."""
 
@@ -224,10 +249,20 @@ class TestBundledOscalVersion:
         assert match, "CURRENT_RELEASE_VERSION not found in update script"
         assert get_bundled_oscal_version() == match.group(1)
 
+    def test_matches_oscal_bindings_schema_version(self):
+        """oscal-bindings must be generated from the same OSCAL release as the bundled schemas."""
+        import oscal_bindings
+
+        assert oscal_bindings.__oscal_schema_version__ == get_bundled_oscal_version()
+
     def test_about_tool_reports_bundled_version(self):
         from mcp_server_for_oscal import main
 
         if main.mcp._tool_manager.get_tool("about") is None:
             main._setup_tools()
         about = main.mcp._tool_manager.get_tool("about")
-        assert about.fn()["oscal-version"] == get_bundled_oscal_version()
+        result = about.fn()
+        assert result["oscal-version"] == get_bundled_oscal_version()
+        # The about output is unchanged by the bindings switch: no bindings-version field
+        assert set(result) == {"version", "keywords", "oscal-version"}
+        assert not any("bindings" in key.lower() for key in result)

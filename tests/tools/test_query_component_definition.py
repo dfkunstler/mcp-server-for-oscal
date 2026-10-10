@@ -21,16 +21,18 @@ import contextlib
 import importlib.util
 import os
 import sys
+import uuid
 import zipfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
-from trestle.oscal.component import ComponentDefinition
+from oscal_bindings.models import ComponentDefinition
 
 from mcp_server_for_oscal.config import config
 from mcp_server_for_oscal.tools import query_component_definition as qcd_module
+from mcp_server_for_oscal.tools.query_component_definition import _raw as raw_child_json
 from mcp_server_for_oscal.tools.query_component_definition import (
     get_capability,
     init_store,
@@ -39,13 +41,17 @@ from mcp_server_for_oscal.tools.query_component_definition import (
     list_components,
     query_component_definition,
 )
+from mcp_server_for_oscal.tools.utils import OSCALModelType
+from mcp_server_for_oscal.tools.validate_oscal_content import _validate_json_schema
 
 from ..fixture_store import (
     CAPABILITIES_CDEF_FILE,
+    MULTI_CDEF_FILE,
     SAMPLE_CDEF_FILE,
     VALID_CDEF_FILES,
     build_fixture_store,
     load_fixture_cdef,
+    load_valid_fixture_cdefs,
 )
 
 # ---------------------------------------------------------------------------
@@ -109,7 +115,7 @@ CHILD_PARENT_KEYS = {
 
 
 # ---------------------------------------------------------------------------
-# Helpers: expected values computed from the source fixtures via trestle
+# Helpers: expected values computed from the source fixture JSON
 # ---------------------------------------------------------------------------
 
 
@@ -118,18 +124,24 @@ def _parse_fixture(filename: str) -> ComponentDefinition:
     return ComponentDefinition.model_validate(data["component-definition"])
 
 
+def _raw_cdef(filename: str) -> dict[str, Any]:
+    """The source ``component-definition`` element dict of a fixture file."""
+    return load_fixture_cdef(filename)["component-definition"]
+
+
 def _expected_components() -> dict[str, dict]:
-    """Map component UUID -> ``DefinedComponent.model_dump(exclude_none=True)``."""
+    """Map component UUID -> source OSCAL ``component`` element dict."""
     out: dict[str, dict] = {}
     for filename in VALID_CDEF_FILES:
-        for comp in _parse_fixture(filename).components or []:
-            out[str(comp.uuid)] = comp.model_dump(exclude_none=True)
+        for comp in _raw_cdef(filename).get("components", []):
+            out[comp["uuid"]] = comp
     return out
 
 
-def _expected_capability():
-    caps = _parse_fixture(CAPABILITIES_CDEF_FILE).capabilities or []
-    return next(c for c in caps if str(c.uuid) == CAPABILITY_UUID)
+def _expected_capability() -> dict[str, Any]:
+    """The source OSCAL ``capability`` element dict of the fixture capability."""
+    caps = _raw_cdef(CAPABILITIES_CDEF_FILE).get("capabilities", [])
+    return next(c for c in caps if c["uuid"] == CAPABILITY_UUID)
 
 
 def _component_uuids(result: dict[str, Any]) -> set[str]:
@@ -137,7 +149,7 @@ def _component_uuids(result: dict[str, Any]) -> set[str]:
 
 
 def _assert_components_match_fixtures(result: dict[str, Any]) -> None:
-    """Each returned component equals the trestle dict from its source (3.7)."""
+    """Each returned component equals its source OSCAL element dict (3.7)."""
     expected = _expected_components()
     for comp in result["components"]:
         assert comp == expected[str(comp["uuid"])]
@@ -206,7 +218,7 @@ class TestWrappersAgainstFixtureStore:
 
     def test_get_capability(self):
         result = get_capability(ctx=None, uuid=CAPABILITY_UUID)
-        assert result == _expected_capability().model_dump()
+        assert result == _expected_capability()
 
 
 # ---------------------------------------------------------------------------
@@ -366,8 +378,8 @@ class TestQueryCapabilityFirst:
         )
         cap = _expected_capability()
         assert set(result) == CAPABILITY_QUERY_KEYS
-        assert result["capability"] == cap.oscal_dict()
-        assert result["component_count"] == len(cap.incorporates_components or [])
+        assert result["capability"] == cap
+        assert result["component_count"] == len(cap.get("incorporates-components", []))
         assert (result["offset"], result["limit"], result["total"]) == (0, 1, 1)
         assert result["hasMore"] is False
         assert result["query_type"] == query_type
@@ -384,7 +396,7 @@ NO_COMPONENTS_CDEF_UUID = "0a0a0a0a-0000-4000-8000-000000000001"
 
 
 def _no_components_cdef() -> dict:
-    """A minimal Trestle-valid Component Definition with no components."""
+    """A minimal schema-valid Component Definition with no components."""
     return {
         "component-definition": {
             "uuid": NO_COMPONENTS_CDEF_UUID,
@@ -472,7 +484,7 @@ class TestQueryErrorsAndEdgeCases:
         result = query_component_definition(
             ctx=None, query_type="by_title", query_value=f"  {CAPABILITY_NAME} "
         )
-        assert result["capability"] == _expected_capability().oscal_dict()
+        assert result["capability"] == _expected_capability()
 
 
 class TestEmptyStores:
@@ -525,8 +537,8 @@ class TestManyCapabilities:
             ctx=None, query_type=query_type, query_value=target[key]
         )
         assert set(result) == CAPABILITY_QUERY_KEYS
-        # oscal_dict() wraps the Capability under its "capability" alias.
-        cap = result["capability"]["capability"]
+        # "capability" is the stored OSCAL capability element dict itself.
+        cap = result["capability"]
         assert str(cap["uuid"]) == target["uuid"]
         assert cap["name"] == target["name"]
 
@@ -539,7 +551,7 @@ class TestManyCapabilities:
 
 
 # ---------------------------------------------------------------------------
-# Parse scope: only the needed Component Definitions are parsed (3.10, 3.11)
+# Parse scope: lookups never re-parse a parent Component Definition (3.10, 3.11)
 # ---------------------------------------------------------------------------
 
 
@@ -568,14 +580,17 @@ FILTERED_COMPONENT_QUERIES = [
 
 
 class TestParseScope:
-    """Component results parse only the Component Definitions they need."""
+    """Results come from stored child raw_json; no parent cdef is ever parsed.
+
+    Scope and filter limits are still checked through the returned results.
+    """
 
     @pytest.mark.parametrize("cdef_filter", MULTI_FILTERS)
     @pytest.mark.parametrize(("query_type", "query_value", "expected"), FILTERED_COMPONENT_QUERIES)
-    def test_filtered_query_parses_only_matched_cdef(
+    def test_filtered_query_parses_no_cdef(
         self, parse_spy, cdef_filter, query_type, query_value, expected
     ):
-        """With a CDef_Filter only the matched cdef is parsed (3.10)."""
+        """A filtered query returns only the matched cdef's hits, parsing none (3.10)."""
         result = query_component_definition(
             ctx=None,
             component_definition_filter=cdef_filter,
@@ -583,7 +598,8 @@ class TestParseScope:
             query_value=query_value,
         )
         assert _component_uuids(result) == expected
-        assert _parsed_uuids(parse_spy) == [MULTI_CDEF_UUID]
+        assert result["component_definitions_searched"] == 1
+        assert _parsed_uuids(parse_spy) == []
 
     @pytest.mark.parametrize(
         ("query_type", "query_value", "expected_uuid", "parent_uuid"),
@@ -612,15 +628,21 @@ class TestParseScope:
             ),
         ],
     )
-    def test_unfiltered_lookup_parses_only_candidate_parent(
+    def test_unfiltered_lookup_parses_no_parent(
         self, parse_spy, query_type, query_value, expected_uuid, parent_uuid
     ):
-        """Without a filter only the hit's parent cdef is parsed (3.11)."""
+        """An unfiltered lookup returns the hit from its parent, parsing none (3.11)."""
         result = query_component_definition(
             ctx=None, query_type=query_type, query_value=query_value
         )
         assert _component_uuids(result) == {expected_uuid}
-        assert _parsed_uuids(parse_spy) == [parent_uuid]
+        parents = {
+            comp["uuid"]: _raw_cdef(f)["uuid"]
+            for f in VALID_CDEF_FILES
+            for comp in _raw_cdef(f).get("components", [])
+        }
+        assert parents[expected_uuid] == parent_uuid
+        assert _parsed_uuids(parse_spy) == []
 
     def test_unfiltered_lookup_miss_parses_nothing(self, parse_spy):
         result = query_component_definition(
@@ -634,9 +656,10 @@ class TestParseScope:
         [("by_uuid", CAPABILITY_UUID), ("by_title", CAPABILITY_NAME)],
     )
     @pytest.mark.parametrize("cdef_filter", [None, CAPS_CDEF_UUID])
-    def test_capability_lookup_parses_only_its_parent(
+    def test_capability_lookup_parses_no_parent(
         self, parse_spy, query_type, query_value, cdef_filter
     ):
+        """A capability lookup returns the stored capability, parsing no cdef."""
         result = query_component_definition(
             ctx=None,
             component_definition_filter=cdef_filter,
@@ -644,11 +667,13 @@ class TestParseScope:
             query_value=query_value,
         )
         assert set(result) == CAPABILITY_QUERY_KEYS
-        assert _parsed_uuids(parse_spy) == [CAPS_CDEF_UUID]
+        assert result["capability"] == _expected_capability()
+        assert _parsed_uuids(parse_spy) == []
 
-    def test_get_capability_parses_only_its_parent(self, parse_spy):
-        assert get_capability(ctx=None, uuid=CAPABILITY_UUID) is not None
-        assert _parsed_uuids(parse_spy) == [CAPS_CDEF_UUID]
+    def test_get_capability_parses_no_parent(self, parse_spy):
+        """``get_capability`` returns the stored capability, parsing no cdef."""
+        assert get_capability(ctx=None, uuid=CAPABILITY_UUID) == _expected_capability()
+        assert _parsed_uuids(parse_spy) == []
 
 
 # ---------------------------------------------------------------------------
@@ -775,3 +800,312 @@ class TestImportReadsNoCdefContent:
         assert sys.modules[qcd_module.__name__] is qcd_module
         offenders = [p for p in import_seen if str(cdef_dir) in p or "component_definitions" in p]
         assert offenders == []
+
+
+# ---------------------------------------------------------------------------
+# Valid OSCAL output (6.5, 6.8, 6.10, 6.12-6.15)
+# ---------------------------------------------------------------------------
+
+RICH_CDEF_UUID = "7a0c1f3e-2b4d-4e6f-8a9b-0c1d2e3f4a5b"
+RICH_COMPONENT_UUID = "7a0c1f3e-2b4d-4e6f-8a9b-0c1d2e3f4a01"
+PLAIN_COMPONENT_UUID = "7a0c1f3e-2b4d-4e6f-8a9b-0c1d2e3f4a02"
+RICH_CAPABILITY_UUID = "7a0c1f3e-2b4d-4e6f-8a9b-0c1d2e3f4a03"
+PARTY_UUID = "7a0c1f3e-2b4d-4e6f-8a9b-0c1d2e3f4a04"
+
+
+def _rich_control_implementation(uuid_prefix: str) -> dict:
+    """A control implementation exercising the hyphenated OSCAL properties."""
+    return {
+        "uuid": f"{uuid_prefix}10",
+        "source": "https://example.com/catalogs/nist-800-53",
+        "description": "Rich control implementation",
+        "set-parameters": [{"param-id": "ac-1_prm_1", "values": ["annually"]}],
+        "implemented-requirements": [
+            {
+                "uuid": f"{uuid_prefix}11",
+                "control-id": "ac-2",
+                "description": "Account management",
+                "props": [{"name": "implementation-status", "value": "implemented"}],
+                "set-parameters": [{"param-id": "ac-2_prm_1", "values": ["30", "days"]}],
+                "responsible-roles": [{"role-id": "admin", "party-uuids": [PARTY_UUID]}],
+                "statements": [
+                    {
+                        "statement-id": "ac-2_smt.a",
+                        "uuid": f"{uuid_prefix}12",
+                        "description": "Statement a",
+                        "responsible-roles": [{"role-id": "admin"}],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _rich_cdef() -> dict:
+    """A Component Definition whose component and capability use many fields.
+
+    The capability incorporates two components, so its ``component_count``
+    is 2.
+    """
+    return {
+        "component-definition": {
+            "uuid": RICH_CDEF_UUID,
+            "metadata": {
+                "title": "Rich Component Definition",
+                "last-modified": "2024-01-01T00:00:00+00:00",
+                "version": "1.0",
+                "oscal-version": "1.0.4",
+            },
+            "components": [
+                {
+                    "uuid": RICH_COMPONENT_UUID,
+                    "type": "service",
+                    "title": "Rich Component",
+                    "description": "Component with nested OSCAL content",
+                    "purpose": "Exercise hyphenated keys",
+                    "props": [{"name": "vendor", "value": "Example Corp", "class": "info"}],
+                    "links": [
+                        {
+                            "href": "https://example.com/docs/rich",
+                            "rel": "reference",
+                            "media-type": "text/html",
+                        }
+                    ],
+                    "responsible-roles": [
+                        {"role-id": "provider", "party-uuids": [PARTY_UUID]},
+                    ],
+                    "control-implementations": [
+                        _rich_control_implementation("7a0c1f3e-2b4d-4e6f-8a9b-0c1d2e3f4b"),
+                    ],
+                },
+                {
+                    "uuid": PLAIN_COMPONENT_UUID,
+                    "type": "software",
+                    "title": "Plain Component",
+                    "description": "Minimal component",
+                },
+            ],
+            "capabilities": [
+                {
+                    "uuid": RICH_CAPABILITY_UUID,
+                    "name": "Rich Capability",
+                    "description": "Capability incorporating two components",
+                    "props": [{"name": "category", "value": "security"}],
+                    "links": [{"href": "https://example.com/docs/cap", "rel": "reference"}],
+                    "incorporates-components": [
+                        {"component-uuid": RICH_COMPONENT_UUID, "description": "Rich part"},
+                        {"component-uuid": PLAIN_COMPONENT_UUID, "description": "Plain part"},
+                    ],
+                    "control-implementations": [
+                        _rich_control_implementation("7a0c1f3e-2b4d-4e6f-8a9b-0c1d2e3f4c"),
+                    ],
+                }
+            ],
+        }
+    }
+
+
+def _rich_element(collection: str, element_uuid: str) -> dict:
+    return next(
+        e for e in _rich_cdef()["component-definition"][collection] if e["uuid"] == element_uuid
+    )
+
+
+# Hyphenated OSCAL property names the rich and fixture output must contain,
+# so the snake_case check below is not vacuous.
+EXPECTED_HYPHENATED_KEYS = {
+    "control-implementations",
+    "implemented-requirements",
+    "incorporates-components",
+    "component-uuid",
+    "set-parameters",
+    "param-id",
+    "control-id",
+    "statement-id",
+    "responsible-roles",
+    "role-id",
+    "party-uuids",
+    "media-type",
+}
+
+
+def _iter_keys(value: Any):
+    """Yield every dict key at any depth."""
+    if isinstance(value, dict):
+        for k, v in value.items():
+            yield k
+            yield from _iter_keys(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _iter_keys(v)
+
+
+def _null_paths(value: Any, path: str = "$") -> list[str]:
+    """Return the JSON path of every ``None`` at any depth."""
+    if value is None:
+        return [path]
+    if isinstance(value, dict):
+        return [p for k, v in value.items() for p in _null_paths(v, f"{path}.{k}")]
+    if isinstance(value, list):
+        return [p for i, v in enumerate(value) for p in _null_paths(v, f"{path}[{i}]")]
+    return []
+
+
+def _assert_oscal_json(element: dict) -> None:
+    """No nulls and no snake_case keys at any depth (6.14, 6.15).
+
+    OSCAL component-definition JSON property names never contain ``_``.
+    """
+    assert _null_paths(element) == []
+    snake = sorted({k for k in _iter_keys(element) if "_" in k})
+    assert snake == []
+
+
+def _wrap_in_cdef(collection: str, elements: list[dict]) -> dict:
+    """Embed elements in a minimal component-definition document."""
+    return {
+        "component-definition": {
+            "uuid": str(uuid.uuid4()),
+            "metadata": {
+                "title": "t",
+                "last-modified": "2024-01-01T00:00:00+00:00",
+                "version": "1",
+                "oscal-version": "1.2.3",
+            },
+            collection: elements,
+        }
+    }
+
+
+@pytest.fixture
+def rich_store(store_factory):
+    """A store holding the rich cdef plus every valid fixture cdef."""
+    cdef = _rich_cdef()
+    ComponentDefinition.model_validate(cdef["component-definition"])
+    return store_factory([cdef, *load_valid_fixture_cdefs()])
+
+
+class TestValidOscalOutput:
+    """Cdef tool output is valid OSCAL JSON (6.5, 6.8, 6.10, 6.12-6.15)."""
+
+    # -- component_count (6.5) ------------------------------------------
+
+    @pytest.mark.usefixtures("fixture_store")
+    def test_component_count_without_incorporates_components(self):
+        result = query_component_definition(
+            ctx=None, query_type="by_uuid", query_value=CAPABILITY_UUID
+        )
+        assert "incorporates-components" not in result["capability"]
+        assert result["component_count"] == 0
+
+    @pytest.mark.usefixtures("rich_store")
+    @pytest.mark.parametrize(
+        ("query_type", "query_value"),
+        [("by_uuid", RICH_CAPABILITY_UUID), ("by_title", "Rich Capability")],
+    )
+    def test_component_count_with_incorporates_components(self, query_type, query_value):
+        result = query_component_definition(
+            ctx=None, query_type=query_type, query_value=query_value
+        )
+        incorporated = _rich_element("capabilities", RICH_CAPABILITY_UUID)[
+            "incorporates-components"
+        ]
+        assert result["capability"]["incorporates-components"] == incorporated
+        assert result["component_count"] == len(incorporated) == 2
+
+    # -- _raw fallback when raw_json is None (6.10) -----------------------
+
+    @pytest.mark.parametrize(
+        ("element_type", "element_uuid", "expected"),
+        [
+            pytest.param(
+                "component",
+                RICH_COMPONENT_UUID,
+                lambda: _rich_element("components", RICH_COMPONENT_UUID),
+                id="rich-component",
+            ),
+            pytest.param(
+                "capability",
+                RICH_CAPABILITY_UUID,
+                lambda: _rich_element("capabilities", RICH_CAPABILITY_UUID),
+                id="rich-capability",
+            ),
+            pytest.param(
+                "component",
+                DATABASE_UUID,
+                lambda: _expected_components()[DATABASE_UUID],
+                id="fixture-database",
+            ),
+            pytest.param(
+                "component",
+                API_GATEWAY_UUID,
+                lambda: _expected_components()[API_GATEWAY_UUID],
+                id="fixture-api-gateway",
+            ),
+        ],
+    )
+    def test_raw_fallback_without_raw_json(self, rich_store, element_type, element_uuid, expected):
+        (item,) = rich_store.list_child_elements(
+            element_type=element_type, element_id=element_uuid, include_raw_json=True
+        )["items"]
+        assert item["raw_json"] is not None
+        child = {**item, "raw_json": None}
+
+        result = raw_child_json(rich_store, child)
+
+        source = expected()
+        assert result == source
+        hyphenated = {k for k in _iter_keys(source) if "-" in k}
+        assert hyphenated
+        assert hyphenated <= set(_iter_keys(result))
+        _assert_oscal_json(result)
+
+    def test_fixture_with_hyphenated_component_exists(self):
+        """The fixture-based fallback cases cover hyphenated component keys."""
+        keys = set(_iter_keys(_raw_cdef(MULTI_CDEF_FILE)["components"]))
+        assert {"control-implementations", "responsible-roles"} <= keys
+
+    # -- schema validity, no nulls, no snake_case (6.8, 6.12-6.15) --------
+
+    @staticmethod
+    def _tool_outputs() -> dict[str, tuple[str, list[dict]]]:
+        """Model content from each tool path, keyed by label.
+
+        Values are ``(collection, elements)`` where ``collection`` is the
+        component-definition property the elements belong in.
+        """
+        components = query_component_definition(ctx=None, query_type="all", limit=100)
+        assert components["total_count"] == len(components["components"])
+        outputs: dict[str, tuple[str, list[dict]]] = {
+            "component-query": ("components", components["components"]),
+        }
+        for cap_uuid in (RICH_CAPABILITY_UUID, CAPABILITY_UUID):
+            query = query_component_definition(ctx=None, query_type="by_uuid", query_value=cap_uuid)
+            outputs[f"capability-query:{cap_uuid}"] = ("capabilities", [query["capability"]])
+            got = get_capability(ctx=None, uuid=cap_uuid)
+            assert got is not None
+            outputs[f"get_capability:{cap_uuid}"] = ("capabilities", [got])
+        return outputs
+
+    @pytest.mark.usefixtures("rich_store")
+    def test_outputs_cover_rich_content(self):
+        outputs = self._tool_outputs()
+        component_uuids = {c["uuid"] for c in outputs["component-query"][1]}
+        assert {RICH_COMPONENT_UUID, PLAIN_COMPONENT_UUID} | ALL_COMPONENT_UUIDS == component_uuids
+        keys = {k for _, elements in outputs.values() for k in _iter_keys(elements)}
+        assert keys >= EXPECTED_HYPHENATED_KEYS
+
+    @pytest.mark.usefixtures("rich_store")
+    def test_outputs_pass_json_schema_when_embedded(self):
+        for label, (collection, elements) in self._tool_outputs().items():
+            doc = _wrap_in_cdef(collection, elements)
+            level = _validate_json_schema(doc, OSCALModelType.COMPONENT_DEFINITION)
+            assert level["valid"] is True, (label, level["errors"])
+            assert level["errors"] == []
+
+    @pytest.mark.usefixtures("rich_store")
+    def test_outputs_have_no_nulls_or_snake_case_keys(self):
+        for label, (_, elements) in self._tool_outputs().items():
+            for element in elements:
+                assert _null_paths(element) == [], label
+                assert sorted({k for k in _iter_keys(element) if "_" in k}) == [], label

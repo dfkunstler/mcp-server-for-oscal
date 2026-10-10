@@ -13,11 +13,11 @@ from pathlib import Path
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from trestle.oscal.component import ComponentDefinition
+from oscal_bindings.models import ComponentDefinition
 
 from mcp_server_for_oscal.config import config
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
-from mcp_server_for_oscal.tools.utils import ROOT_KEY_TO_MODEL_TYPE, OSCALModelType
+from mcp_server_for_oscal.tools.utils import MODEL_MAP, ROOT_KEY_TO_MODEL_TYPE, OSCALModelType
 
 
 @pytest.fixture
@@ -305,7 +305,7 @@ class TestScanDirectory:
         assert count == 0
 
     def test_skips_validation_failing_document(self, store, tmp_path):
-        """Documents that fail Trestle validation are skipped."""
+        """Documents that fail OSCAL model validation are skipped."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
         # Missing required metadata fields
@@ -327,9 +327,7 @@ class TestGetParsedModel:
     """Tests for get_parsed_model() LRU cache."""
 
     def test_parses_component_definition(self, store, tmp_path):
-        """Parsing a valid component-definition returns a Trestle model."""
-        from trestle.oscal.component import ComponentDefinition
-
+        """Parsing a valid component-definition returns a ComponentDefinition model."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
         (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
@@ -341,8 +339,8 @@ class TestGetParsedModel:
         assert str(model.uuid) == "a1b2c3d4-5678-4abc-8def-123456789012"
 
     def test_parses_catalog(self, store, tmp_path):
-        """Parsing a valid catalog returns a Trestle Catalog model."""
-        from trestle.oscal.catalog import Catalog
+        """Parsing a valid catalog returns a Catalog model."""
+        from oscal_bindings.models import Catalog
 
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
@@ -550,6 +548,42 @@ def _make_poam(
                     "title": "Fix vulnerability",
                     "description": "Remediate CVE-2024-0001",
                 },
+            ],
+        }
+    }
+
+
+_MAPPING_COLLECTION_UUID = "a0a0a0a0-0000-4000-8000-000000000001"
+
+
+def _make_mapping_collection(mapping_uuids: list[str]) -> dict:
+    """Mapping-collection whose ``mappings`` is an array with one entry per UUID."""
+    resource = {"type": "catalog", "href": "https://example.com/catalog.json"}
+    return {
+        "mapping-collection": {
+            "uuid": _MAPPING_COLLECTION_UUID,
+            "metadata": {**_COMMON_METADATA, "title": "Test Mapping Collection"},
+            "provenance": {
+                "method": "human",
+                "matching-rationale": "semantic",
+                "status": "complete",
+                "mapping-description": "Test mapping provenance",
+            },
+            "mappings": [
+                {
+                    "uuid": mapping_uuid,
+                    "source-resource": resource,
+                    "target-resource": resource,
+                    "maps": [
+                        {
+                            "uuid": str(uuid_mod.UUID(int=i + 1, version=4)),
+                            "relationship": "equivalent-to",
+                            "sources": [{"type": "control", "id-ref": f"ac-{i + 1}"}],
+                            "targets": [{"type": "control", "id-ref": f"ac-{i + 1}"}],
+                        }
+                    ],
+                }
+                for i, mapping_uuid in enumerate(mapping_uuids)
             ],
         }
     }
@@ -786,6 +820,35 @@ class TestExtractChildElements:
         assert children[0]["element_type"] == "poam-item"
         assert children[0]["uuid"] == "f6a7b8c9-abcd-4f01-a2ab-678901234567"
 
+    def test_mapping_collection_array_of_mappings(self, store, tmp_path):
+        """A mapping-collection whose ``mappings`` is an array yields one row per entry.
+
+        The array form parses to a ``RootModel`` wrapper; the extractor must
+        unwrap it rather than treat the wrapper as a single mapping.
+
+        **Validates: Requirements 7.3, 7.5**
+        """
+        mapping_uuids = [
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+            "33333333-3333-4333-8333-333333333333",
+        ]
+        doc = _make_mapping_collection(mapping_uuids)
+        # Setup guard: the fixture must be a valid mapping-collection.
+        MODEL_MAP[OSCALModelType.MAPPING].model_validate(doc["mapping-collection"])
+
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        (doc_dir / "mapping.json").write_text(json.dumps(doc))
+        assert store.scan_directory(doc_dir) == 1
+
+        result = store.list_child_elements(
+            parent_doc_uuid=_MAPPING_COLLECTION_UUID, element_type="mapping", limit=100
+        )
+        assert result["total"] == len(mapping_uuids)
+        assert sorted(item["id"] for item in result["items"]) == sorted(mapping_uuids)
+        assert all(item["element_type"] == "mapping" for item in result["items"])
+
 
 # ---------------------------------------------------------------------------
 # Property-Based Tests (Hypothesis)
@@ -956,7 +1019,7 @@ _titles = st.text(
 def _make_minimal_doc(root_key: str, uuid: str, title: str) -> dict:
     """Build a minimal OSCAL-shaped JSON dict for any root key.
 
-    This is intentionally *not* Trestle-valid — it is used only for
+    This is intentionally *not* model-valid — it is used only for
     _detect_model_type() which inspects the root key, not the content.
     """
     return {
@@ -972,7 +1035,7 @@ def _make_minimal_doc(root_key: str, uuid: str, title: str) -> dict:
     }
 
 
-# Builders for model types that pass Trestle validation, keyed by root key.
+# Builders for model types that pass OSCAL model validation, keyed by root key.
 _VALID_DOC_BUILDERS: dict = {
     "catalog": lambda uuid, title: _make_catalog(uuid=uuid, title=title),
     "component-definition": lambda uuid, title: _make_component_definition(uuid=uuid, title=title),

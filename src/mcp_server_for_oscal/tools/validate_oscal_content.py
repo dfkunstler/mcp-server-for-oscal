@@ -2,7 +2,6 @@
 Tool for validating OSCAL content through a multi-level validation pipeline.
 """
 
-import importlib
 import itertools
 import json
 import logging
@@ -20,6 +19,7 @@ from strands import tool
 
 from mcp_server_for_oscal.config import config
 from mcp_server_for_oscal.tools.utils import (
+    MODEL_MAP,
     ROOT_KEY_TO_MODEL_TYPE,
     OSCALModelType,
     load_oscal_json_schema,
@@ -30,20 +30,8 @@ logger = logging.getLogger(__name__)
 
 MAX_ERRORS_PER_LEVEL = 20
 
-# Maps OSCALModelType to (trestle module, class name) for Level 3 validation.
-_TRESTLE_MODEL_MAP: dict[OSCALModelType, tuple[str, str]] = {
-    OSCALModelType.CATALOG: ("trestle.oscal.catalog", "Catalog"),
-    OSCALModelType.PROFILE: ("trestle.oscal.profile", "Profile"),
-    OSCALModelType.COMPONENT_DEFINITION: ("trestle.oscal.component", "ComponentDefinition"),
-    OSCALModelType.SYSTEM_SECURITY_PLAN: ("trestle.oscal.ssp", "SystemSecurityPlan"),
-    OSCALModelType.ASSESSMENT_PLAN: ("trestle.oscal.assessment_plan", "AssessmentPlan"),
-    OSCALModelType.ASSESSMENT_RESULTS: ("trestle.oscal.assessment_results", "AssessmentResults"),
-    OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES: (
-        "trestle.oscal.poam",
-        "PlanOfActionAndMilestones",
-    ),
-    OSCALModelType.MAPPING: ("trestle.oscal.mapping", "MappingCollection"),
-}
+# Levels that run after Level 1 (well-formedness); skipped together on early exit.
+_POST_PARSE_LEVELS = ("json_schema", "model", "oscal_cli")
 
 
 def _pattern_safe(validator: Any, patrn: str, instance: Any, schema: Any) -> Any:  # noqa: ARG001 - jsonschema keyword signature
@@ -151,33 +139,22 @@ def _validate_json_schema(data: dict, model_type: OSCALModelType) -> dict:
     return _make_level("json_schema", valid=False, errors=errors, warnings=warnings)
 
 
-def _validate_trestle(data: dict, model_type: OSCALModelType) -> dict:
-    """Level 3: Semantic validation using trestle Pydantic models."""
-    mapping = _TRESTLE_MODEL_MAP.get(model_type)
-    if mapping is None:
-        return _make_level(
-            "trestle",
-            skipped=True,
-            skip_reason=f"trestle does not support model type '{model_type}'",
-        )
-
-    module_path, class_name = mapping
-
+def _validate_model(data: dict, model_type: OSCALModelType) -> dict:
+    """Level 3: Semantic validation using OSCAL Pydantic models."""
     try:
-        mod = importlib.import_module(module_path)
-        model_cls = getattr(mod, class_name)
-    except Exception as exc:
+        model_cls = MODEL_MAP[model_type]
+    except KeyError as exc:
         return _make_level(
-            "trestle",
+            "model",
             valid=False,
-            errors=[f"Failed to load trestle model: {exc}"],
+            errors=[f"Failed to load OSCAL model class for '{model_type}': {exc}"],
         )
 
     # The OSCAL doc has a root key wrapping the actual model data
     inner = data.get(model_type.value, data)
 
     try:
-        model_cls(**inner)
+        model_cls.model_validate(inner)
     except Exception as exc:
         error_str = str(exc)
         # Pydantic ValidationError can be very long; truncate per-error lines
@@ -186,9 +163,9 @@ def _validate_trestle(data: dict, model_type: OSCALModelType) -> dict:
         warnings = []
         if len(error_lines) > MAX_ERRORS_PER_LEVEL:
             warnings.append(f"Showing {MAX_ERRORS_PER_LEVEL} of {len(error_lines)} error lines")
-        return _make_level("trestle", valid=False, errors=errors, warnings=warnings)
+        return _make_level("model", valid=False, errors=errors, warnings=warnings)
 
-    return _make_level("trestle")
+    return _make_level("model")
 
 
 def _validate_oscal_cli(content: str, model_type: OSCALModelType) -> dict:  # noqa: ARG001 - same signature as other levels
@@ -256,7 +233,7 @@ def validate_oscal_file(
     Runs up to four validation levels in sequence:
       1. Well-formedness - Is it valid JSON and a JSON object?
       2. JSON Schema - Does it conform to the NIST OSCAL JSON schema?
-      3. Trestle - Semantic checks via compliance-trestle Pydantic models
+      3. Model - Semantic checks via OSCAL Pydantic models
       4. oscal-cli - Full NIST validation if oscal-cli is installed
 
     If Level 1 fails, Levels 2-4 are skipped. If oscal-cli is not installed,
@@ -324,7 +301,7 @@ def validate_oscal_content(
     Runs up to four validation levels in sequence:
       1. Well-formedness - Is it valid JSON and a JSON object?
       2. JSON Schema - Does it conform to the NIST OSCAL JSON schema?
-      3. Trestle - Semantic checks via compliance-trestle Pydantic models
+      3. Model - Semantic checks via OSCAL Pydantic models
       4. oscal-cli - Full NIST validation if oscal-cli is installed
 
     If Level 1 fails, Levels 2-4 are skipped. If oscal-cli is not installed,
@@ -353,7 +330,7 @@ def validate_oscal_content(
 
     if parsed is None:
         # JSON is not parseable; skip remaining levels
-        for lvl in ("json_schema", "trestle", "oscal_cli"):
+        for lvl in _POST_PARSE_LEVELS:
             levels.append(
                 _make_level(lvl, skipped=True, skip_reason="Skipped due to well-formedness failure")
             )
@@ -369,7 +346,7 @@ def validate_oscal_content(
         except ValueError:
             msg = f"Invalid model_type: '{model_type}'. Use list_oscal_models to see valid types."
             try_notify_client_error(msg, ctx)
-            for lvl in ("json_schema", "trestle", "oscal_cli"):
+            for lvl in _POST_PARSE_LEVELS:
                 levels.append(
                     _make_level(
                         lvl,
@@ -384,7 +361,7 @@ def validate_oscal_content(
         root_keys = [k for k in parsed if k != "$schema"]
         msg = f"Cannot detect OSCAL model type from root keys: {root_keys}"
         try_notify_client_error(msg, ctx)
-        for lvl in ("json_schema", "trestle", "oscal_cli"):
+        for lvl in _POST_PARSE_LEVELS:
             levels.append(
                 _make_level(lvl, skipped=True, skip_reason="Skipped due to undetectable model type")
             )
@@ -395,8 +372,8 @@ def validate_oscal_content(
     # -- Level 2: JSON Schema --
     levels.append(_validate_json_schema(parsed, resolved_type))
 
-    # -- Level 3: Trestle --
-    levels.append(_validate_trestle(parsed, resolved_type))
+    # -- Level 3: Model --
+    levels.append(_validate_model(parsed, resolved_type))
 
     # -- Level 4: oscal-cli --
     levels.append(_validate_oscal_cli(content, resolved_type))

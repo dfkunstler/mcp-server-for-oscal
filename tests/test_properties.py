@@ -8,18 +8,21 @@ Feature: oscal-mcp-server
 Feature: remove-legacy-cdef-store
 """
 
+import re
 import string
 import tempfile
+import uuid
 from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from trestle.oscal.component import ComponentDefinition
+from oscal_bindings.models import ComponentDefinition
 
 from mcp_server_for_oscal.tools import query_component_definition as _qcd_module
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
@@ -30,7 +33,8 @@ from mcp_server_for_oscal.tools.query_component_definition import (
     list_components,
     query_component_definition,
 )
-from mcp_server_for_oscal.tools.utils import paginate
+from mcp_server_for_oscal.tools.utils import OSCALModelType, paginate
+from mcp_server_for_oscal.tools.validate_oscal_content import _validate_json_schema
 
 from .fixture_store import build_fixture_store, make_many_capabilities_cdef
 
@@ -45,6 +49,9 @@ PROP_NAMES = ("vendor", "region", "tier")
 # Prop values are drawn from a small pool so several Components share one,
 # and never collide with generated titles (titles always end in " <n>").
 PROP_VALUES = ("alpha", "beta", "gamma", "delta")
+# Token values for rich-mode nested fields (``role-id``, ``control-id``).
+ROLE_IDS = ("provider", "customer", "shared")
+CONTROL_IDS = ("ac-1", "ac-2", "au-2", "sc-7")
 
 # ASCII letters/digits keep FTS tokenisation and NOCASE case-folding simple.
 _WORD = st.text(alphabet=string.ascii_letters + string.digits, min_size=1, max_size=8)
@@ -57,8 +64,10 @@ def cdef_stores(
     max_cdefs: int = 4,
     max_components: int = 5,
     max_capabilities: int = 3,
+    *,
+    rich: bool = False,
 ) -> list[dict]:
-    """Draw a list of Trestle-valid, wrapped Component Definition dicts.
+    """Draw a list of model-valid, wrapped Component Definition dicts.
 
     - 1-4 cdefs, each with 0-5 components and 0-3 capabilities.
     - Every UUID in the store (cdef, component, capability) is distinct.
@@ -69,6 +78,11 @@ def cdef_stores(
     - Component ``type`` comes from ``COMPONENT_TYPES``; components carry
       0-3 props whose values come from ``PROP_VALUES``.
     - Capabilities optionally incorporate components of the same cdef.
+    - With ``rich=True``, components and capabilities may also carry
+      hyphenated nested fields (``responsible-roles``/``role-id`` and
+      ``control-implementations``/``implemented-requirements``/``control-id``).
+      Nested UUIDs are distinct from every other UUID in the store. With the
+      default ``rich=False`` the draws are exactly those of the plain strategy.
     """
     n_cdefs = draw(st.integers(min_cdefs, max_cdefs))
     shapes = [
@@ -79,20 +93,65 @@ def cdef_stores(
         for _ in range(n_cdefs)
     ]
     n_uuids = n_cdefs + sum(c + k for c, k in shapes)
-    uuid_pool = iter(
-        draw(
-            st.lists(
-                st.uuids(version=4).map(str),
-                min_size=n_uuids,
-                max_size=n_uuids,
-                unique=True,
-            )
+    pool_list = draw(
+        st.lists(
+            st.uuids(version=4).map(str),
+            min_size=n_uuids,
+            max_size=n_uuids,
+            unique=True,
         )
     )
+    uuid_pool = iter(pool_list)
     counter = iter(range(10_000))
 
     def unique_title() -> str:
         return f"{draw(_WORD)} {next(counter)}"
+
+    # Nested UUIDs for rich mode are drawn lazily and kept store-unique.
+    used_uuids: set[str] = set(pool_list)
+
+    def nested_uuid() -> str:
+        u = draw(st.uuids(version=4).map(str).filter(lambda x: x not in used_uuids))
+        used_uuids.add(u)
+        return u
+
+    def draw_roles() -> list[dict]:
+        roles = draw(st.lists(st.sampled_from(ROLE_IDS), unique=True, max_size=2))
+        return [{"role-id": r} for r in roles]
+
+    def add_rich_fields(element: dict) -> None:
+        """Optionally add hyphenated nested fields to a component/capability."""
+        if not rich:
+            return
+        roles = draw_roles()
+        if roles and "type" in element:  # responsible-roles: components only
+            element["responsible-roles"] = roles
+        n_ci = draw(st.integers(0, 2))
+        if not n_ci:
+            return
+        element["control-implementations"] = []
+        for _ in range(n_ci):
+            reqs = []
+            for control_id in draw(
+                st.lists(st.sampled_from(CONTROL_IDS), unique=True, min_size=1, max_size=3)
+            ):
+                req: dict = {
+                    "uuid": nested_uuid(),
+                    "control-id": control_id,
+                    "description": "Generated requirement",
+                }
+                req_roles = draw_roles()
+                if req_roles:
+                    req["responsible-roles"] = req_roles
+                reqs.append(req)
+            element["control-implementations"].append(
+                {
+                    "uuid": nested_uuid(),
+                    "source": "https://example.com/catalog.json",
+                    "description": "Generated control implementation",
+                    "implemented-requirements": reqs,
+                }
+            )
 
     cdefs: list[dict] = []
     for n_comp, n_cap in shapes:
@@ -113,6 +172,7 @@ def cdef_stores(
             )
             if props:
                 comp["props"] = [{"name": n, "value": v} for n, v in props]
+            add_rich_fields(comp)
             components.append(comp)
         capabilities = []
         for _ in range(n_cap):
@@ -133,6 +193,7 @@ def cdef_stores(
                     cap["incorporates-components"] = [
                         {"component-uuid": u, "description": "Incorporated"} for u in incorporated
                     ]
+            add_rich_fields(cap)
             capabilities.append(cap)
         body: dict = {
             "uuid": cdef_uuid,
@@ -152,8 +213,16 @@ def cdef_stores(
 
 
 def parse_cdefs(cdefs: list[dict]) -> list[ComponentDefinition]:
-    """Parse wrapped cdef dicts into Trestle models (validates the strategy)."""
+    """Parse wrapped cdef dicts into OSCAL models (validates the strategy)."""
     return [ComponentDefinition.model_validate(c["component-definition"]) for c in cdefs]
+
+
+def raw_by_uuid(cdefs: list[dict], key: Literal["components", "capabilities"]) -> dict[str, dict]:
+    """Map UUID to the source OSCAL element dict under *key* across all *cdefs*.
+
+    These raw dicts are the library-independent oracle for tool output.
+    """
+    return {e["uuid"]: e for c in cdefs for e in c["component-definition"].get(key, [])}
 
 
 def case_variant(draw: st.DrawFn, text: str) -> str:
@@ -246,7 +315,7 @@ class TestRemoveLegacyCdefStoreProperties:
         and fidelity for `all`.
 
         Paging ``query_type="all"`` yields exactly the in-scope Components,
-        each equal to the source ``DefinedComponent.model_dump(exclude_none=True)``.
+        each equal to its source OSCAL element dict.
 
         **Validates: Requirements 3.1, 3.2, 3.7, 3.9, 7.7**
         """
@@ -265,10 +334,9 @@ class TestRemoveLegacyCdefStoreProperties:
             )
         limit = data.draw(st.integers(1, 10), label="limit")
 
+        raw_components = raw_by_uuid(cdefs, "components")
         expected = {
-            str(c.uuid): c.model_dump(exclude_none=True)
-            for m in in_scope
-            for c in m.components or []
+            str(c.uuid): raw_components[str(c.uuid)] for m in in_scope for c in m.components or []
         }
 
         with installed_store(cdefs):
@@ -343,7 +411,7 @@ class TestRemoveLegacyCdefStoreProperties:
             assert resp["components"] == []
             assert resp["total_count"] == 0
         else:
-            assert resp["components"] == [comp.model_dump(exclude_none=True)]
+            assert resp["components"] == [raw_by_uuid(cdefs, "components")[str(comp.uuid)]]
             assert resp["total_count"] == 1
 
     @given(cdefs=cdef_stores(), data=st.data())
@@ -374,8 +442,9 @@ class TestRemoveLegacyCdefStoreProperties:
         pad = st.text(alphabet=" \t\n", max_size=3)
         query_value = data.draw(pad, label="lpad") + value + data.draw(pad, label="rpad")
 
+        raw_components = raw_by_uuid(cdefs, "components")
         candidates = {
-            str(c.uuid): c.model_dump(exclude_none=True)
+            str(c.uuid): raw_components[str(c.uuid)]
             for m in in_scope
             for c in m.components or []
             if any(p.value == value for p in c.props or [])
@@ -409,8 +478,7 @@ class TestRemoveLegacyCdefStoreProperties:
 
         Paging ``query_type="by_type"`` with any type string (including one
         absent from the store) yields exactly the in-scope Components whose
-        source ``type`` equals it, each equal to the source
-        ``DefinedComponent.model_dump(exclude_none=True)``.
+        source ``type`` equals it, each equal to its source OSCAL element dict.
 
         **Validates: Requirements 3.6, 3.8**
         """
@@ -439,8 +507,9 @@ class TestRemoveLegacyCdefStoreProperties:
             for comp in cdefs[i]["component-definition"].get("components", [])
             if comp["type"] == type_value
         }
+        raw_components = raw_by_uuid(cdefs, "components")
         expected = {
-            str(c.uuid): c.model_dump(exclude_none=True)
+            str(c.uuid): raw_components[str(c.uuid)]
             for i in in_scope_idx
             for c in models[i].components or []
             if str(c.uuid) in expected_uuids
@@ -591,11 +660,12 @@ class TestRemoveLegacyCdefStoreProperties:
             assert resp["total_count"] == 0
         else:
             assert "components" not in resp
-            got = resp["capability"]["capability"]
-            assert str(got["uuid"]) == str(cap.uuid)
-            assert got["name"] == cap.name
-            assert resp["capability"] == cap.oscal_dict()
-            assert resp["component_count"] == len(cap.incorporates_components or [])
+            raw_cap = raw_by_uuid(cdefs, "capabilities")[str(cap.uuid)]
+            got = resp["capability"]
+            assert got["uuid"] == raw_cap["uuid"]
+            assert got["name"] == raw_cap["name"]
+            assert got == raw_cap
+            assert resp["component_count"] == len(raw_cap.get("incorporates-components", []))
             assert resp["offset"] == 0
             assert resp["limit"] == 1
             assert resp["total"] == 1
@@ -708,7 +778,8 @@ class TestRemoveLegacyCdefStoreProperties:
 
         For every Capability ``k`` in the store, including stores with more
         than 100 Capabilities, ``get_capability(uuid=k.uuid)`` equals
-        ``k.model_dump()``; any UUID not belonging to a Capability returns ``None``.
+        its source OSCAL element dict; any UUID not belonging to a Capability
+        returns ``None``.
 
         **Validates: Requirements 5.3, 5.4**
         """
@@ -732,8 +803,132 @@ class TestRemoveLegacyCdefStoreProperties:
         )
         non_capability_uuids += [fresh, ""]
 
+        raw_caps = raw_by_uuid(cdefs, "capabilities")
+        assert set(raw_caps) == capability_uuids
+
         with installed_store(cdefs):
             for k in capabilities:
-                assert get_capability(ctx=None, uuid=str(k.uuid)) == k.model_dump()
+                assert get_capability(ctx=None, uuid=str(k.uuid)) == raw_caps[str(k.uuid)]
             for u in non_capability_uuids:
                 assert get_capability(ctx=None, uuid=u) is None
+
+
+# ------------------------------------------------------------------
+# Feature: oscal-bindings migration (#26)
+# ------------------------------------------------------------------
+
+_DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
+
+
+def datetime_normalized(value: object) -> object:
+    """Return *value* with OSCAL date-time strings replaced by ``datetime``s.
+
+    Lets equality treat equivalent datetime spellings (``Z`` vs ``+00:00``,
+    trailing fractional zeros) as equal.
+    """
+    if isinstance(value, dict):
+        return {k: datetime_normalized(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [datetime_normalized(v) for v in value]
+    if isinstance(value, str) and _DATETIME_RE.match(value):
+        return datetime.fromisoformat(value)
+    return value
+
+
+def assert_plain_oscal_json(value: object, path: str = "$") -> None:
+    """Assert *value* is plain JSON with no nulls and no snake_case keys."""
+    if isinstance(value, dict):
+        for k, v in value.items():
+            assert isinstance(k, str), f"non-string key at {path}"
+            assert "_" not in k, f"snake_case key {k!r} at {path}"
+            assert_plain_oscal_json(v, f"{path}.{k}")
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            assert_plain_oscal_json(v, f"{path}[{i}]")
+    else:
+        assert value is not None, f"null value at {path}"
+        assert isinstance(value, str | int | float | bool), (
+            f"non-JSON value {type(value).__name__} at {path}"
+        )
+
+
+def minimal_cdef(key: str, elements: list[dict]) -> dict:
+    """Embed *elements* under *key* in a minimal component-definition document."""
+    return {
+        "component-definition": {
+            "uuid": str(uuid.uuid4()),
+            "metadata": {
+                "title": "t",
+                "last-modified": "2024-01-01T00:00:00+00:00",
+                "version": "1",
+                "oscal-version": "1.2.3",
+            },
+            key: elements,
+        }
+    }
+
+
+class TestOscalBindingsMigrationProperties:
+    """Properties from the oscal-bindings migration design."""
+
+    # Feature: oscal-bindings migration (#26), Property 3: Cdef tool output is the source element's OSCAL JSON
+    @given(cdefs=cdef_stores(rich=True), data=st.data())
+    @settings(max_examples=100, deadline=None)
+    def test_cdef_tool_output_is_source_oscal_json(self, cdefs, data):
+        """Property 3: Cdef tool output is the source element's OSCAL JSON.
+
+        For every component and capability, the component query, capability
+        query, and ``get_capability`` results equal the source element dict
+        (datetime-equivalent), contain no nulls or snake_case keys, and pass
+        level-2 JSON Schema validation inside a minimal component-definition.
+        The source dict is the library-independent oracle.
+
+        **Validates: Requirements 6.2, 6.3, 6.4, 6.5, 6.7, 6.11, 6.12, 6.13,
+        6.14, 6.15**
+        """
+        parse_cdefs(cdefs)  # the generated documents are model-valid
+        raw_components = raw_by_uuid(cdefs, "components")
+        raw_caps = raw_by_uuid(cdefs, "capabilities")
+
+        query_caps: list[dict] = []
+        got_caps: list[dict] = []
+        with installed_store(cdefs):
+            components, _ = collect_pages(100, query_type="all")
+            for cap_uuid, raw_cap in raw_caps.items():
+                query_type = data.draw(st.sampled_from(["by_uuid", "by_title"]), label="qt")
+                resp = query_component_definition(
+                    ctx=None,
+                    query_type=query_type,
+                    query_value=cap_uuid if query_type == "by_uuid" else raw_cap["name"],
+                )
+                assert "components" not in resp
+                query_caps.append(resp["capability"])
+                assert resp["component_count"] == len(raw_cap.get("incorporates-components", []))
+                got = get_capability(ctx=None, uuid=cap_uuid)
+                assert got is not None
+                got_caps.append(got)
+
+        # Component query path (Req 6.3, 6.7)
+        assert {c["uuid"] for c in components} == set(raw_components)
+        for comp in components:
+            assert datetime_normalized(comp) == datetime_normalized(raw_components[comp["uuid"]])
+        # Capability query path and get_capability (Req 6.2, 6.4, 6.7)
+        for got in (*query_caps, *got_caps):
+            assert datetime_normalized(got) == datetime_normalized(raw_caps[got["uuid"]])
+
+        # Plain JSON, no nulls, no snake_case keys (Req 6.11, 6.14, 6.15)
+        for element in (*components, *query_caps, *got_caps):
+            assert_plain_oscal_json(element)
+
+        # Level-2 JSON Schema validity, one wrapper per collection (Req 6.12, 6.13)
+        for key, elements in (
+            ("components", components),
+            ("capabilities", query_caps),
+            ("capabilities", got_caps),
+        ):
+            if not elements:
+                continue
+            level = _validate_json_schema(
+                minimal_cdef(key, elements), OSCALModelType.COMPONENT_DEFINITION
+            )
+            assert level["valid"], level["errors"]

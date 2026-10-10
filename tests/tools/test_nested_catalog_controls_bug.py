@@ -53,9 +53,9 @@ def oscal_control(draw, prefix="ctrl"):
 def oscal_group_with_controls(draw, depth=0, max_depth=2):
     """Generate a group with EITHER controls OR nested groups (not both).
 
-    Trestle uses a discriminated union for catalog groups: Group2 accepts
-    ``controls`` but forbids ``groups``, while Group1 accepts ``groups``
-    but forbids ``controls``.  This strategy respects that constraint by
+    The OSCAL models use a union for catalog groups: CatalogGroupWithControls
+    accepts ``controls`` but forbids ``groups``, while CatalogGroupWithGroups
+    accepts ``groups`` but forbids ``controls``.  This strategy respects that constraint by
     drawing a boolean to decide which variant to produce when nesting is
     still possible.  At max_depth the group always carries controls
     (leaf node).
@@ -323,8 +323,9 @@ class TestBugConditionNestedControlsExtracted:
         Concrete case: Catalog with both top-level controls and
         group-nested controls — all must appear.
 
-        Uses separate groups to respect Trestle's discriminated union:
-        Group2 (controls, no groups) vs Group1 (groups, no controls).
+        Uses separate groups to respect the catalog group union:
+        CatalogGroupWithControls (controls, no groups) vs
+        CatalogGroupWithGroups (groups, no controls).
 
         **Validates: Requirements 1.1, 1.2, 1.5**
         """
