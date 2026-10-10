@@ -198,7 +198,7 @@ Swap `compliance-trestle` for `oscal-bindings==0.1.0` in four stages, following 
     - Fix any hits, then record each command's outcome in the "Verification grep results" section of this file
     - _Requirements: 1.2, 1.3, 1.4, 2.3, 2.6, 3.3, 5.4, 6.6, 10.3, 10.4, 11.3, 11.6_
 
-- [-] 8. Final checkpoint
+- [x] 8. Final checkpoint
   - Run `hatch check fmt --fix`, `hatch check code --fix`, then `hatch run tests`; ensure all tests pass, ask the user if questions arise
   - Stage only the docs, steering, and `tasks.md` changes for this feature by name; commit, for example `Update docs and steering for oscal-bindings (#26); tests pass`
   - Do not push. Report to the user that the branch is ready and ask whether to push and open a PR
