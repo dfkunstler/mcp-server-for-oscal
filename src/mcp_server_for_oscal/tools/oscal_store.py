@@ -216,7 +216,7 @@ class OscalStore:
             return None
 
         try:
-            manifest = json.loads(BUNDLED_HASHES_PATH.read_text())
+            manifest = json.loads(BUNDLED_HASHES_PATH.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Failed to read hashes.json: %s", exc)
             return None
@@ -1189,7 +1189,7 @@ class OscalStore:
             The detected OSCALModelType, or None if no known root key found.
         """
         try:
-            with open(file_path) as f:
+            with open(file_path, encoding="utf-8") as f:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError) as exc:
             logger.debug("Cannot read/parse %s: %s", file_path, exc)

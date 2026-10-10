@@ -27,6 +27,11 @@ from tests.test_file_integrity_utils import (
     create_sample_oscal_files,
 )
 
+# On Windows, chmod only toggles the read-only flag, so a chmod(0o000) file stays readable.
+requires_posix_permissions = pytest.mark.skipif(
+    sys.platform == "win32", reason="requires POSIX file permission bits (chmod 0o000)"
+)
+
 
 class TestFileIntegrity:
     """Test cases for file integrity checking functionality."""
@@ -1305,6 +1310,7 @@ class TestDirectoryLevelErrors:
         with pytest.raises((RuntimeError, FileNotFoundError)):
             verify_package_integrity(package_dir)
 
+    @requires_posix_permissions
     def test_permission_denied_errors_for_directory_access(self):
         """Test permission denied errors for directory access.
 
@@ -1334,6 +1340,7 @@ class TestDirectoryLevelErrors:
             with contextlib.suppress(OSError):  # Ignore errors during cleanup
                 package_dir.chmod(original_mode)
 
+    @requires_posix_permissions
     def test_permission_denied_for_hashes_json_file(self):
         """Test permission denied errors when hashes.json file is not readable.
 
@@ -1421,6 +1428,7 @@ class TestIOErrorHandling:
         """Clean up test fixtures after each test method."""
         self.package_manager.cleanup()
 
+    @requires_posix_permissions
     def test_handling_of_file_read_permission_errors(self):
         """Test handling of file read permission errors.
 
@@ -1481,6 +1489,7 @@ class TestIOErrorHandling:
             with pytest.raises((RuntimeError, OSError)):
                 verify_package_integrity(package_dir)
 
+    @requires_posix_permissions
     def test_proper_error_message_formatting_for_permission_errors(self):
         """Test proper error message formatting for permission errors.
 

@@ -1647,10 +1647,11 @@ class TestThreadSafety:
     def test_close_closes_connections_from_all_threads(self, tmp_path):
         """close() shuts down connections opened by other threads."""
         s = OscalStore(db_path=str(tmp_path / "t.db"), seed_from_bundled=False)
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            worker_conn = pool.submit(lambda: s._conn).result()
-
-        s.close()
+        try:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                worker_conn = pool.submit(lambda: s._conn).result()
+        finally:
+            s.close()
 
         with pytest.raises(sqlite3.ProgrammingError):
             worker_conn.execute("SELECT 1")

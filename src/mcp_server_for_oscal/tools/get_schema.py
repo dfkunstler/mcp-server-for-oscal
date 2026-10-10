@@ -75,7 +75,7 @@ def open_schema_file(file_name: str) -> Any:
     schema_path = current_file_dir.parent.joinpath("oscal_schemas")
 
     try:
-        return open(schema_path.joinpath(file_name.lstrip("./\\")))
+        return open(schema_path.joinpath(file_name.lstrip("./\\")), encoding="utf-8")
     except Exception:
         msg = f"failed to open file {file_name}"
         logger.exception(msg)

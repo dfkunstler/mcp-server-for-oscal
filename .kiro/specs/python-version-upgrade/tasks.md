@@ -8,7 +8,7 @@ Language: Python (hatch-managed). Run all Python through hatch (`hatch test`, `h
 
 ## Tasks
 
-- [ ] 1. Git setup (per `git-strategy.md`)
+- [x] 1. Git setup (per `git-strategy.md`)
   - [x] 1.1 Check the current branch
     - Run `git branch --show-current` and `git status`. The checkout should be on `main`. Never commit to `main`; the feature branch is created from `main` in 1.3
     - The untracked spec directory carries over when you switch branches
@@ -18,67 +18,67 @@ Language: Python (hatch-managed). Run all Python through hatch (`hatch test`, `h
     - Search with `gh issue list --search "python 3.13" --state all` and `gh issue list --search "python 3.14" --state all`
     - If nothing related turns up, draft the issue title and body from `requirements.md` (summary, version-site table, CI matrix, two-era smoke test, MCPB job, agent docs, out of scope) and show it to the user. Create it with `gh issue create` only after the user approves
     - _Requirements: all (process)_
-  - [-] 1.3 Create the feature branch from `main` and commit the spec files
+  - [x] 1.3 Create the feature branch from `main` and commit the spec files
     - After approval, create the branch from the issue, based on `main`: `gh issue develop <n> --base main --checkout` (or `git switch -c <n>-python-version-upgrade main`)
     - First commit: stage only `.kiro/specs/python-version-upgrade/{.config.kiro,requirements.md,design.md,tasks.md}`. The message must include `#<issue>` and say "spec only, untested"
     - Every later commit includes `#<issue>`, says whether the code was tested, is preceded by `hatch run tests`, and stages only files this feature touched. Don't push
     - _Requirements: all (process)_
 
-- [ ] 2. Version sites and dependency re-lock
-  - [~] 2.1 Update root `pyproject.toml`
+- [x] 2. Version sites and dependency re-lock
+  - [x] 2.1 Update root `pyproject.toml`
     - Set `requires-python = ">=3.13"`. Set classifiers to `3`, `3.13`, and `3.14`, removing `3.11` and `3.12`
     - In `[tool.hatch.envs.default]`, set `python = "3.14"`. In `[tool.ruff]`, set `target-version = "py313"`
     - Change the `update` script to `--python-version 3.13`. Set the `[[tool.hatch.envs.hatch-test.matrix]]` list to `python = ["3.13", "3.14"]`
     - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 3.1, 4.1, 11.1, 11.2_
-  - [~] 2.2 Update the packaging and runtime sites
+  - [x] 2.2 Update the packaging and runtime sites
     - `conf/mcpb/pyproject.toml`: `requires-python = ">=3.13"`
     - `conf/mcpb/manifest.json`: `compatibility.runtimes.python = ">=3.13"`. Keep `manifest_version` `0.4` and `server.type` `uv`
     - `conf/agentcore/Dockerfile`: `FROM public.ecr.aws/docker/library/python:3.14-slim`
     - `mise.toml`: `python = "3.14"`
     - _Requirements: 5.1, 5.2, 5.3, 5.4_
-  - [~] 2.3 Re-lock dependencies
+  - [x] 2.3 Re-lock dependencies
     - Run `hatch run update`. Confirm the `requirements.txt` header contains `--universal --python-version 3.13`
     - Diff the direct-dependency pins (the `[project] dependencies` and `devtest` entries) against `git show HEAD:requirements.txt`, and record each version change for the commit and PR body
     - If a dependency has no 3.13 or 3.14 wheel and doesn't build from source, stop and ask the user
     - _Requirements: 4.2, 4.3, 4.4_
-  - [~] 2.4 Confirm typing and lint pass on the new target
+  - [x] 2.4 Confirm typing and lint pass on the new target
     - Run `hatch run typing`, `hatch check fmt`, and `hatch check code`
     - Fix each new ruff finding, or suppress it with a targeted `# noqa: RULE - reason` (the design expects none)
     - _Requirements: 2.4, 3.2, 3.3_
 
-- [ ] 3. Add `.gitattributes`
-  - [~] 3.1 Create `.gitattributes` from design component 2
+- [x] 3. Add `.gitattributes`
+  - [x] 3.1 Create `.gitattributes` from design component 2
     - Put `* text=auto eol=lf` first, then `-text` for `src/mcp_server_for_oscal/oscal_schemas/**`, `data/**`, and `tests/fixtures/**` (last match wins)
     - Run `git ls-files --eol` and `git add --renormalize --dry-run .` (or check `git status` after `git add --renormalize .`) to confirm nothing gets renormalized. If something would be, stop and report it
     - _Requirements: 8.2, 9.16_
 
-- [ ] 4. Read and write JSON as UTF-8
-  - [~] 4.1 Add `encoding="utf-8"` to text-mode file I/O in the product code
+- [x] 4. Read and write JSON as UTF-8
+  - [x] 4.1 Add `encoding="utf-8"` to text-mode file I/O in the product code
     - `tools/utils.py`: `open(schema_path)` and the `hashes.json` read
     - `tools/oscal_store.py`: `BUNDLED_HASHES_PATH.read_text()` and the `open(file_path)` JSON load
     - `tools/validate_oscal_content.py`: `open(lf)` and the `NamedTemporaryFile(mode="w")` passed to `oscal-cli`
     - `tools/get_schema.py`: `open_schema_file` (text mode)
     - Grep `src/` for any other text-mode `open(`, `read_text(`, or `write_text(` that has no encoding, and fix the same way
     - _Requirements: 8.2_
-  - [~] 4.2 Add `encoding="utf-8"` to `bin/update_hashes.py`
+  - [x] 4.2 Add `encoding="utf-8"` to `bin/update_hashes.py`
     - Apply it to every read and write of `hashes.json` and any other text I/O
     - Run `hatch run python bin/update_hashes.py src/mcp_server_for_oscal/oscal_schemas` (and the same for `data/oscal_docs` and `data/component_definitions`), then confirm `git diff` shows no change to the committed manifests. Don't use `hatch run rehash` here, because it runs `git add`
     - _Requirements: 8.2_
 
-- [ ] 5. Windows test portability
-  - [~] 5.1 Skip the chmod-based tests on Windows in `tests/test_file_integrity.py`
+- [x] 5. Windows test portability
+  - [x] 5.1 Skip the chmod-based tests on Windows in `tests/test_file_integrity.py`
     - Add `@pytest.mark.skipif(sys.platform == "win32", reason="requires POSIX file permission bits (chmod 0o000)")` to the four sites that use `chmod(0o000)`
     - Keep the existing `test_exact_filename_matching_behavior` skip and the symlink `OSError` skip
     - _Requirements: 8.5_
-  - [~] 5.2 Make the path assertions in `tests/tools/test_get_schema.py` (around lines 232 and 252) separator-agnostic
+  - [x] 5.2 Make the path assertions in `tests/tools/test_get_schema.py` (around lines 232 and 252) separator-agnostic
     - Replace `str(path).endswith("oscal_schemas/schema.json")` with `Path(call_args).parts[-2:] == ("oscal_schemas", "schema.json")`
     - _Requirements: 8.2_
-  - [~] 5.3 Close every `OscalStore` before its temp dir is removed
+  - [x] 5.3 Close every `OscalStore` before its temp dir is removed
     - In `tests/test_build_oscal_db.py` (around lines 323 and 371) and similar sites, close the store in `finally` or use a fixture that closes it
     - Grep `tests/` for `OscalStore(` inside `TemporaryDirectory`/`tmp_path` blocks to find them
     - _Requirements: 8.2_
 
-- [~] 6. Checkpoint: local suite after the version and portability changes
+- [-] 6. Checkpoint: local suite after the version and portability changes
   - Run `hatch run tests`. Ensure all tests pass, and ask the user if questions arise
   - Commit tasks 2–5 with `#<issue>`, the recorded pin changes, and "tested locally on macOS 3.13/3.14", staging only the files changed above
 

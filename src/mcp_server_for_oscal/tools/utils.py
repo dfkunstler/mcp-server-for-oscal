@@ -104,7 +104,7 @@ def load_oscal_json_schema(model_type: OSCALModelType) -> dict:
     """
     schema_base = schema_names[model_type]
     schema_path = Path(__file__).parent.parent / "oscal_schemas" / f"{schema_base}.json"
-    with open(schema_path) as f:
+    with open(schema_path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -231,7 +231,7 @@ def verify_package_integrity(directory: Path) -> None:
     """
 
     logger.info(f"Verifying contents of package {directory.name}")
-    with open(directory.joinpath("hashes.json")) as hashes:
+    with open(directory.joinpath("hashes.json"), encoding="utf-8") as hashes:
         state = json.load(hashes)
 
     # Confirm that all files listed in hashes.json actually exist
