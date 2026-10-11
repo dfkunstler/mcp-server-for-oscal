@@ -91,7 +91,7 @@ classDiagram
 | `query_documentation.py` | `query_oscal_documentation`: Bedrock KB `retrieve` with a fallback to local FTS over `documentation` rows | The branch condition is `knowledge_base_id is not None`, see review_notes |
 | `list_oscal_resources.py` | Returns `awesome-oscal.md`, read from the store DB (`model_type='documentation'`) or, in dev, from `data/oscal_docs` | Reads `_store._conn` directly (`noqa: SLF001`) |
 | `validate_oscal_content.py` | Four-level validation pipeline; `validate_oscal_file` reads a local path, `file://` URI, or (opt-in) an http(s) URI with `requests` | Uses the `regex` module for ECMA-262 `\p{..}` patterns in the schemas |
-| `get_schema.py` | Returns a schema file by model name and type | XSD path is broken (always `json.load`) |
+| `get_schema.py` | Returns a schema file by model name and type | |
 | `list_models.py` | Static metadata for the 8 models (layer, status, descriptions) | |
 | `README.md` | Human-facing tool reference | Partly stale, see review_notes |
 

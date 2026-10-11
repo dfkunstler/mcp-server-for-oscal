@@ -81,7 +81,7 @@ Retrieves JSON or XSD schemas for OSCAL models. OSCAL schemas are self-documenti
 - `model_name` (str, default="complete"): Name of the OSCAL model (use `list_oscal_models` to get valid names)
 - `schema_type` (str, default="json"): Either "json" or "xsd"
 
-**Returns**: Schema as JSON string
+**Returns**: JSON string for `json`; raw XSD (XML) text for `xsd`
 
 **Note**: Returns the complete schema (all models) by default, which is large. Specify a model name for focused results.
 

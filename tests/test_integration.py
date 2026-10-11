@@ -2,16 +2,20 @@
 Integration tests for the OSCAL MCP Server.
 """
 
+import json
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from mcp.server.mcpserver import MCPServer
 
+import mcp_server_for_oscal.tools.get_schema as get_schema_module
 from mcp_server_for_oscal.main import _setup_tools, mcp
-from mcp_server_for_oscal.tools.get_schema import get_oscal_schema
+from mcp_server_for_oscal.tools.get_schema import get_oscal_schema, open_schema_file
 from mcp_server_for_oscal.tools.list_models import list_oscal_models
 from mcp_server_for_oscal.tools.query_documentation import query_oscal_documentation
 from mcp_server_for_oscal.tools.utils import OSCALModelType, schema_names
+
+SCHEMA_DIR = Path(get_schema_module.__file__).parent.parent / "oscal_schemas"
 
 
 class TestMCPServerIsolation:
@@ -117,29 +121,36 @@ class TestIntegration:
         assert "retrievalResults" in result
         assert len(result["retrievalResults"]) > 0
 
-    @patch("mcp_server_for_oscal.tools.get_schema.open_schema_file")
-    @patch("mcp_server_for_oscal.tools.get_schema.json.load")
-    def test_get_schema_tool_integration(self, mock_json_load, mock_open_schema_file):
-        """Test integration of get_schema tool."""
-        # Setup mocks
-        mock_file = Mock()
-        mock_open_schema_file.return_value = mock_file
-        mock_schema = {"$schema": "test-schema", "type": "object"}
-        mock_json_load.return_value = mock_schema
+    @staticmethod
+    def _schema_context() -> AsyncMock:
+        """MCP context double: ``error`` must be awaitable for try_notify_client_error."""
+        ctx = AsyncMock()
+        ctx.session = Mock()
+        ctx.session.client_params = {}
+        return ctx
 
-        mock_context = Mock()
-        mock_context.session = Mock()
-        mock_context.session.client_params = {}
+    def test_get_schema_tool_integration(self):
+        """get_oscal_schema returns the real bundled catalog JSON schema."""
+        mock_context = self._schema_context()
 
-        # Execute tool
         result = get_oscal_schema(mock_context, model_name="catalog", schema_type="json")
 
-        # Verify result
-        import json
-
         parsed_result = json.loads(result)
-        assert parsed_result == mock_schema
+        bundled = json.loads((SCHEMA_DIR / "oscal_catalog_schema.json").read_bytes())
+        assert parsed_result == bundled
         assert "$schema" in parsed_result
+        mock_context.error.assert_not_called()
+
+    def test_get_schema_tool_integration_xsd(self):
+        """get_oscal_schema returns the real bundled catalog XSD text unchanged (#13)."""
+        mock_context = self._schema_context()
+
+        result = get_oscal_schema(mock_context, model_name="catalog", schema_type="xsd")
+
+        expected = (SCHEMA_DIR / "oscal_catalog_schema.xsd").read_bytes().decode("utf-8")
+        assert result == expected
+        assert result.lstrip().startswith("<xs:schema")
+        mock_context.error.assert_not_called()
 
     def test_list_models_tool_integration(self):
         """Test integration of list_models tool."""
@@ -280,28 +291,22 @@ class TestIntegration:
         # The actual transport compatibility is tested in the main function tests
         # Here we just verify the server structure supports it
 
-    @patch("mcp_server_for_oscal.tools.get_schema.open_schema_file")
+    @patch("mcp_server_for_oscal.tools.get_schema.open_schema_file", side_effect=open_schema_file)
     def test_schema_file_integration(self, mock_open_schema_file):
-        """Test integration with schema file system."""
-        # Test that schema files are accessed correctly
-        mock_file = Mock()
-        mock_open_schema_file.return_value = mock_file
+        """Every model resolves to its bundled schema file, for both JSON and XSD."""
+        mock_context = self._schema_context()
 
-        with patch("mcp_server_for_oscal.tools.get_schema.json.load") as mock_json_load:
-            mock_json_load.return_value = {"test": "schema"}
-
-            mock_context = Mock()
-            mock_context.session = Mock()
-            mock_context.session.client_params = {}
-
+        for schema_type in ("json", "xsd"):
             for model in OSCALModelType:
                 mock_open_schema_file.reset_mock()
 
-                get_oscal_schema(mock_context, model_name=model, schema_type="json")
+                # Pass-through wrapper: the real bundled file is read.
+                get_oscal_schema(mock_context, model_name=model, schema_type=schema_type)
 
-                # Verify correct file was requested
-                expected_filename = f"{schema_names.get(model)}.json"
+                expected_filename = f"{schema_names.get(model)}.{schema_type}"
                 mock_open_schema_file.assert_called_with(expected_filename)
+
+        mock_context.error.assert_not_called()
 
     def test_logging_integration(self):
         """Test that logging is properly integrated across components."""
