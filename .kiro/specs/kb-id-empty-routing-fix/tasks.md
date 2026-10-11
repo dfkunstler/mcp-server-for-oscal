@@ -105,7 +105,7 @@
     - **EXPECTED OUTCOME**: Tests PASS (no regressions)
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
 
-- [-] 4. Checkpoint - Ensure all tests pass, then commit
+- [x] 4. Checkpoint - Ensure all tests pass, then commit
   - `hatch check fmt` and `hatch check code` must pass (use `--fix` if needed, then re-run without it); use a targeted `# noqa: RULE - reason` only if justified
   - `hatch run tests` (mypy, `hatch test --all --cover` on 3.13 + 3.14, bandit) must pass
   - Confirm `git branch --show-current` is the #14 feature branch, not `main`
