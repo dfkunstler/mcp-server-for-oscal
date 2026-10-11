@@ -103,7 +103,7 @@ All of these are defined under `[tool.hatch.envs.default.scripts]` in `pyproject
 - `README.md` must keep its first-line `<!-- mcp-name: io.github.dfkunstler/mcp-server-for-oscal -->`, which must match `server.json` `name` (tested).
 - Env vars are declared in `config.py`, `dotenv.example`, DEVELOPING.md, and partially in `server.json` and `conf/mcpb/manifest.json` + `conf/mcpb/src/server.py` (`USER_CONFIG_ENV`). Keep them in sync.
 - `OSCAL_COMPONENT_DEFINITIONS_DIR` is deprecated and has no effect; use `OSCAL_DOCUMENTS_DIR`.
-- Known bugs (KB routing with empty `OSCAL_KB_ID` #14 and the awesome-oscal workflow path #15) are listed in `.agents/summary/review_notes.md`. Check there before "fixing" behavior that tests appear to rely on.
+- Known bugs (the awesome-oscal workflow path #15) are listed in `.agents/summary/review_notes.md`. Check there before "fixing" behavior that tests appear to rely on.
 - `tests/test_integration_stdio_smoke.py` starts the real server over stdio. By default it launches the installed console script; `OSCAL_SMOKE_SERVER_CMD` (JSON argv array) overrides the command, and `OSCAL_SMOKE_BUNDLE_DIR` launches an unpacked `.mcpb` bundle from its manifest (the CI `mcpb` job uses this).
 - `tests/test_python_version_sites.py` guards every Python-version site (pyproject, CI, docs). Update it when bumping the supported versions.
 - After the default env moved to Python 3.14, existing local envs need `hatch env remove default` once.

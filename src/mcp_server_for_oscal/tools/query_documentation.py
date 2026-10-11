@@ -48,9 +48,11 @@ def query_oscal_documentation(query: str, ctx: Context | None = None) -> Any:
         query: Question or search query about OSCAL
 
     Returns:
-        dict: Results retrieved from knowledge base, structured as a Bedrock RetrieveResponseTypeDef object.
+        dict: A Bedrock RetrieveResponse when a Knowledge Base is configured; otherwise a local
+        page response with items, total, offset, limit, and hasMore.
     """
-    if config.knowledge_base_id is not None:
+    # A blank or whitespace-only KB ID means no Knowledge Base is configured (#14).
+    if config.knowledge_base_id.strip():
         logger.info("Using Knowledge Base search path (KB ID: %s)", config.knowledge_base_id)
         try:
             return query_kb(query, ctx)

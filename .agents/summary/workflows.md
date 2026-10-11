@@ -27,15 +27,15 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    Q[query_oscal_documentation] --> C{config.knowledge_base_id is not None}
-    C -- true, including '' --> KB[query_kb: boto3 bedrock-agent-runtime.retrieve]
+    Q[query_oscal_documentation] --> C{config.knowledge_base_id.strip non-empty}
+    C -- true --> KB[query_kb: boto3 bedrock-agent-runtime.retrieve]
     KB -- exception --> L[query_local: store.search_documentation]
     KB -- ok --> R1[Bedrock RetrieveResponse]
-    C -- false --> L
+    C -- false, including '' and whitespace --> L
     L --> R2[page response of documentation hits, snippet up to 200 chars]
 ```
 
-Because the default `OSCAL_KB_ID` is `""`, the KB path always runs first and fails (logged as a warning) before falling back. See review_notes.
+The default `OSCAL_KB_ID` of `""` goes straight to local search, and only a KB failure triggers the fallback.
 
 ## Local development loop
 

@@ -10,7 +10,7 @@
 - Stage only files changed for this fix, by name. Never push without explicit user approval.
 - All new tests patch `query_documentation.Session` (or `query_kb`) so no test makes a real AWS call, even on unfixed code.
 
-- [-] 0. Confirm the feature branch and commit the spec
+- [x] 0. Confirm the feature branch and commit the spec
   - `git branch --show-current` must be the #14 feature branch, not `main`; stop and ask if it isn't
   - `git status`: confirm no unrelated staged changes
   - Run `hatch run tests` (baseline; record the result)
@@ -18,7 +18,7 @@
   - Commit: `docs(spec): add KB ID empty routing bugfix spec (#14) - tests passed|failed`
   - Do not push
 
-- [~] 1. Write bug condition exploration tests
+- [x] 1. Write bug condition exploration tests
   - **Property 1: Bug Condition** - Blank KB ID routes to local search without AWS
   - **CRITICAL**: These tests MUST FAIL on unfixed code. Failure confirms the bug exists
   - **DO NOT attempt to fix the test or the code when it fails**
@@ -38,9 +38,15 @@
   - **EXPECTED OUTCOME**: Tests FAIL. Expected counterexamples: `query_kb` called once with `kb_id=""`; `Session` constructed; `try_notify_client_error` called; log "Using Knowledge Base search path (KB ID: )" and fallback WARNING
   - If any test passes on unfixed code, the `is not None` hypothesis is wrong; revisit the root cause in design.md before continuing
   - Record the counterexamples in this task when marking it complete
+  - **Observed on unfixed code** (all 11 `TestBlankKbIdRouting` tests failed, 0 unexpected passes; `is not None` hypothesis confirmed):
+    - `query_kb` called once for `""` and every parametrized whitespace ID (`" "`, `"\t"`, `"\n"`, `" \t\r\n "`, `"\u00a0"`, `"\u2003"`)
+    - Hypothesis shrank to `kb_id=''`, `query=''`: `query_kb` called 1 time
+    - With real `query_kb`: `Session()` constructed 1 time, `try_notify_client_error` reached via the exception path (ERROR "Error running query ... documentation: ...")
+    - Real `Config()` with `OSCAL_KB_ID` unset (`knowledge_base_id == ""`, unchanged by `update_from_args(None)`/`("")`): `Session` constructed 1 time
+    - Logs: INFO "Using Knowledge Base search path (KB ID: )" and WARNING "Knowledge Base query failed; falling back to local search"; no "local documentation search path" message
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [~] 2. Write preservation property tests (BEFORE implementing the fix)
+- [x] 2. Write preservation property tests (BEFORE implementing the fix)
   - **Property 2: Preservation** - Non-blank KB ID keeps the Knowledge Base path
   - **IMPORTANT**: Follow observation-first methodology. Observe unfixed behavior for inputs where `isBugCondition` is false, then encode it
   - Observe on unfixed code: `kb_id="ABCD1234"` calls `query_kb` and returns its value; with real `query_kb` and patched `Session`, `retrieve` gets `knowledgeBaseId="ABCD1234"`; `kb_id=" ABCD1234 "` is passed untrimmed; Bedrock failure logs, notifies the client, warns, and returns `query_local` results
@@ -55,9 +61,9 @@
   - **EXPECTED OUTCOME**: Tests PASS (baseline confirmed)
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
 
-- [ ] 3. Fix blank KB ID routing to Bedrock (#14)
+- [x] 3. Fix blank KB ID routing to Bedrock (#14)
 
-  - [~] 3.1 Implement the fix in `src/mcp_server_for_oscal/tools/query_documentation.py`
+  - [x] 3.1 Implement the fix in `src/mcp_server_for_oscal/tools/query_documentation.py`
     - In `query_oscal_documentation`, replace `if config.knowledge_base_id is not None:` with `if config.knowledge_base_id.strip():`
     - Optional one-line comment above it: blank or whitespace-only KB ID means unset (#14)
     - Keep the KB-path log line and the `query_kb(query, ctx)` call unchanged, so `query_kb` still reads the untrimmed `config.knowledge_base_id`
@@ -69,7 +75,7 @@
     - _Preservation: non-blank IDs keep the KB path, untrimmed ID to Bedrock, same logging, profile session, failure notification and fallback (Property 2 in design)_
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
 
-  - [~] 3.2 Fix the existing `None`-based tests in `tests/tools/test_local_doc_search.py`
+  - [x] 3.2 Fix the existing `None`-based tests in `tests/tools/test_local_doc_search.py`
     - `TestQueryOscalDocumentationRouting.test_local_path_when_knowledge_base_id_not_set`: set `knowledge_base_id = ""` instead of `None`
     - `TestQueryOscalDocumentationRouting.test_local_path_when_kb_id_empty_string`: set `""`, replace the misleading "falsy but not None" comment, add `query_kb.assert_not_called()` (patch `query_kb` if not already patched)
     - `TestSearchPathLogging.test_logs_local_path_when_kb_id_not_set`: set `""`; also assert no message contains "Knowledge Base" and no WARNING records
@@ -78,28 +84,28 @@
     - Run: `hatch test tests/tools/test_local_doc_search.py`
     - _Requirements: 2.1, 2.3, 3.6_
 
-  - [~] 3.3 Update docs and known-bug references
+  - [x] 3.3 Update docs and known-bug references
     - `.agents/summary/review_notes.md` row B2 (#14): rewrite in the B1 style, "Resolved by #14: `query_oscal_documentation` called Bedrock even when no KB was configured"; keep the cause (condition was `is not None`, default `""`, tests used `None`); fix column "Fixed: routing uses `knowledge_base_id.strip()`, so blank or whitespace-only IDs go straight to local search; tests use `""`/whitespace and a real `Config` default"
     - `.agents/summary/components.md` `query_documentation.py` row: replace "The branch condition is `knowledge_base_id is not None`, see review_notes" with "KB path only when `knowledge_base_id` has non-whitespace characters; otherwise local search with no AWS call"
     - `.agents/summary/workflows.md` flowchart: decision node `{config.knowledge_base_id.strip non-empty}`, edges `true --> KB` and `false, including '' and whitespace --> L`; replace the paragraph below with one sentence: the default `""` goes straight to local search, and only a KB failure triggers the fallback
     - `AGENTS.md` "Known bugs" bullet: drop #14 and keep #15, e.g. "Known bugs (the awesome-oscal workflow path #15) are listed in `.agents/summary/review_notes.md`. …"
     - _Requirements: 2.1, 2.2_
 
-  - [~] 3.4 Verify bug condition exploration tests now pass
+  - [x] 3.4 Verify bug condition exploration tests now pass
     - **Property 1: Expected Behavior** - Blank KB ID routes to local search without AWS
     - **IMPORTANT**: Re-run the SAME tests from task 1. Do NOT write new tests
     - Run: `hatch test tests/tools/test_local_doc_search.py -- -k "BlankKbId"`
     - **EXPECTED OUTCOME**: Tests PASS (bug fixed)
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-  - [~] 3.5 Verify preservation tests still pass
+  - [x] 3.5 Verify preservation tests still pass
     - **Property 2: Preservation** - Non-blank KB ID keeps the Knowledge Base path
     - **IMPORTANT**: Re-run the SAME tests from task 2. Do NOT write new tests
     - Run: `hatch test tests/tools/test_local_doc_search.py tests/tools/test_query_documentation.py tests/test_integration.py tests/test_tool_registry.py tests/test_config.py`
     - **EXPECTED OUTCOME**: Tests PASS (no regressions)
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
 
-- [~] 4. Checkpoint - Ensure all tests pass, then commit
+- [-] 4. Checkpoint - Ensure all tests pass, then commit
   - `hatch check fmt` and `hatch check code` must pass (use `--fix` if needed, then re-run without it); use a targeted `# noqa: RULE - reason` only if justified
   - `hatch run tests` (mypy, `hatch test --all --cover` on 3.13 + 3.14, bandit) must pass
   - Confirm `git branch --show-current` is the #14 feature branch, not `main`
