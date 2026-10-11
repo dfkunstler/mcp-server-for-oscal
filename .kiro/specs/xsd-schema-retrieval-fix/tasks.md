@@ -9,7 +9,7 @@
 - Run `hatch run tests` before each commit. Commit messages include `#13` and state whether tests passed.
 - Stage only files changed for this fix, by name. Never push without explicit user approval.
 
-- [-] 0. Create the feature branch and commit the spec
+- [x] 0. Create the feature branch and commit the spec
   - Confirm the current branch is `main` and the working tree has no unrelated staged changes (`git status`)
   - Create and check out a branch linked to the issue: `gh issue develop 13 --checkout` (or `git checkout -b fix/13-xsd-schema-retrieval` if linking fails)
   - Run `hatch run tests` (baseline; record the result)
@@ -17,7 +17,7 @@
   - Commit: `docs(spec): add XSD schema retrieval bugfix spec (#13) - tests passed|failed`
   - Do not push
 
-- [~] 1. Write bug condition exploration tests
+- [x] 1. Write bug condition exploration tests
   - **Property 1: Bug Condition** - XSD requests return bundled XSD text, and schema file handles are closed
   - **CRITICAL**: These tests MUST FAIL on unfixed code. Failure confirms the bug exists
   - **DO NOT attempt to fix the test or the code when it fails**
@@ -39,9 +39,16 @@
   - **EXPECTED OUTCOME**: Tests FAIL. Expected counterexamples: `JSONDecodeError: Expecting value: line 1 column 1 (char 0)` for all 9 XSD cases plus a "failed to open schema ..." client notification; `handle.closed is False` after JSON success and parse error
   - If failures differ (e.g., wrong file name), revisit the root-cause hypothesis in design.md before continuing
   - Record the counterexamples in this task when marking it complete
+  - **Result on unfixed code (bug confirmed)**: 29 new tests in `TestGetSchemaBugCondition` failed, as expected
+    - `test_get_schema_xsd_returns_bundled_text[*]` (all 9 models): `JSONDecodeError: Expecting value: line 1 column 1 (char 0)`, logged as "failed to open schema oscal_<x>_schema.xsd"
+    - `test_get_schema_xsd_does_not_notify_client_error`: same `JSONDecodeError` (client gets "failed to open schema oscal_catalog_schema.xsd")
+    - `test_get_schema_handle_closed[*-json]` (9): `assert handles[0].closed` is False
+    - `test_get_schema_handle_closed[*-xsd]` (9): `JSONDecodeError` before the handle assertion
+    - `test_get_schema_handle_closed_on_json_parse_error`: `JSONDecodeError` raised, but handle still open
+    - Only pass under `-k "xsd or closed"`: legacy `test_get_schema_success_xsd_schema` (mocks `json.load`; removed in 3.2)
   - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.3_
 
-- [~] 2. Write preservation property tests (BEFORE implementing the fix)
+- [x] 2. Write preservation property tests (BEFORE implementing the fix)
   - **Property 2: Preservation** - JSON output and error contracts unchanged
   - **IMPORTANT**: Follow observation-first methodology. Observe unfixed behavior for inputs where `isBugCondition` is false, then encode it
   - Observe on unfixed code: `get_oscal_schema(None, "catalog", "json")` equals `json.dumps(json.loads(raw_bytes))`; `get_oscal_schema()` returns the `complete` JSON; `schema_type="JSON"` raises `ValueError("Invalid schema type: JSON.")`; `model_name="Catalog"` raises `ValueError` matching `"Invalid model: "`
@@ -57,9 +64,9 @@
   - **EXPECTED OUTCOME**: Preservation tests PASS (baseline confirmed)
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [ ] 3. Fix XSD schema retrieval and file handle leak
+- [x] 3. Fix XSD schema retrieval and file handle leak
 
-  - [~] 3.1 Implement the fix in `src/mcp_server_for_oscal/tools/get_schema.py`
+  - [x] 3.1 Implement the fix in `src/mcp_server_for_oscal/tools/get_schema.py`
     - Replace the `try` body with a `with open_schema_file(schema_file_name) as schema_file:` block
     - Inside it, branch: `xsd` → `schema_text = schema_file.read()`; otherwise `schema_text = json.dumps(json.load(schema_file))`
     - Keep the `except Exception` block unchanged (log, `try_notify_client_error`, re-raise); `return schema_text` after the `try` (avoids ruff `TRY300`)
@@ -70,7 +77,7 @@
     - _Preservation: JSON output byte-identical, defaults, validation errors, and open/parse error reporting unchanged (Property 3 in design)_
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-  - [~] 3.2 Update existing tests broken by the `with` statement and remove bug-hiding mocks
+  - [x] 3.2 Update existing tests broken by the `with` statement and remove bug-hiding mocks
     - `tests/tools/test_get_schema.py`:
       - Delete `test_get_schema_success_xsd_schema` (superseded by task 1 tests)
       - Convert `test_get_schema_success_default_params`, `_catalog_model`, `_ssp_model`, `_poam_model`, `test_get_schema_logging`, `test_get_schema_all_valid_models` to read real files via a pass-through wrapper (`side_effect=open_schema_file`), keeping `assert_called_once_with(<file name>)`; drop `json.load` mocks and the `json.load` call assertion in `_default_params`
@@ -84,28 +91,28 @@
     - `tests/test_integration_stdio_smoke.py`: add one `get_oscal_schema` XSD call only if it's a one-line addition to existing tool calls; otherwise skip and note why
     - _Requirements: 2.1, 2.2, 2.4, 3.5, 3.6_
 
-  - [~] 3.3 Update docs and known-bug references
+  - [x] 3.3 Update docs and known-bug references
     - `src/mcp_server_for_oscal/tools/README.md`: `get_oscal_schema` Returns → "JSON string for `json`; raw XSD (XML) text for `xsd`"
     - `.agents/summary/review_notes.md`: mark B1 (#13) resolved
     - `.agents/summary/components.md`: remove "XSD path is broken (always `json.load`)"
     - `AGENTS.md`: drop "XSD schema retrieval #13" from the known-bugs bullet
     - _Requirements: 2.4_
 
-  - [~] 3.4 Verify bug condition exploration tests now pass
+  - [x] 3.4 Verify bug condition exploration tests now pass
     - **Property 1: Expected Behavior** - XSD requests return bundled XSD text, and schema file handles are closed
     - **IMPORTANT**: Re-run the SAME tests from task 1. Do NOT write new tests
     - Run: `hatch test tests/tools/test_get_schema.py -- -k "xsd or closed"`
     - **EXPECTED OUTCOME**: Tests PASS (bug fixed)
     - _Requirements: 2.1, 2.2, 2.3_
 
-  - [~] 3.5 Verify preservation tests still pass
+  - [x] 3.5 Verify preservation tests still pass
     - **Property 2: Preservation** - JSON output and error contracts unchanged
     - **IMPORTANT**: Re-run the SAME tests from task 2. Do NOT write new tests
     - Run: `hatch test tests/tools/test_get_schema.py tests/test_integration.py`
     - **EXPECTED OUTCOME**: Tests PASS (no regressions)
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [~] 4. Checkpoint - Ensure all tests pass, then commit
+- [x] 4. Checkpoint - Ensure all tests pass, then commit
   - `hatch check fmt --fix` and `hatch check code --fix`; resolve any findings with targeted `# noqa: RULE - reason` only if justified
   - `hatch run typing`
   - `hatch run tests` (mypy, pytest on 3.13 + 3.14 with coverage, bandit). All must pass

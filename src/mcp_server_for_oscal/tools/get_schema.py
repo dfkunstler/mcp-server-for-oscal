@@ -31,10 +31,10 @@ def get_oscal_schema(
     Args:
         ctx: MCP server context (should be injected automatically by MCP server)
         model_name: The name of the OSCAL model. If no value is provided, then we return a "complete" schema including all models, which is large.
-        schema_type: If `json` (default) then return the JSON schema for the specified model. Otherwise, return its XSD (XML) schema.
+        schema_type: `json` (default) returns the JSON schema; `xsd` returns the XML Schema (XSD). Other values are rejected.
 
     Returns:
-        str: The requested schema as JSON string
+        str: For `json`, the schema as a JSON string. For `xsd`, the schema as XML (XSD) text.
     """
     logger.debug(
         "get_oscal_model_schema(model_name: %s, syntax: %s, session client params: %s)",
@@ -58,14 +58,20 @@ def get_oscal_schema(
     schema_file_name = f"{schema_names.get(model_name)}.{schema_type}"
 
     try:
-        schema = json.load(open_schema_file(schema_file_name))
+        # Context manager guarantees the handle closes on success and on error.
+        with open_schema_file(schema_file_name) as schema_file:
+            if schema_type == "xsd":
+                # XSD is XML: return the bundled text as-is (never JSON-parse it).
+                schema_text = schema_file.read()
+            else:
+                schema_text = json.dumps(json.load(schema_file))
     except Exception:
         msg = f"failed to open schema {schema_file_name}"
         logger.exception(msg)
         try_notify_client_error(msg, ctx)
         raise
 
-    return json.dumps(schema)
+    return schema_text
 
 
 def open_schema_file(file_name: str) -> Any:
