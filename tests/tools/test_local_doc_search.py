@@ -6,16 +6,19 @@ and query_documentation module refactoring.
 
 import hashlib
 import logging
+import os
 import re
 import sqlite3
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
+from mcp_server_for_oscal.config import Config
 from mcp_server_for_oscal.tools import query_documentation
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
@@ -164,7 +167,9 @@ class TestSHA256ChangeDetectionProperty:
         content_a=_nonempty_md,
         content_b=_nonempty_md,
     )
-    @settings(max_examples=100)
+    # Each example opens a SQLite store and rescans files; I/O time is too
+    # load-dependent for Hypothesis's 200 ms default deadline.
+    @settings(max_examples=100, deadline=None)
     def test_sha256_change_detection(self, content_a, content_b):
         """Scanning after content change re-indexes; scanning unchanged is idempotent.
 
@@ -222,7 +227,7 @@ class TestSHA256ChangeDetectionProperty:
                 store.close()
 
     @given(pair=_same_length_pair())
-    @settings(max_examples=100)
+    @settings(max_examples=100, deadline=None)
     def test_same_length_different_content_detected(self, pair):
         """Even when byte lengths are identical, different content triggers re-index.
 
@@ -1046,7 +1051,7 @@ class TestQueryOscalDocumentationRouting:
             patch.object(query_documentation, "config") as mock_config,
             patch.object(query_documentation, "query_local") as mock_local,
         ):
-            mock_config.knowledge_base_id = None
+            mock_config.knowledge_base_id = ""
             mock_local.return_value = {"items": [], "total": 0}
 
             fn = query_documentation.query_oscal_documentation
@@ -1081,16 +1086,18 @@ class TestQueryOscalDocumentationRouting:
         """
         with (
             patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_kb") as mock_kb,
             patch.object(query_documentation, "query_local") as mock_local,
         ):
-            # Empty string is falsy but not None — check the actual code path
-            mock_config.knowledge_base_id = None
+            # "" is the Config default when OSCAL_KB_ID is unset; it must not reach Bedrock (#14)
+            mock_config.knowledge_base_id = ""
             mock_local.return_value = {"items": [], "total": 0}
 
             fn = query_documentation.query_oscal_documentation
             fn(query="hello", ctx=None)
 
             mock_local.assert_called_once()
+            mock_kb.assert_not_called()
 
 
 class TestSearchPathLogging:
@@ -1128,7 +1135,7 @@ class TestSearchPathLogging:
             patch.object(query_documentation, "config") as mock_config,
             patch.object(query_documentation, "query_local") as mock_local,
         ):
-            mock_config.knowledge_base_id = None
+            mock_config.knowledge_base_id = ""
             mock_local.return_value = {"items": [], "total": 0}
 
             with caplog.at_level(
@@ -1138,6 +1145,8 @@ class TestSearchPathLogging:
                 fn(query="test", ctx=None)
 
             assert any("local" in msg.lower() for msg in caplog.messages)
+            assert not any("Knowledge Base" in msg for msg in caplog.messages)
+            assert not any(r.levelno == logging.WARNING for r in caplog.records)
 
     def test_logs_fallback_on_kb_failure(self, caplog):
         """Logs fallback warning when KB query fails.
@@ -1174,7 +1183,7 @@ class TestUnconditionalToolRegistration:
         from mcp_server_for_oscal.tools import get_tool_list
 
         with patch("mcp_server_for_oscal.config.config") as mock_config:
-            mock_config.knowledge_base_id = None
+            mock_config.knowledge_base_id = ""
             tools = get_tool_list()
             tool_names = {t.__name__ for t in tools}
             assert "query_oscal_documentation" in tool_names
@@ -1188,6 +1197,329 @@ class TestUnconditionalToolRegistration:
             tools = get_tool_list()
             tool_names = {t.__name__ for t in tools}
             assert "query_oscal_documentation" in tool_names
+
+
+# ---------------------------------------------------------------------------
+# Property 1: Bug Condition - Blank KB ID routes to local search without AWS (#14)
+# ---------------------------------------------------------------------------
+
+_LOCAL_RESULT = {"items": [], "total": 0, "offset": 0, "limit": 10, "hasMore": False}
+
+# Characters str.strip() removes are Unicode whitespace (Zs plus some Cc); the
+# filter drops the few Cc characters (e.g. "\x00") that are not whitespace.
+_blank_kb_id = st.text(alphabet=st.characters(categories=["Zs", "Cc"])).filter(
+    lambda s: not s.strip()
+)
+
+
+class TestBlankKbIdRouting:
+    """Property 1: Bug Condition - Blank KB ID routes to local search without AWS.
+
+    *For any* KB ID that is ``""`` or whitespace-only, and any query and context,
+    ``query_oscal_documentation`` SHALL return ``query_local(query, ctx)``, SHALL NOT
+    call ``query_kb``, construct a boto3 ``Session``, or call
+    ``try_notify_client_error``, and SHALL log only the local-path message.
+
+    **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5**
+    """
+
+    def test_empty_kb_id_routes_to_local(self):
+        """An empty KB ID (the runtime default) uses the local path.
+
+        **Validates: Requirements 2.1**
+        """
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_kb") as mock_kb,
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
+            mock_config.knowledge_base_id = ""
+            mock_local.return_value = _LOCAL_RESULT
+
+            result = query_documentation.query_oscal_documentation(query="test query", ctx=None)
+
+            mock_kb.assert_not_called()
+            mock_local.assert_called_once_with("test query", None)
+            assert result == _LOCAL_RESULT
+
+    @pytest.mark.parametrize(
+        "kb_id",
+        [" ", "\t", "\n", " \t\r\n ", "\u00a0", "\u2003"],
+        ids=["space", "tab", "newline", "mixed", "nbsp", "em-space"],
+    )
+    def test_whitespace_kb_id_routes_to_local(self, kb_id):
+        """A whitespace-only KB ID is treated as unset.
+
+        **Validates: Requirements 2.5**
+        """
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_kb") as mock_kb,
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
+            mock_config.knowledge_base_id = kb_id
+            mock_local.return_value = _LOCAL_RESULT
+
+            result = query_documentation.query_oscal_documentation(query="test query", ctx=None)
+
+            mock_kb.assert_not_called()
+            mock_local.assert_called_once_with("test query", None)
+            assert result == _LOCAL_RESULT
+
+    def test_empty_kb_id_makes_no_aws_call_and_no_client_notification(self):
+        """With the real query_kb, a blank KB ID creates no Session and sends no error.
+
+        **Validates: Requirements 2.2, 2.4**
+        """
+        ctx = MagicMock()
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "Session") as mock_session,
+            patch.object(query_documentation, "try_notify_client_error") as mock_notify,
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
+            mock_config.knowledge_base_id = ""
+            mock_config.aws_profile = None
+            mock_local.return_value = _LOCAL_RESULT
+
+            result = query_documentation.query_oscal_documentation(query="test query", ctx=ctx)
+
+            mock_session.assert_not_called()
+            mock_notify.assert_not_called()
+            mock_local.assert_called_once_with("test query", ctx)
+            assert result == _LOCAL_RESULT
+
+    def test_empty_kb_id_logs_only_local_path(self, caplog):
+        """A blank KB ID logs the local-path message, no KB message, and no warning.
+
+        **Validates: Requirements 2.3**
+        """
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "Session"),
+            patch.object(query_documentation, "try_notify_client_error"),
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
+            mock_config.knowledge_base_id = ""
+            mock_config.aws_profile = None
+            mock_local.return_value = _LOCAL_RESULT
+
+            with caplog.at_level(
+                logging.INFO, logger="mcp_server_for_oscal.tools.query_documentation"
+            ):
+                query_documentation.query_oscal_documentation(query="test", ctx=None)
+
+            assert any("local documentation search path" in msg for msg in caplog.messages)
+            assert not any("Knowledge Base" in msg for msg in caplog.messages), caplog.messages
+            assert not [r for r in caplog.records if r.levelno == logging.WARNING], [
+                r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
+            ]
+
+    def test_real_config_default_routes_to_local(self):
+        """A real Config() with OSCAL_KB_ID unset routes locally with no AWS call.
+
+        **Validates: Requirements 2.1, 2.2**
+        """
+        with patch.dict(os.environ, {"PYTHON_DOTENV_DISABLED": "1"}, clear=True):
+            cfg = Config()
+        assert cfg.knowledge_base_id == ""
+        cfg.update_from_args(knowledge_base_id=None)
+        assert cfg.knowledge_base_id == ""
+        cfg.update_from_args(knowledge_base_id="")
+        assert cfg.knowledge_base_id == ""
+
+        with (
+            patch.object(query_documentation, "config", cfg),
+            patch.object(query_documentation, "Session") as mock_session,
+            patch.object(query_documentation, "try_notify_client_error") as mock_notify,
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
+            mock_local.return_value = _LOCAL_RESULT
+
+            result = query_documentation.query_oscal_documentation(query="test query", ctx=None)
+
+            mock_session.assert_not_called()
+            mock_notify.assert_not_called()
+            mock_local.assert_called_once_with("test query", None)
+            assert result == _LOCAL_RESULT
+
+    @given(kb_id=_blank_kb_id, query=st.text())
+    @settings(deadline=None)
+    def test_blank_kb_id_property(self, kb_id, query):
+        """For any blank KB ID and any query, routing goes to query_local only.
+
+        **Validates: Requirements 2.1, 2.2, 2.5**
+        """
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_kb") as mock_kb,
+            patch.object(query_documentation, "Session") as mock_session,
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
+            mock_config.knowledge_base_id = kb_id
+            mock_local.return_value = _LOCAL_RESULT
+
+            result = query_documentation.query_oscal_documentation(query=query, ctx=None)
+
+            mock_kb.assert_not_called()
+            mock_session.assert_not_called()
+            mock_local.assert_called_once_with(query, None)
+            assert result == _LOCAL_RESULT
+
+
+# ---------------------------------------------------------------------------
+# Property 2: Preservation - Non-blank KB ID keeps the Knowledge Base path (#14)
+# ---------------------------------------------------------------------------
+
+# Any KB ID with at least one non-whitespace character, including surrounding
+# whitespace and arbitrary Unicode.
+_non_blank_kb_id = st.text(min_size=1).filter(lambda s: s.strip())
+
+# JSON-serializable stand-in for a Bedrock RetrieveResponse (query_kb json.dumps it).
+_KB_RESULT: dict[str, list[Any]] = {"retrievalResults": []}
+
+
+class TestNonBlankKbIdPreservation:
+    """Property 2: Preservation - Non-blank KB ID keeps the Knowledge Base path.
+
+    *For any* KB ID with at least one non-whitespace character and any query,
+    ``query_oscal_documentation`` SHALL call ``query_kb``, pass the configured ID to
+    Bedrock ``retrieve`` unchanged, log the Knowledge Base path message with the ID,
+    and on a Bedrock error notify the client, warn, and return ``query_local`` results.
+
+    **Validates: Requirements 3.1, 3.2, 3.3**
+    """
+
+    @given(kb_id=_non_blank_kb_id, query=st.text())
+    @settings(deadline=None)
+    def test_non_blank_kb_id_routes_to_kb_property(self, kb_id, query):
+        """For any non-blank KB ID, query_kb is called and its result returned.
+
+        **Validates: Requirements 3.1**
+        """
+        ctx = MagicMock()
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_kb") as mock_kb,
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
+            mock_config.knowledge_base_id = kb_id
+            mock_kb.return_value = _KB_RESULT
+
+            result = query_documentation.query_oscal_documentation(query=query, ctx=ctx)
+
+            mock_kb.assert_called_once_with(query, ctx)
+            mock_local.assert_not_called()
+            assert result == _KB_RESULT
+
+    @given(kb_id=_non_blank_kb_id)
+    @settings(deadline=None)
+    def test_non_blank_kb_id_passed_to_retrieve_unchanged_property(self, kb_id):
+        """For any non-blank KB ID, Bedrock retrieve receives exactly that string.
+
+        **Validates: Requirements 3.1**
+        """
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "Session") as mock_session,
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
+            mock_config.knowledge_base_id = kb_id
+            mock_config.aws_profile = None
+            retrieve = mock_session.return_value.client.return_value.retrieve
+            retrieve.return_value = _KB_RESULT
+
+            result = query_documentation.query_oscal_documentation(query="test", ctx=None)
+
+            mock_session.assert_called_once_with()
+            mock_session.return_value.client.assert_called_once_with("bedrock-agent-runtime")
+            retrieve.assert_called_once_with(knowledgeBaseId=kb_id, retrievalQuery={"text": "test"})
+            mock_local.assert_not_called()
+            assert result == _KB_RESULT
+
+    def test_kb_id_with_surrounding_whitespace_is_not_trimmed(self):
+        """A KB ID with surrounding whitespace reaches retrieve untrimmed.
+
+        **Validates: Requirements 3.1**
+        """
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "Session") as mock_session,
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
+            mock_config.knowledge_base_id = " ABCD1234 "
+            mock_config.aws_profile = None
+            retrieve = mock_session.return_value.client.return_value.retrieve
+            retrieve.return_value = _KB_RESULT
+
+            result = query_documentation.query_oscal_documentation(query="test", ctx=None)
+
+            retrieve.assert_called_once_with(
+                knowledgeBaseId=" ABCD1234 ", retrievalQuery={"text": "test"}
+            )
+            mock_local.assert_not_called()
+            assert result == _KB_RESULT
+
+    def test_non_blank_kb_id_logs_kb_path_with_id(self, caplog):
+        """A non-blank KB ID logs the Knowledge Base path message including the ID.
+
+        **Validates: Requirements 3.3**
+        """
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "query_kb") as mock_kb,
+            patch.object(query_documentation, "query_local"),
+        ):
+            mock_config.knowledge_base_id = "ABCD1234"
+            mock_kb.return_value = _KB_RESULT
+
+            with caplog.at_level(
+                logging.INFO, logger="mcp_server_for_oscal.tools.query_documentation"
+            ):
+                query_documentation.query_oscal_documentation(query="test", ctx=None)
+
+            assert any(
+                r.levelno == logging.INFO
+                and "Knowledge Base" in r.getMessage()
+                and "ABCD1234" in r.getMessage()
+                for r in caplog.records
+            ), caplog.messages
+
+    def test_bedrock_failure_notifies_warns_and_falls_back(self, caplog):
+        """With the real query_kb, a Bedrock error notifies the client, warns, and
+        returns query_local results.
+
+        **Validates: Requirements 3.2**
+        """
+        ctx = MagicMock()
+        with (
+            patch.object(query_documentation, "config") as mock_config,
+            patch.object(query_documentation, "Session") as mock_session,
+            patch.object(query_documentation, "try_notify_client_error") as mock_notify,
+            patch.object(query_documentation, "query_local") as mock_local,
+        ):
+            mock_config.knowledge_base_id = "ABCD1234"
+            mock_config.aws_profile = None
+            retrieve = mock_session.return_value.client.return_value.retrieve
+            retrieve.side_effect = RuntimeError("bedrock down")
+            mock_local.return_value = _LOCAL_RESULT
+
+            with caplog.at_level(
+                logging.INFO, logger="mcp_server_for_oscal.tools.query_documentation"
+            ):
+                result = query_documentation.query_oscal_documentation(query="test", ctx=ctx)
+
+            retrieve.assert_called_once()
+            mock_notify.assert_called_once()
+            assert "bedrock down" in mock_notify.call_args.args[0]
+            assert mock_notify.call_args.args[1] is ctx
+            assert any(r.levelno == logging.ERROR for r in caplog.records)
+            assert any(
+                r.levelno == logging.WARNING and "falling back" in r.getMessage()
+                for r in caplog.records
+            )
+            mock_local.assert_called_once_with("test", ctx)
+            assert result == _LOCAL_RESULT
 
 
 # ---------------------------------------------------------------------------

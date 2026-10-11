@@ -9,7 +9,7 @@ Generated alongside the summary. Items marked "verified" were confirmed by runni
 | # | Issue | Evidence | Suggested fix |
 |---|---|---|---|
 | B1 (#13) | Resolved by #13: `get_oscal_schema(schema_type="xsd")` always failed | `get_schema.py` called `json.load()` on the XSD file, giving `JSONDecodeError`. `test_get_schema_success_xsd_schema` mocked `json.load`, which hid the bug | Fixed: `xsd` returns the raw file text and schema file handles are closed; the mocked test was replaced by tests that read the real bundled files |
-| B2 (#14) | `query_oscal_documentation` calls Bedrock even when no KB is configured | The condition is `config.knowledge_base_id is not None`, but the default is `""` (verified `'' is not None → True`). Each call tries boto3, fails, logs a warning, then falls back. Tests set `knowledge_base_id = None`, which never happens at runtime | Use `if config.knowledge_base_id:`; make tests use `""` |
+| B2 (#14) | Resolved by #14: `query_oscal_documentation` called Bedrock even when no KB was configured | The condition was `config.knowledge_base_id is not None`, but the default is `""`, so each call tried boto3, failed, logged a warning, then fell back. Tests set `knowledge_base_id = None`, which never happens at runtime and hid the bug | Fixed: routing uses `knowledge_base_id.strip()`, so blank or whitespace-only IDs go straight to local search; tests use `""`/whitespace and a real `Config` default |
 | B3 (#15) | Nightly awesome-oscal workflow never opens a PR | `update-awesome-oscal.yml` diffs and `add-paths` on `src/mcp_server_for_oscal/oscal_docs/awesome-oscal.md`, but the script writes `data/oscal_docs/awesome-oscal.md` | Point both paths at `data/oscal_docs/awesome-oscal.md` (and consider running `rehash` for `data/oscal_docs/hashes.json`) |
 | B4 (#16) | `hatch run checkout-oscal-steering` cannot work | References the submodule `conf/powers/oscal/steering/oscal-pages`; the repo has no `.gitmodules` or `steering/` dir. It also uses `cd` inside a hatch script | Remove the script or restore the submodule |
 | B5 (#17) | Tests leak SQLite files into `./MagicMock/config.oscal_store_db_path/` | Hundreds of files there; `str(MagicMock().oscal_store_db_path)` becomes a relative path. Gitignored, so it only wastes disk | Set `mock_config.oscal_store_db_path = ""` (or `tmp_path`) in the offending tests |
@@ -50,7 +50,7 @@ Generated alongside the summary. Items marked "verified" were confirmed by runni
 
 ## Recommendations
 
-1. Fix B2–B3 (small, user-visible; B1 was resolved by #13), each with a test that does not mock the failure away.
+1. Fix B3 (small, user-visible; B1 and B2 were resolved by #13 and #14), with with a test that does not mock the failure away.
 2. Make `src/.../tools/README.md` the single tool reference: regenerate its tables from `get_tool_list()` docstrings, as `bin/build_mcpb.py` already does, and have POWER.md and steering link to it instead of copying it.
 3. Update or remove `.kiro/steering/structure.md` and `product.md`, since agents load them on every request and they are stale. AGENTS.md now carries the current map.
 4. Declare `anyio` in `pyproject.toml` (the other directly-imported transitive packages were declared in #26).
