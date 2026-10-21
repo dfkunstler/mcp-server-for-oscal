@@ -103,8 +103,8 @@ Rules for every task:
     - Delete the task 2.1 temp baseline file afterwards
     - _Requirements: 7.1, 7.2_
 
-- [ ] 10. Final checkpoint and commit
-  - [-] 10.1 Run quality gates and commit
+- [x] 10. Final checkpoint and commit
+  - [x] 10.1 Run quality gates and commit
     - Run `hatch run tests`, `hatch check fmt`, `hatch check code` (use `--fix` only for formatting/lint fixes, then re-run)
     - Stage only feature files (`pyproject.toml`, `requirements.txt`, changed `src/` and `tests/` files, `tests/test_oscal_bindings_upgrade.py`, guidance docs, `tasks.md`)
     - Commit on the feature branch: `Upgrade oscal-bindings to 0.3.1 (#<n>) [hatch run tests passing]` (state actual test status)
