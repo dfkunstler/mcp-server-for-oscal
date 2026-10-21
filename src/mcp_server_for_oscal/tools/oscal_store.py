@@ -844,7 +844,11 @@ class OscalStore:
                 if not isinstance(mappings, list):
                     mappings = [mappings]
                 for m in mappings:
-                    title = str(getattr(m, "matching_rationale", None) or m.uuid)
+                    # matching_rationale is a closed enum (Enum member) since
+                    # oscal-bindings 0.3.0; use .value so the title stays the
+                    # OSCAL token (e.g. "semantic"), not "MappingMatchingRationale.semantic"
+                    rationale = getattr(m, "matching_rationale", None)
+                    title = rationale.value if rationale is not None else str(m.uuid)
                     children.append(
                         self._child_dict(
                             uuid=str(m.uuid),

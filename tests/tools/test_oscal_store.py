@@ -849,6 +849,31 @@ class TestExtractChildElements:
         assert sorted(item["id"] for item in result["items"]) == sorted(mapping_uuids)
         assert all(item["element_type"] == "mapping" for item in result["items"])
 
+    def test_mapping_child_title_uses_matching_rationale_value(self, store, tmp_path):
+        """A mapping's child title is its ``matching-rationale`` token, else its uuid.
+
+        Since oscal-bindings 0.3.0 ``matching-rationale`` is a closed enum, so the
+        title must be the member's ``.value`` ("semantic"), not
+        ``str(member)`` ("MappingMatchingRationale.semantic").
+        """
+        with_rationale = "11111111-1111-4111-8111-111111111111"
+        without_rationale = "22222222-2222-4222-8222-222222222222"
+        doc = _make_mapping_collection([with_rationale, without_rationale])
+        doc["mapping-collection"]["mappings"][0]["matching-rationale"] = "semantic"
+        # Setup guard: the fixture must stay a valid mapping-collection.
+        MODEL_MAP[OSCALModelType.MAPPING].model_validate(doc["mapping-collection"])
+
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        (doc_dir / "mapping.json").write_text(json.dumps(doc))
+        assert store.scan_directory(doc_dir) == 1
+
+        result = store.list_child_elements(
+            parent_doc_uuid=_MAPPING_COLLECTION_UUID, element_type="mapping", limit=100
+        )
+        titles = {item["id"]: item["title"] for item in result["items"]}
+        assert titles == {with_rationale: "semantic", without_rationale: without_rationale}
+
 
 # ---------------------------------------------------------------------------
 # Property-Based Tests (Hypothesis)

@@ -8,7 +8,7 @@
 |---|---|---|
 | `mcp` (≥2.1.1) | `MCPServer`, `Context`, `MCPDeprecationWarning` | `main.py`, every tool (ctx type), `utils.py` |
 | `strands-agents` (≥1.55.0) | `@tool` decorator on all tools; `Agent`, `BedrockModel`, hooks, retry, session/conversation managers | `tools/*`, `oscal_agent.py` |
-| `oscal-bindings` (==0.1.0, exact pin) | Typed OSCAL Pydantic v2 models generated from the NIST JSON Schema (`oscal_bindings.models`); parse/validate on ingest, level-3 ("model") validation | `utils.MODEL_MAP` (shared by `oscal_store.py` and `validate_oscal_content.py`), `query_component_definition.py` |
+| `oscal-bindings` (==0.3.1, exact pin) | Typed OSCAL Pydantic v2 models generated from the NIST JSON Schema (`oscal_bindings.models`); parse/validate on ingest, level-3 ("model") validation | `utils.MODEL_MAP` (shared by `oscal_store.py` and `validate_oscal_content.py`), `query_component_definition.py` |
 | `boto3` (≥1.42.7) | Bedrock KB retrieve, Bedrock model session | `query_documentation.py`, `oscal_agent.py` |
 | `regex` | ECMA-262 Unicode property escapes in OSCAL schema patterns | `validate_oscal_content.py` |
 | `jsonschema` (≥4.26.0) | Level-2 JSON Schema validation | `validate_oscal_content.py` (lazy import) |

@@ -253,6 +253,9 @@ Regenerates SHA-256 hash manifests for all bundled content directories.
 `hatch run update-oscal-schemas`
 Downloads and updates the bundled OSCAL schemas from NIST.
 
+`hatch run update`
+Re-locks `requirements.txt` and syncs the default env. It compiles with `--upgrade`, so it bumps every dependency to the latest version `pyproject.toml` allows, not only the one you changed. After raising a pin in `pyproject.toml`, the first run fails: the default env syncs against the old `requirements.txt` under `UV_CONSTRAINT` before the script runs. Hand-edit that pin in `requirements.txt` to the new version first, then run `hatch run update`.
+
 `hatch run http-server`
 Starts the MCP server with `streamable-http` transport (development only).
 

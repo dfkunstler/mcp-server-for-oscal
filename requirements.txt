@@ -162,7 +162,7 @@ opentelemetry-semantic-conventions==0.66b1
     # via
     #   opentelemetry-instrumentation
     #   opentelemetry-sdk
-oscal-bindings==0.1.0
+oscal-bindings==0.3.1
     # via mcp-server-for-oscal (pyproject.toml)
 packaging==26.3
     # via
@@ -187,7 +187,7 @@ pycodestyle==2.15.0
     # via autopep8
 pycparser==3.11 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
     # via cffi
-pydantic==2.14.0
+pydantic==2.14.1
     # via
     #   bedrock-agentcore
     #   bedrock-agentcore-starter-toolkit
@@ -198,7 +198,7 @@ pydantic==2.14.0
     #   oscal-bindings
     #   pydantic-settings
     #   strands-agents
-pydantic-core==2.50.0
+pydantic-core==2.50.1
     # via pydantic
 pydantic-settings==2.15.0
     # via

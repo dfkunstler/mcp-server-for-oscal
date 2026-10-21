@@ -98,7 +98,7 @@ All of these are defined under `[tool.hatch.envs.default.scripts]` in `pyproject
 - `.git-blame-ignore-revs` lists the repo-wide ruff format commit.
 - The `MCPServer` and `config` are created at import time, so tests patch `mcp_server_for_oscal.<module>.config` rather than environment variables.
 - `MODEL_MAP` in `tools/utils.py` is the single source of OSCAL model classes; the store and validator both read it. Don't map or import model classes elsewhere.
-- Tools return stored OSCAL JSON (child `raw_json`) with hyphenated keys. Never return Pydantic models from tools; when you must serialize, pass `by_alias=True, exclude_none=True` explicitly.
+- Tools return stored OSCAL JSON (child `raw_json`) with hyphenated keys. Never return Pydantic models from tools. Since oscal-bindings 0.2.0, models serialize to valid OSCAL by default; explicit `by_alias=True, exclude_none=True` is optional.
 - The OSCAL version reported by `about` comes from the schema `$id` and is never hard-coded.
 - `README.md` must keep its first-line `<!-- mcp-name: io.github.dfkunstler/mcp-server-for-oscal -->`, which must match `server.json` `name` (tested).
 - Env vars are declared in `config.py`, `dotenv.example`, DEVELOPING.md, and partially in `server.json` and `conf/mcpb/manifest.json` + `conf/mcpb/src/server.py` (`USER_CONFIG_ENV`). Keep them in sync.

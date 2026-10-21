@@ -12,34 +12,34 @@ Rules for every task:
 
 ## Tasks
 
-- [ ] 1. Issue, branch, and spec commit
+- [x] 1. Issue, branch, and spec commit
   - [x] 1.1 Find or create the GitHub issue and feature branch (requires user approval)
     - Run `gh issue list --search "oscal-bindings"` (and `--state all`) to find a related issue
     - If none exists, draft an issue (title like "Upgrade oscal-bindings to 0.3.1", body summarizing 0.2.0/0.3.0 changes, upstream #5 resolved, #6 caveat) and ask the user to approve before `gh issue create`
     - After approval, create and check out the branch with `gh issue develop <n> --checkout`
     - Confirm `git branch --show-current` is not `main`
     - _Requirements: 1.1_
-  - [-] 1.2 Commit the spec files as the first commit on the feature branch
+  - [x] 1.2 Commit the spec files as the first commit on the feature branch
     - Stage only `.kiro/specs/upgrade-oscal-bindings-0-3-1/` (`.config.kiro`, `requirements.md`, `design.md`, `tasks.md`)
     - Message: `Add spec for oscal-bindings 0.3.1 upgrade (#<n>) [spec only, no code tested]`
     - _Requirements: 1.1_
 
-- [ ] 2. Capture pre-upgrade baseline on 0.1.0
-  - [~] 2.1 Record child extraction and DB baseline
+- [x] 2. Capture pre-upgrade baseline on 0.1.0
+  - [x] 2.1 Record child extraction and DB baseline
     - With `hatch run python -c` (or a temp script outside `src/` and `tests/`), scan `tests/fixtures/` and `data/` with `OscalStore`, and write sorted (model_type, doc uuid, element_type, uuid, title) tuples plus per-model-type document counts to a temp file outside the repo
     - Record `hatch run python -c "import oscal_bindings; print(oscal_bindings.__version__, oscal_bindings.__oscal_schema_version__)"`
     - _Requirements: 4.1, 7.2_
 
-- [ ] 3. Bump and re-lock the dependency
-  - [~] 3.1 Pin `oscal-bindings==0.3.1` and re-lock
+- [x] 3. Bump and re-lock the dependency
+  - [x] 3.1 Pin `oscal-bindings==0.3.1` and re-lock
     - Edit `pyproject.toml` line 14 to `"oscal-bindings==0.3.1"`
     - Run `hatch run update`; review the `requirements.txt` diff; if anything beyond oscal-bindings and its required transitive bumps (e.g. pydantic, pydantic-core) changed, show the diff to the user before continuing
     - If the `default` env does not pick up the new pin, run `hatch env remove default` once
     - Confirm the installed version with `hatch run python -c "import oscal_bindings; print(oscal_bindings.__version__, oscal_bindings.__oscal_schema_version__)"` (expect 0.3.1 / 1.2.3)
     - _Requirements: 1.1, 1.2, 1.3, 2.1_
 
-- [ ] 4. Audit and fix source for 0.3.x
-  - [~] 4.1 Audit `src/` against the design checklist and fix breakage
+- [x] 4. Audit and fix source for 0.3.x
+  - [x] 4.1 Audit `src/` against the design checklist and fix breakage
     - Run `hatch run typing` and `hatch test -- -x -q` to surface failures
     - Apply the design's audit checklist (renamed classes, repurposed names, enum-as-str, merge combine/flat, mappings shape, union variant order, `get_supported_element_types`) to `tools/utils.py`, `tools/oscal_store.py`, `tools/validate_oscal_content.py`, `tools/query_oscal_models.py`, `tools/query_component_definition.py`
     - Fix only what 0.3.1 breaks: update renamed imports; compare closed-enum fields by `.value`
@@ -50,8 +50,8 @@ Rules for every task:
     - In `tests/test_oscal_bindings_upgrade.py`, assert no `model_validate_json` attribute call and no `parse_*` import from `oscal_bindings` anywhere under `src/mcp_server_for_oscal/`
     - _Requirements: 3.5_
 
-- [ ] 5. Fix tests and Hypothesis strategies
-  - [~] 5.1 Update test imports, strategies, and brittle assertions
+- [x] 5. Fix tests and Hypothesis strategies
+  - [x] 5.1 Update test imports, strategies, and brittle assertions
     - Fix any test import of a renamed Bindings name
     - Introspect 0.3.1 `model_fields` for closed-enum (Enum subclass) fields and cross-check every strategy that builds OSCAL docs (`tests/test_oscal_models.py` `_BUILDERS`/`_MUTATIONS`, `tests/test_properties.py`, fixture builders in `conftest.py`/`fixture_store.py`)
     - Replace free-text values for closed-enum fields with `st.sampled_from([m.value for m in <Enum>])` or valid literals, except in tests that target invalid input
@@ -59,7 +59,7 @@ Rules for every task:
     - Update `CatalogGroupWithControls`/`CatalogGroupWithGroups` docstring mentions only if names changed
     - _Requirements: 5.4, 5.5, 4.6, 4.7_
 
-- [~] 6. Checkpoint - Ensure all tests pass
+- [x] 6. Checkpoint - Ensure all tests pass
   - Run `hatch run tests`; compare extraction tuples and document counts against the task 2.1 baseline. Ensure all tests pass, ask the user if questions arise.
   - _Requirements: 2.2, 4.1, 5.1_
 
@@ -83,28 +83,28 @@ Rules for every task:
     - **Property 6: Default serialization equals explicit-flag serialization**
     - **Validates: Requirements 6.1, 6.5**
 
-- [ ] 8. Update guidance documentation
-  - [~] 8.1 Revise `.kiro/steering/oscal-bindings.md`
+- [x] 8. Update guidance documentation
+  - [x] 8.1 Revise `.kiro/steering/oscal-bindings.md`
     - Section 2: validate with `model_validate(dict)`; note upstream #6 (pydantic 2.13.x JSON path drops Python-field-name keys)
     - Section 3: keep catalog group class names, mention `CatalogGroup` alias and `MappingCollectionMappings`; closed enums hold Enum members, compare with `.value`
     - Section 4: models serialize to valid OSCAL by default since 0.2.0; explicit kwargs optional and harmless; keep "prefer stored `raw_json`" and "don't return Pydantic models from tools" with the updated rationale (MCP SDK/Strands serialization paths, Strands `repr` fallback outside Pydantic serialization)
     - Implementation Workflow: mark cairn-proofs/oscal-bindings-python#5 resolved in 0.2.0
     - Anti-patterns and Example: update per design
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7_
-  - [~] 8.2 Align `AGENTS.md` and related summaries
+  - [x] 8.2 Align `AGENTS.md` and related summaries
     - Update `AGENTS.md` line 101 to match section 4
     - Update matching serialization lines in `.agents/summary/*.md` and `src/mcp_server_for_oscal/tools/README.md` if present; change nothing else
     - _Requirements: 6.8_
 
-- [ ] 9. Rebuild bundled DB if needed
-  - [~] 9.1 Run `hatch run build-db` when extraction code or `data/` parsing results changed
+- [x] 9. Rebuild bundled DB if needed
+  - [x] 9.1 Run `hatch run build-db` when extraction code or `data/` parsing results changed
     - Compare per-model-type document counts with the task 2.1 baseline; if any document dropped (e.g. closed-enum rejection), stop and report the files to the user
     - The DB and its manifest are gitignored; do not stage them
     - Delete the task 2.1 temp baseline file afterwards
     - _Requirements: 7.1, 7.2_
 
 - [ ] 10. Final checkpoint and commit
-  - [~] 10.1 Run quality gates and commit
+  - [-] 10.1 Run quality gates and commit
     - Run `hatch run tests`, `hatch check fmt`, `hatch check code` (use `--fix` only for formatting/lint fixes, then re-run)
     - Stage only feature files (`pyproject.toml`, `requirements.txt`, changed `src/` and `tests/` files, `tests/test_oscal_bindings_upgrade.py`, guidance docs, `tasks.md`)
     - Commit on the feature branch: `Upgrade oscal-bindings to 0.3.1 (#<n>) [hatch run tests passing]` (state actual test status)
