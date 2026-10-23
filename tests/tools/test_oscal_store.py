@@ -227,6 +227,22 @@ class TestScanDirectory:
         count = store.scan_directory(doc_dir)
         assert count == 0
 
+    @pytest.mark.parametrize("filename", ["latin1.json", "latin1.md"])
+    def test_non_utf8_file_skipped_without_aborting_scan(self, store, tmp_path, filename):
+        """A non-UTF-8 file is skipped and the remaining files are still ingested."""
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        # 0xE9 ("é" in Latin-1) is an invalid UTF-8 start byte
+        (doc_dir / filename).write_bytes("# Caf\u00e9 notes\n".encode("latin-1"))
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
+        (doc_dir / "guide.md").write_text("# Guide\n\nPlain text content.\n", encoding="utf-8")
+
+        count = store.scan_directory(doc_dir)
+
+        assert count == 2
+        paths = {r["file_path"] for r in store._conn.execute("SELECT file_path FROM documents")}
+        assert not any(p.endswith(filename) for p in paths)
+
     def test_scan_zip_file(self, store, tmp_path):
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()

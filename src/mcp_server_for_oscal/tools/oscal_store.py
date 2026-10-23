@@ -1195,7 +1195,9 @@ class OscalStore:
         try:
             with open(file_path, encoding="utf-8") as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, OSError) as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+            # UnicodeDecodeError is not a JSONDecodeError; without it a single
+            # non-UTF-8 file aborts the whole scan_directory() call.
             logger.debug("Cannot read/parse %s: %s", file_path, exc)
             return None
 
@@ -1599,7 +1601,7 @@ class OscalStore:
         # Read file content
         try:
             content = md_file.read_text(encoding="utf-8")
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             logger.warning("Cannot read markdown file %s: %s", md_file, exc)
             return False
 
