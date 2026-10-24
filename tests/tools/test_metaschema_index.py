@@ -9,7 +9,6 @@ import socket
 import tempfile
 import threading
 import time
-import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
@@ -626,7 +625,11 @@ class TestLoadModuleErrors:
         assert err == mi.LoadError(MOD, MOD, "Permission denied")
         record = caplog.records[-1]
         assert record.exc_info is not None
-        assert str(target) in "".join(traceback.format_exception(*record.exc_info))
+        # The original OSError, with its absolute path, is chained for the server log.
+        # Compare its filename, not traceback text, which repr-escapes Windows paths.
+        cause = record.exc_info[1].__cause__
+        assert isinstance(cause, PermissionError)
+        assert Path(cause.filename).resolve() == target
 
     def test_load_errors_are_client_safe(self, root: Path, tmp_path: Path, monkeypatch):
         module = _module(

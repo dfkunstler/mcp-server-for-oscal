@@ -201,7 +201,13 @@ def _load_manifest(directory: Path) -> dict:
         RuntimeError: The manifest is not a JSON object, has keys other than
             ``MANIFEST_KEYS``, or is not byte-identical to ``manifest_bytes`` of its content.
     """
-    raw = directory.joinpath(MANIFEST_NAME).read_bytes()
+    try:
+        raw = directory.joinpath(MANIFEST_NAME).read_bytes()
+    except OSError:
+        # Missing or unreadable manifest: name it and its directory in plain text (the
+        # OSError message shows the path as a repr, escaped on Windows). Keep the type.
+        logger.exception(f"Missing or unreadable {MANIFEST_NAME} in directory {directory}")
+        raise
     try:
         state = json.loads(raw.decode("utf-8"))
     except ValueError:
