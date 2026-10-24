@@ -48,6 +48,10 @@ OSCAL (Open Security Controls Assessment Language) is a set of framework-agnosti
 | `list_oscal_models` | List all 8 OSCAL model types with metadata (layer, status, descriptions) |
 | `get_oscal_schema` | Retrieve JSON or XSD schema for any OSCAL model |
 | `get_allowed_values` | Look up the values bundled OSCAL Metaschema `allowed-values` constraints permit at a target (e.g. `defined-component/prop/@name`), with per-value namespace and conditions (paginated) |
+| `get_constraints` | List the bundled OSCAL Metaschema constraints (`allowed-values`, `matches`, `index`, `index-has-key`, `is-unique`, `has-cardinality`, `expect`) that apply at a target, with source file and line, optionally filtered by type (paginated) |
+| `find_references_to` | Find the fields, flags, props, and links that bundled OSCAL Metaschema `index-has-key` constraints require to reference a given assembly by key (e.g. what refers to a `component` by UUID), optionally scoped to a model, with source file and line (paginated) |
+| `get_definition` | Read a bundled OSCAL Metaschema definition (assembly, field, or flag) by name with its formal name, description, remarks, flags, model children, and constraint summaries, optionally scoped to a model or kind, with source file and line (paginated) |
+| `get_metaschema_source` | Read a line range of a bundled OSCAL Metaschema source file verbatim, to check a source file and line reported by the other Metaschema tools; call without a file to list the bundled files (paged by line range) |
 | `list_oscal_resources` | Browse curated OSCAL community resources, tools, and educational content |
 | `validate_oscal_content` | Validate OSCAL JSON content through a 4-level pipeline (well-formedness, JSON Schema, OSCAL model, oscal-cli) |
 | `validate_oscal_file` | Validate an OSCAL JSON file (local or remote URI) through the same 4-level pipeline |

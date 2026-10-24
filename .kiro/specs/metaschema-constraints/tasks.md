@@ -263,90 +263,90 @@ Repo conventions that apply to every task:
 
 Each Extended tool reads only `get_index()` and `metaschema_paths`. Add small read-only accessors to `metaschema_index.py` only when needed. Registering a tool means adding it to `get_tool_list()` and `BASE_TOOL_NAMES` and adding rows in `tools/README.md`, `README.md`, `AGENTS.md`, and `POWER.md` in the same change (Requirement 7.5).
 
-- [ ] 12. Implement the `get_constraints` tool
-  - [~] 12.1 Create `tools/get_constraints.py`
+- [x] 12. Implement the `get_constraints` tool
+  - [x] 12.1 Create `tools/get_constraints.py`
     - Signature: `(model, target, constraint_types=None, offset=0, limit=25, ctx=None)`. Generalize the core matcher to `CONSTRAINT_TYPES`. A bare definition name walks the Definition and all nested local Definitions. Apply the type filter and reject invalid types with the 7 valid names. Order by constraint Source_Location
     - Items carry the common keys plus type-specific keys (`value-count`, `key-fields`, `min-occurs`, ...) and `namespace`/`conditions`. Use `paginate_within_budget(truncatable=("message", "test"))` and the same model and definition errors as `get_allowed_values`
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 8.10, 8.11, 12.1, 12.4, 12.5_
 
-  - [~] 12.2 Register `get_constraints` and update the docs and registry test
+  - [x] 12.2 Register `get_constraints` and update the docs and registry test
     - _Requirements: 7.2, 7.3, 7.4, 7.5_
 
-  - [~] 12.3 Write a property test for agreement with `get_allowed_values` in `tests/tools/test_get_constraints.py`
+  - [x] 12.3 Write a property test for agreement with `get_allowed_values` in `tests/tools/test_get_constraints.py`
     - **Property 17: get_constraints agrees with get_allowed_values and filters by type**
     - **Validates: Requirements 8.2, 8.3, 8.4, 8.5**
 
-  - [~] 12.4 Write a property test for item shape
+  - [x] 12.4 Write a property test for item shape
     - **Property 18: get_constraints item shape**
     - **Validates: Requirements 8.6, 8.7**
 
-  - [~] 12.5 Write example tests for signature, empty result, invalid types, and paging errors
+  - [x] 12.5 Write example tests for signature, empty result, invalid types, and paging errors
     - _Requirements: 8.1, 8.8, 8.9, 8.10, 8.11_
 
-- [~] 13. Checkpoint: get_constraints
+- [x] 13. Checkpoint: get_constraints
   - Run `hatch run tests`, `hatch check fmt`, and `hatch check code`. Ensure all tests pass, ask the user if questions arise. Commit point (`#20`); do not commit without approval.
 
-- [ ] 14. Implement the `find_references_to` tool
-  - [~] 14.1 Create `tools/find_references_to.py`
+- [x] 14. Implement the `find_references_to` tool
+  - [x] 14.1 Create `tools/find_references_to.py`
     - Signature: `(assembly, model=None, offset=0, limit=25, ctx=None)`. Index `index` Constraints by name across `all_modules()`. Match on the last step or a `use-name`. Pair each match with `index-has-key` by `name`, filtered by the `model` scope when given
     - Items carry `index-*` keys, `key-fields`, `namespace`/`conditions`, and `cross-document`. Order by `(index-has-key source-file, line, index-name)`
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 9.9, 9.10, 9.11, 12.1, 12.4_
 
-  - [~] 14.2 Register `find_references_to` and update the docs and registry test
+  - [x] 14.2 Register `find_references_to` and update the docs and registry test
     - _Requirements: 7.2, 7.3, 7.4, 7.5_
 
-  - [~] 14.3 Write a property test for reference pairing in `tests/tools/test_find_references_to.py`
+  - [x] 14.3 Write a property test for reference pairing in `tests/tools/test_find_references_to.py`
     - **Property 19: find_references_to pairs every key reference with its index**
     - **Validates: Requirements 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 9.11**
 
-  - [~] 14.4 Write example tests
-    - SSP `component` includes `by-component` `@component-uuid`. Also test an invalid model, paging errors, and an empty `assembly`
+  - [x] 14.4 Write example tests
+    - SSP `component` includes the `component/link[@rel='depends-on']` and `component/link[@rel='uses-service']` `@href` references; SSP `by-component` includes the cross-document `by-component-uuid` reference from `link[@rel='provided-by']` `@href` (the bundled 1.2.3 Metaschema has no `index-has-key` on `by-component` `@component-uuid`). Also test an invalid model, paging errors, and an empty `assembly`
     - _Requirements: 9.1, 9.8, 9.9, 9.10_
 
-- [~] 15. Checkpoint: find_references_to
+- [x] 15. Checkpoint: find_references_to
   - Run `hatch run tests`, `hatch check fmt`, and `hatch check code`. Ensure all tests pass, ask the user if questions arise. Commit point (`#20`); do not commit without approval.
 
-- [ ] 16. Implement the `get_definition` tool
-  - [~] 16.1 Create `tools/get_definition.py`
+- [x] 16. Implement the `get_definition` tool
+  - [x] 16.1 Create `tools/get_definition.py`
     - Signature: `(model=None, name, kind=None, offset=0, limit=10, ctx=None)`. Matches carry `kind`, `name`, `scope`, `formal-name`, `description` (`plain`), `remarks` (`blocks`), `use-name`/`group-as`, `flags`, `model` children, a `constraints` summary, `parent-definition` for local matches, and the Source_Location, with no nulls. Order by Source_Location
     - Use `paginate_within_budget(truncatable=("remarks",))`. Errors: name length or no match (up to 10 nearest names), invalid model, invalid kind
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9, 12.1, 12.4, 12.5_
 
-  - [~] 16.2 Register `get_definition` and update the docs and registry test
+  - [x] 16.2 Register `get_definition` and update the docs and registry test
     - _Requirements: 7.2, 7.3, 7.4, 7.5_
 
-  - [~] 16.3 Write a property test for same-named Definitions in `tests/tools/test_get_definition.py`
+  - [x] 16.3 Write a property test for same-named Definitions in `tests/tools/test_get_definition.py`
     - **Property 20: get_definition returns every same-named Definition within budget**
     - **Validates: Requirements 10.2, 10.3, 10.5, 10.6**
 
-  - [~] 16.4 Write example tests for `uuid` across modules and for the error cases
+  - [x] 16.4 Write example tests for `uuid` across modules and for the error cases
     - _Requirements: 10.5, 10.7, 10.8, 10.9_
 
-- [~] 17. Checkpoint: get_definition
+- [x] 17. Checkpoint: get_definition
   - Run `hatch run tests`, `hatch check fmt`, and `hatch check code`. Ensure all tests pass, ask the user if questions arise. Commit point (`#20`); do not commit without approval.
 
-- [ ] 18. Implement the `get_metaschema_source` tool
-  - [~] 18.1 Create `tools/get_metaschema_source.py`
+- [x] 18. Implement the `get_metaschema_source` tool
+  - [x] 18.1 Create `tools/get_metaschema_source.py`
     - Signature: `(file=None, start_line=1, line_count=200, ctx=None)`. Look up `file` by exact match in `source_files()` before any read. Read only through `source_lines()`
     - Return `file`, `start-line`, `end-line`, `total-lines`, `has-more`, and verbatim `text`, cut by whole lines to fit `RESPONSE_BUDGET`. Listing mode returns `files` with `line-count`, sorted
     - Errors: a file not in the allowlist lists the available files, plus range errors for `start_line` and `line_count`
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 12.3_
 
-  - [~] 18.2 Register `get_metaschema_source` and update the docs and registry test
+  - [x] 18.2 Register `get_metaschema_source` and update the docs and registry test
     - _Requirements: 7.2, 7.3, 7.4, 7.5_
 
-  - [~] 18.3 Write a property test for page reconstruction in `tests/tools/test_get_metaschema_source.py`
+  - [x] 18.3 Write a property test for page reconstruction in `tests/tools/test_get_metaschema_source.py`
     - **Property 21: get_metaschema_source pages reconstruct the file**
     - **Validates: Requirements 11.2, 11.4**
 
-  - [~] 18.4 Write a property test for allowlist rejection
+  - [x] 18.4 Write a property test for allowlist rejection
     - **Property 22: get_metaschema_source rejects everything outside the allowlist** (use an `open` spy)
     - **Validates: Requirements 11.3, 11.6, 11.7**
 
-  - [~] 18.5 Write example tests for listing mode and range errors
+  - [x] 18.5 Write example tests for listing mode and range errors
     - _Requirements: 11.5, 11.6, 11.7_
 
-- [~] 19. Checkpoint: get_metaschema_source
+- [x] 19. Checkpoint: get_metaschema_source
   - Run `hatch run tests`, `hatch check fmt`, and `hatch check code`. Ensure all tests pass, ask the user if questions arise. Commit point (`#20`); do not commit without approval.
 
 ## Notes

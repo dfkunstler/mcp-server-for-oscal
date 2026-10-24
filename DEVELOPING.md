@@ -194,9 +194,14 @@ mcp-server-for-oscal/
 │       ├── __init__.py             # get_tool_list() — canonical tool registry
 │       ├── utils.py                # Shared: OSCALModelType enum, schema loading, hash verification
 │       ├── get_allowed_values.py   # Metaschema allowed-values lookup
+│       ├── get_constraints.py      # Metaschema constraint lookup (all constraint types)
+│       ├── find_references_to.py   # Metaschema key references to an assembly (index-has-key)
+│       ├── get_definition.py       # Metaschema definition lookup (docs, flags, model, constraints)
+│       ├── get_metaschema_source.py # Bounded line range of a bundled Metaschema source file
 │       ├── get_schema.py
 │       ├── list_models.py
 │       ├── list_oscal_resources.py
+│       ├── metaschema_common.py    # Helpers shared by the Metaschema tools
 │       ├── metaschema_index.py     # Safe loader and index of the bundled Metaschema modules
 │       ├── metaschema_paths.py     # Constraint target / Target_Selector string algorithms
 │       ├── oscal_store.py          # OscalStore — SQLite-backed content indexing and FTS5 search

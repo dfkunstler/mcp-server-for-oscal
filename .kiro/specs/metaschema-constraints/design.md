@@ -364,7 +364,7 @@ Each reads `get_index()` and `metaschema_paths` only, and reuses the core item b
 |---|---|---|---|
 | `get_constraints(model, target, constraint_types=None, offset=0, limit=25, ctx)` | `get_constraints.py` | step 5 matcher generalized over `CONSTRAINT_TYPES`; bare-name mode walks the Definition and all nested local Definitions | Ordered by constraint Source_Location; `truncatable=("message", "test")` |
 | `find_references_to(assembly, model=None, offset=0, limit=25, ctx)` | `find_references_to.py` | `all_modules()` index of `index` constraints by name; `index-has-key` filtered by scope | `cross-document` from `PathAlternative.cross_document` |
-| `get_definition(model=None, name, kind=None, offset=0, limit=10, ctx)` | `get_definition.py` | Definition records, markup renderer (block mode) | Paged per RC-6; `truncatable=("remarks",)` |
+| `get_definition(name, model=None, kind=None, offset=0, limit=10, ctx)` | `get_definition.py` | Definition records (plus `Definition.as_type` for flag datatypes), markup renderer (block mode) | Paged per RC-6; `truncatable=("remarks",)`. `name` comes first because it is required (same as `find_references_to`) |
 | `get_metaschema_source(file=None, start_line=1, line_count=200, ctx)` | `get_metaschema_source.py` | `source_files()`, `source_lines()` | Exact-match allowlist lookup before any read; budget cut by whole lines |
 
 ### Caching and thread safety
@@ -524,6 +524,7 @@ class Definition:
     model_children: tuple[ModelChild, ...]    # used by get_definition (ext.)
     constraints: tuple[Constraint, ...]
     nested: tuple[DefinitionKey, ...]         # local definitions, for get_constraints bare mode
+    as_type: str | None = None                # declared as-type, for get_definition flag datatypes
 
 @dataclass(frozen=True, slots=True)
 class LoadError:
@@ -775,7 +776,7 @@ Covers RC-13.
 
 ### Property 17: get_constraints agrees with get_allowed_values and filters by type
 
-*For any* selector from Property 4, `get_constraints(model, target, ["allowed-values"])` SHALL return exactly the distinct Constraints (by Source_Location) behind the `get_allowed_values` items for the same arguments, each with `value-count` equal to that Constraint's enum count; and *for any* subset of `CONSTRAINT_TYPES`, the result SHALL be the subset of the unfiltered result whose `type` is in it, in the same order.
+*For any* selector from Property 4, each item of `get_constraints(model, target, ["allowed-values"])` SHALL have `value-count` equal to its Constraint's enum count. For a path selector, expanding those Constraints' enums in item order SHALL give exactly the `get_allowed_values` items for the same arguments (a Constraint with no enums contributes none). For a bare definition name, the `get_allowed_values` items SHALL be the expansion of the returned Constraints that are declared on a Definition of that name and have a same-document empty path; the other returned Constraints are on nested local Definitions or target another path (Requirement 8.3). *For any* subset of `CONSTRAINT_TYPES`, the result SHALL be the subset of the unfiltered result whose `type` is in it, in the same order, and an empty list SHALL equal no filter.
 
 **Validates: Requirements 8.2, 8.3, 8.4, 8.5**
 
@@ -899,7 +900,7 @@ Controls in this design, for reference:
 | `tests/test_tool_registry.py` (extend) | `BASE_TOOL_NAMES` gains each tool as it ships; the existing Property 1 there then covers 7.3 |
 | `tests/test_metaschema_docs.py` | each registered Metaschema_Tool name appears in `tools/README.md`, `README.md`, `AGENTS.md`, and `conf/powers/oscal/POWER.md` tool tables (7.5); tool modules import `metaschema_index` and do not call `open`/`read_text`/`read_bytes` (AST scan, 7.1) |
 | `tests/test_integration_stdio_smoke.py` (extend) | `list_tools` includes `get_allowed_values`; one `call_tool("get_allowed_values", {"model": "component-definition", "target": "defined-component/prop/@name"})` returns `asset-type`. In the CI `mcpb` job this runs from the installed wheel, so it also covers wheel inclusion (1.6) and LF-exact checkout on macOS and Windows (1.5) |
-| Extended PRs | `tests/tools/test_get_constraints.py` (Properties 17, 18; 8.1, 8.8-8.11 examples), `tests/tools/test_find_references_to.py` (Property 19; SSP `component` includes `by-component` `@component-uuid`; 9.1, 9.9, 9.10), `tests/tools/test_get_definition.py` (Property 20; `uuid` across modules; 10.7-10.9), `tests/tools/test_get_metaschema_source.py` (Properties 21, 22; listing mode 11.5) |
+| Extended PRs | `tests/tools/test_get_constraints.py` (Properties 17, 18; 8.1, 8.8-8.11 examples), `tests/tools/test_find_references_to.py` (Property 19; SSP `component` includes the `depends-on` and `uses-service` link `@href` references, SSP `by-component` includes the cross-document `provided-by` link reference; 9.1, 9.8, 9.9, 9.10), `tests/tools/test_get_definition.py` (Property 20; `uuid` across modules; 10.7-10.9), `tests/tools/test_get_metaschema_source.py` (Properties 21, 22; listing mode 11.5) |
 
 ### Not covered by automated tests
 

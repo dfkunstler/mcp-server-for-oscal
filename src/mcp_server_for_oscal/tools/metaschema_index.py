@@ -343,6 +343,7 @@ class Definition:
     model_children: tuple[ModelChild, ...]  # used by get_definition (ext.)
     constraints: tuple[Constraint, ...]
     nested: tuple[DefinitionKey, ...]  # local definitions, for get_constraints bare mode
+    as_type: str | None = None  # declared as-type (fields and flags), for get_definition
 
 
 @dataclass(frozen=True, slots=True)
@@ -960,6 +961,7 @@ class _Extractor:
             model_children=tuple(children),
             constraints=tuple(constraints),
             nested=tuple(nested),
+            as_type=node.attrs.get("as-type"),
         )
         return key
 
