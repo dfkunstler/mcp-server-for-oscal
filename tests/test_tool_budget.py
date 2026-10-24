@@ -9,12 +9,21 @@ Layout, one class per concern so later tasks can append classes:
 - Steering file sync tests (task 10.3).
 """
 
+import asyncio
 import re
+from pathlib import Path
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from mcp.client import Client
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import CallToolResult
 
-from mcp_server_for_oscal.tools import tool_budget
+from mcp_server_for_oscal import main
+from mcp_server_for_oscal.tools import get_tool_list, tool_budget
+from mcp_server_for_oscal.tools.descriptions import ROUTING_GUIDE, SERVER_INSTRUCTIONS
 from mcp_server_for_oscal.tools.tool_budget import (
     KIND_MISSING_PARAMETER_DESCRIPTION,
     KIND_PARAMETER_DESCRIPTION,
@@ -428,3 +437,308 @@ class TestUnknownToolRefsProperty:
             "get_schema",
             "list_models",
         ]
+
+
+# --- Live-registry tests against tools/list (task 9.1) ---------------------------------------
+#
+# These tests iterate the live tool registration, never a hard-coded tool list, so a tool added
+# to get_tool_list() later is checked against the caps, the shape, and the budget with no test
+# change (Req 1.6). Only the content and schema-fact checks name specific tools.
+
+
+@pytest.fixture(scope="module")
+def live_server() -> MCPServer:
+    """A fresh server built and registered through the production path (Req 1.6)."""
+    server = main.build_server()
+    main._setup_tools(server)
+    return server
+
+
+@pytest.fixture(scope="module")
+def live_tools(live_server: MCPServer) -> list[dict]:
+    """The wire shape of the live tools/list `tools` array."""
+    tools = asyncio.run(live_server.list_tools())
+    return [t.model_dump(by_alias=True, exclude_none=True, mode="json") for t in tools]
+
+
+def _by_name(tools: list[dict]) -> dict[str, dict]:
+    return {t["name"]: t for t in tools}
+
+
+def _props(tool: dict) -> dict:
+    return tool.get("inputSchema", {}).get("properties", {})
+
+
+def _enum_values(prop: dict) -> list:
+    """The enum of a property, also when it is wrapped in anyOf (optional Literal)."""
+    if "enum" in prop:
+        return prop["enum"]
+    for option in prop.get("anyOf", []):
+        if "enum" in option:
+            return option["enum"]
+    return []
+
+
+def _assert_no_violations(violations: list[Violation]) -> None:
+    assert violations == [], "\n".join(v.message() for v in violations)
+
+
+PER_MODEL_QUERY_TOOLS = (
+    "query_catalog",
+    "query_ssp",
+    "query_profile",
+    "query_assessment_plan",
+    "query_assessment_results",
+    "query_poam",
+    "query_mapping_collection",
+)
+CDEF_TOOLS = (
+    "query_component_definition",
+    "list_component_definitions",
+    "list_components",
+    "list_capabilities",
+    "get_capability",
+)
+CAPABILITY_FIRST_PHRASES = re.compile(
+    r"capability-first|prefer querying by capability|start here", re.IGNORECASE
+)
+
+
+class TestLiveBudget:
+    """Req 1.3-1.8, 3.2: the live tools/list fits the caps and the Total_Budget."""
+
+    def test_names_match_registry(self, live_tools):
+        expected = {fn.__name__ for fn in get_tool_list()} | {"about"}
+        assert {t["name"] for t in live_tools} == expected
+
+    def test_limits(self, live_tools):
+        _assert_no_violations(check_limits(live_tools))
+
+    def test_total_budget(self, live_tools):
+        _assert_no_violations(check_total(live_tools))
+
+
+class TestLiveShape:
+    """Req 2.1-2.6, 3.3, 4.1, 8.3, 8.4: descriptions follow the Description_Shape and name only
+    tools that exist."""
+
+    def test_description_shape(self, live_tools):
+        problems = [
+            f"tool={t['name']}: {p}"
+            for t in live_tools
+            for p in tool_budget.description_shape_problems(t.get("description") or "")
+        ]
+        assert problems == [], "\n".join(problems)
+
+    def test_no_ctx_in_input_schema(self, live_tools):
+        offenders = [t["name"] for t in live_tools if "ctx" in _props(t)]
+        assert offenders == []
+
+    def test_no_old_tool_names(self, live_tools):
+        offenders = [
+            f"tool={t['name']}: {m.group(0)}"
+            for t in live_tools
+            for m in OLD_TOOL_NAMES.finditer(t.get("description") or "")
+        ]
+        assert offenders == [], "\n".join(offenders)
+
+    def test_no_unknown_tool_refs(self, live_tools, live_server):
+        known = tool_budget.known_identifiers(live_tools)
+        texts = [(t["name"], t.get("description") or "") for t in live_tools]
+        texts.append(("instructions", live_server.instructions or ""))
+        problems = [
+            f"{where}: unknown name {name}"
+            for where, text in texts
+            for name in tool_budget.unknown_tool_refs(text, known)
+        ]
+        assert problems == [], "\n".join(problems)
+
+
+class TestLiveContent:
+    """Req 4.2-4.5, 6.6: specific descriptions carry the corrected guidance."""
+
+    def test_cdef_no_capability_first(self, live_tools):
+        tools = _by_name(live_tools)
+        for name in CDEF_TOOLS:
+            assert CAPABILITY_FIRST_PHRASES.search(tools[name]["description"]) is None, name
+
+    def test_cdef_main_route_and_capability_scope(self, live_tools):
+        tools = _by_name(live_tools)
+        assert "list_components" in tools["query_component_definition"]["description"]
+        for name in ("list_capabilities", "get_capability"):
+            assert "contain capabilities" in " ".join(tools[name]["description"].split()), name
+
+    def test_validate_file_remote_uri_text(self, live_tools):
+        tool = _by_name(live_tools)["validate_oscal_file"]
+        texts = [tool["description"], *(p.get("description", "") for p in _props(tool).values())]
+        assert not any("allow_remote_uris" in t for t in texts)
+        file_uri = _props(tool)["file_uri"]["description"]
+        assert "Remote URIs are rejected" in file_uri
+        assert "server operator enables" in file_uri
+
+    @pytest.mark.parametrize("name", PER_MODEL_QUERY_TOOLS)
+    def test_per_model_query_points_to_children(self, live_tools, name):
+        description = _by_name(live_tools)[name]["description"]
+        assert "childTypeCounts" in description
+        assert "get_child_element" in description
+
+
+class TestLiveSchemaFacts:
+    """Req 5.1-5.8, 6.1, 7.1: required parameters, enums, and paging parameters."""
+
+    @pytest.mark.parametrize(
+        ("tool", "param"),
+        [
+            ("get_oscal_schema", "model_name"),
+            ("get_capability", "uuid"),
+            ("text_search_oscal", "query_text"),
+            ("get_child_element", "element_id"),
+        ],
+    )
+    def test_required(self, live_tools, tool, param):
+        assert param in _by_name(live_tools)[tool]["inputSchema"].get("required", [])
+
+    def test_enums(self, live_tools):
+        tools = _by_name(live_tools)
+        assert _enum_values(_props(tools["get_oscal_schema"])["schema_type"]) == ["json", "xsd"]
+        assert {"assembly", "field", "flag"} <= set(
+            _enum_values(_props(tools["get_definition"])["kind"])
+        )
+
+    @pytest.mark.parametrize("name", PER_MODEL_QUERY_TOOLS)
+    def test_per_model_query_type_enum(self, live_tools, name):
+        prop = _props(_by_name(live_tools)[name])["query_type"]
+        assert _enum_values(prop) == ["all", "by_uuid", "by_title"]
+
+    def test_list_oscal_resources_paging(self, live_tools):
+        assert {"offset", "limit"} <= set(_props(_by_name(live_tools)["list_oscal_resources"]))
+
+
+class TestLiveCallPath:
+    """Req 5.2, 5.9, 6.2: invalid Literal values fail SDK validation before the tool runs."""
+
+    @pytest.mark.parametrize(
+        ("name", "args", "valid"),
+        [
+            ("get_oscal_schema", {"model_name": "catalog", "schema_type": "yaml"}, ("json", "xsd")),
+            ("get_definition", {"name": "uuid", "kind": "module"}, ("assembly", "field", "flag")),
+            ("query_catalog", {"query_type": "by_type"}, ("all", "by_uuid", "by_title")),
+        ],
+    )
+    def test_invalid_literal_lists_valid_values(self, live_server, name, args, valid):
+        # query_catalog runs without an initialized store here, so the error can only come
+        # from argument validation, which runs before the function body.
+        with pytest.raises(ToolError) as exc_info:
+            asyncio.run(live_server.call_tool(name, args))
+        message = str(exc_info.value)
+        for value in valid:
+            assert f"'{value}'" in message, (value, message)
+
+    def test_complete_schema_accepted(self, live_server):
+        # get_oscal_schema reads ctx.session, which needs a real request, so this call goes
+        # through an in-memory client rather than MCPServer.call_tool.
+        async def call() -> CallToolResult:
+            async with Client(live_server) as client:
+                return await client.call_tool("get_oscal_schema", {"model_name": "complete"})
+
+        result = asyncio.run(call())
+        assert not result.is_error, result.content
+        assert result.content
+
+
+class TestRoutingGuide:
+    """Req 8.1-8.5: instructions hold the Routing_Guide, which names a tool per task."""
+
+    ROUTED_TOOLS = (
+        "list_oscal_models",
+        "get_oscal_schema",
+        "get_definition",
+        "get_constraints",
+        "get_allowed_values",
+        "query_catalog",
+        "text_search_oscal",
+        "query_component_definition",
+        "validate_oscal_content",
+        "list_oscal_resources",
+        "query_oscal_documentation",
+    )
+
+    def test_instructions_contain_guide(self, live_server):
+        assert ROUTING_GUIDE in (live_server.instructions or "")
+
+    @pytest.mark.parametrize("name", ROUTED_TOOLS)
+    def test_guide_names_tool(self, name):
+        assert re.search(rf"\b{name}\b", ROUTING_GUIDE), name
+
+    def test_guide_within_cap(self):
+        assert len(SERVER_INSTRUCTIONS) <= tool_budget.ROUTING_GUIDE_CAP
+
+
+# --- Steering and AGENTS.md sync tests (task 10.3) -------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+STEERING_PATH = ".kiro/steering/tool-authoring.md"
+AGENTS_PATH = "AGENTS.md"
+WIRING_HEADING = "## How a tool is wired"
+MAX_WIRING_LINES = 5
+
+
+def _read_repo_file(relative: str) -> str:
+    """Read a file from the repo checkout; a missing file fails the test (no silent skip)."""
+    path = REPO_ROOT / relative
+    assert path.is_file(), f"{relative} is missing from the repo checkout at {REPO_ROOT}"
+    return path.read_text(encoding="utf-8")
+
+
+def _front_matter(text: str) -> str:
+    match = re.match(r"\A---\n(.*?)\n---\n", text, re.DOTALL)
+    assert match, "front matter block delimited by --- lines is missing"
+    return match.group(1)
+
+
+def _section_body(text: str, heading: str) -> str:
+    lines = text.splitlines()
+    assert heading in lines, f"heading {heading!r} not found"
+    start = lines.index(heading) + 1
+    end = next((i for i in range(start, len(lines)) if lines[i].startswith("## ")), len(lines))
+    return "\n".join(lines[start:end])
+
+
+class TestSteeringSync:
+    """Req 1.9, 9.1, 9.4, 9.5: steering and AGENTS.md stay in sync with the Budget_Module."""
+
+    @pytest.fixture(scope="class")
+    def steering(self) -> str:
+        return _read_repo_file(STEERING_PATH)
+
+    @pytest.fixture(scope="class")
+    def wiring_section(self) -> str:
+        return _section_body(_read_repo_file(AGENTS_PATH), WIRING_HEADING)
+
+    def test_steering_always_included(self, steering):
+        assert re.search(r"^inclusion:\s*always\s*$", _front_matter(steering), re.MULTILINE)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["TOTAL_BUDGET", "TOOL_DESCRIPTION_CAP", "PARAMETER_DESCRIPTION_CAP", "ROUTING_GUIDE_CAP"],
+    )
+    def test_steering_states_limit(self, steering, name):
+        value = f"{getattr(tool_budget, name):,}"
+        assert value in steering, f"{STEERING_PATH} does not state {name} = {value}"
+
+    @pytest.mark.parametrize(
+        "path", ["src/mcp_server_for_oscal/tools/tool_budget.py", "tests/test_tool_budget.py"]
+    )
+    def test_steering_names_source_files(self, steering, path):
+        assert path in steering
+
+    def test_wiring_section_is_short(self, wiring_section):
+        content = [
+            line
+            for line in wiring_section.splitlines()
+            if line.strip() and not re.fullmatch(r"\s*<!--.*-->\s*", line)
+        ]
+        assert len(content) <= MAX_WIRING_LINES, content
+
+    def test_wiring_section_links_steering(self, wiring_section):
+        assert re.search(rf"\]\((?:\./)?{re.escape(STEERING_PATH)}\)", wiring_section)

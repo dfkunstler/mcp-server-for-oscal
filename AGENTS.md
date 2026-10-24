@@ -8,7 +8,7 @@ Starting point for AI agents working in this repo. Detailed generated docs are i
 
 - [Rules that always apply](#rules-that-always-apply): hatch-only execution, no `cd`, oscal-bindings-first, git and branch policy (pointers to `.kiro/steering`)
 - [Code map](#code-map): where each subsystem lives and its entry points
-- [How a tool is wired](#how-a-tool-is-wired): what to touch when you add or change an MCP tool
+- [How a tool is wired](#how-a-tool-is-wired): summary of adding or changing an MCP tool, with a link to the full authoring rules
 - [OscalStore essentials](#oscalstore-essentials): DB modes, lazy indexing, integrity
 - [Repo-specific scripts](#repo-specific-scripts): hatch scripts that are not obvious
 - [Non-obvious conventions and gotchas](#non-obvious-conventions-and-gotchas)
@@ -26,6 +26,7 @@ These rules are defined in `.kiro/steering/`. Read the files for detail; they ta
 | Run all Python through `hatch` (`hatch test`, `hatch run <script>`, `hatch run python ...`). Never call `python`, `pytest`, `mypy`, `ruff`, or `bandit` directly, and pass pytest flags after `--` | `hatch.md` |
 | Never prefix commands with `cd`; set the working directory instead. Repeat this rule to any subagent you delegate to | `~/.kiro/steering/no-cd-prefix.md` |
 | Use `oscal-bindings` (`oscal_bindings.models` classes via `MODEL_MAP`, `model_validate`) for OSCAL models, validation, and serialization; never the union `parse_*` helpers; document why if you don't | `oscal-bindings.md` |
+| Follow the tool authoring rules (wiring steps, Description_Shape, `ParamDoc` parameters, size budgets, sync targets) when adding or changing an MCP tool | `tool-authoring.md` |
 | Work on a feature branch tied to a GitHub issue, put `#<issue>` in commits, run `hatch run tests` before committing, and stage only your own files. Never commit to `main` or push without explicit approval | `git-strategy.md` |
 | `structure.md`, `product.md`, and `tech.md` are partly stale (see `.agents/summary/review_notes.md`). Prefer this file and the code | |
 
@@ -35,10 +36,12 @@ These rules are defined in `.kiro/steering/`. Read the files for detail; they ta
 
 | Path | What lives there | Entry point |
 |---|---|---|
-| `src/mcp_server_for_oscal/main.py` | MCP server (`MCPServer`, MCP SDK v2), CLI args, startup integrity check, store init, tool registration, `about` tool | `main()`; console scripts `mcp-server-for-oscal`, `server` |
-| `src/mcp_server_for_oscal/oscal_agent.py` | Strands + Bedrock agent: `create_oscal_agent()`, session (file/S3) and conversation managers, observability hook | `main()`; `oscal-agent` |
+| `src/mcp_server_for_oscal/main.py` | MCP server (`build_server()` creates the `MCPServer` with `SERVER_INSTRUCTIONS`, MCP SDK v2), CLI args, startup integrity check, store init, tool registration, `about` tool | `main()`; console scripts `mcp-server-for-oscal`, `server` |
+| `src/mcp_server_for_oscal/oscal_agent.py` | Strands + Bedrock agent: `create_oscal_agent()`, `agent_tools()` (the Agent gets tool copies with `ctx` stripped from their specs), session (file/S3) and conversation managers, observability hook | `main()`; `oscal-agent` |
 | `src/mcp_server_for_oscal/config.py` | `Config` singleton `config`, read from env and `.env` at import | |
 | `src/mcp_server_for_oscal/tools/__init__.py` | `get_tool_list()`: the single tool registry used by both server and agent | |
+| `tools/descriptions.py` | `ParamDoc`, shared `Annotated` parameter aliases, `ABOUT_DESCRIPTION`, the Routing_Guide and `SERVER_INSTRUCTIONS` | |
+| `tools/tool_budget.py` | Budget_Module: `tools/list` size limits and pure checks used by `tests/test_tool_budget.py` and `bin/build_mcpb.py` | |
 | `tools/oscal_store.py` | `OscalStore`: SQLite + FTS5 index of all OSCAL docs, lazy child extraction, oscal-bindings model parsing with an LRU cache | |
 | `tools/query_component_definition.py` | Component Definition tools (capability-first, scoped by cdef UUID or exact title) | |
 | `tools/query_oscal_models.py` | `query_*`/`list_*` for the other 7 model types, child-element listers, `text_search_oscal`, `get_child_element` | |
@@ -65,12 +68,11 @@ These rules are defined in `.kiro/steering/`. Read the files for detail; they ta
 
 <!-- tags: mcp-tools, registration, extension -->
 
-1. Write a function decorated with Strands `@tool` in `tools/<module>.py`. Take `ctx: Context | None = None` and use `offset`/`limit` plus `utils.paginate` (or the store's page response) for anything list-shaped.
-2. Add it to `get_tool_list()`. The server (`mcp.add_tool`), the agent, and the `.mcpb` manifest (`bin/build_mcpb.py`) all read this list.
-3. The docstring is the tool description for clients and LLMs; the MCPB manifest uses its first paragraph. Write it for an LLM caller.
-4. If the tool reads the store, use the module-level `_store` set by `init_store()`. Add that module's `init_store` call in `main._init_oscal_store()`, and make tests reset the singleton (the autouse `reset_oscal_store` only covers `query_component_definition`).
-5. Report errors with `try_notify_client_error(msg, ctx)` and then raise or return an error dict.
-6. Update `src/mcp_server_for_oscal/tools/README.md`. `test_tool_registry.py` and `test_query_oscal_models_child_elements.py` assert the exact tool sets and counts.
+- Write a Strands `@tool` function in `tools/<module>.py` and add it to `get_tool_list()` (server, agent, and `.mcpb` manifest all read it).
+- Write the docstring in the Description_Shape and each parameter as `Annotated[..., ParamDoc(...)]` (shared aliases in `tools/descriptions.py`).
+- Sync `tools/README.md` and the registry tests (`test_tool_registry.py`, `test_query_oscal_models_child_elements.py`).
+- `tests/test_tool_budget.py` enforces the description and `tools/list` size limits from `tools/tool_budget.py`.
+- Full wiring steps and authoring rules: [`.kiro/steering/tool-authoring.md`](.kiro/steering/tool-authoring.md).
 
 ## OscalStore essentials
 

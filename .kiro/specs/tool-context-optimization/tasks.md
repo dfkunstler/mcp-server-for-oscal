@@ -201,13 +201,13 @@ Project rules for every task:
     - Generators per the design: property names from `st.from_regex(r"[a-z][a-z_]{0,10}")` plus optional `ctx`, `required` subsets with optional `"ctx"`, optional `$defs` with optional `Context` and zero or more other entries, extra top-level keys
     - Assert removals, preserved order of `required`, unchanged other keys, unmutated input, and idempotence
 
-- [-] 8. Checkpoint: rewrites, paging, routing
+- [x] 8. Checkpoint: rewrites, paging, routing
   - Run `hatch check code --fix`, `hatch check fmt --fix`, then `hatch run tests`
   - Ensure all tests pass, ask the user if questions arise
   - Commit only the files from tasks 5-7, for example: `#39 Rewrite tool descriptions, page list_oscal_resources, add routing guide, strip ctx from Agent specs (tested: hatch run tests passes)`
 
-- [ ] 9. Live-registry Budget_Tests, MCPB, README, and test sync
-  - [~] 9.1 Add the live-registry Budget_Tests to `tests/test_tool_budget.py`
+- [x] 9. Live-registry Budget_Tests, MCPB, README, and test sync
+  - [x] 9.1 Add the live-registry Budget_Tests to `tests/test_tool_budget.py`
     - Module-scoped `live_tools` fixture: `main.build_server()`, `main._setup_tools(server)`, `asyncio.run(server.list_tools())`, `model_dump(by_alias=True, exclude_none=True, mode="json")`
     - Names equal `{fn.__name__ for fn in get_tool_list()} | {"about"}`; `check_limits == []`; `check_total == []`
     - Iterate the live registry, never a hard-coded tool list, so tools added later are checked with no test change
@@ -219,29 +219,29 @@ Project rules for every task:
     - If any limit fails, trim the offending descriptions until it passes
     - _Requirements: 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 2.1-2.6, 3.2, 3.3, 4.1-4.5, 5.1-5.9, 6.1, 6.2, 6.6, 7.1, 8.1-8.5_
 
-  - [~] 9.2 Add the Server/Agent parameter parity test in `tests/test_tool_param_parity.py`
+  - [x] 9.2 Add the Server/Agent parameter parity test in `tests/test_tool_param_parity.py`
     - Parametrize over `get_tool_list()`; the Agent_Tool_Spec is `oscal_agent.agent_tool(fn).tool_spec`, the same function `create_oscal_agent()` uses
     - The Agent property name set equals the server `inputSchema.properties` key set exactly, with no exception for `ctx`
     - For each property `p`, `agent_tool(fn).tool_spec["inputSchema"]["json"]["properties"][p]["description"]` equals the server description
     - A separate test asserts that `create_oscal_agent()` (with `boto3.Session`, `BedrockModel`, and `Agent` patched, as the existing tests do) passes `Agent` the specs from `agent_tools`, so the parity test checks what the Agent really gets
     - _Requirements: 3.4, 3.5, 3.6_
 
-  - [~] 9.3 Update `bin/build_mcpb.py` and add its test
+  - [x] 9.3 Update `bin/build_mcpb.py` and add its test
     - `tool_list()` uses `summary_sentence(inspect.getdoc(fn) or "")` and `summary_sentence(ABOUT_DESCRIPTION)`
     - New test `tests/test_build_mcpb.py` loads `bin/build_mcpb.py` with `importlib.util.spec_from_file_location` and compares each entry with `summary_sentence` of the live description
     - The repo template `conf/mcpb/manifest.json` keeps `"tools": []`; no regeneration needed
     - _Requirements: 10.1_
 
-  - [~] 9.4 Update `src/mcp_server_for_oscal/tools/README.md`
+  - [x] 9.4 Update `src/mcp_server_for_oscal/tools/README.md`
     - New descriptions, removed per-model `by_type`, `childTypeCounts` result shape, required parameters, `list_oscal_resources` paging
     - _Requirements: 10.2_
 
-  - [~] 9.5 Confirm `tests/test_tool_registry.py` and `tests/test_query_oscal_models_child_elements.py` pass unchanged
+  - [x] 9.5 Confirm `tests/test_tool_registry.py` and `tests/test_query_oscal_models_child_elements.py` pass unchanged
     - Same tool names and count; do not edit the expected sets
     - _Requirements: 10.3_
 
-- [ ] 10. Steering file and `AGENTS.md`
-  - [~] 10.1 Create `.kiro/steering/tool-authoring.md`
+- [x] 10. Steering file and `AGENTS.md`
+  - [x] 10.1 Create `.kiro/steering/tool-authoring.md`
     - Front matter `inclusion: always`
     - The six wiring steps from today's `AGENTS.md` "How a tool is wired", updated for the new rules
     - Description_Shape with `SUMMARY_VERBS` and the 3-sentence maximum
@@ -250,17 +250,17 @@ Project rules for every task:
     - Sync_Targets: `bin/build_mcpb.py` (`conf/mcpb/manifest.json`), `tools/README.md`, `tests/test_tool_registry.py`, Routing_Guide in `tools/descriptions.py`
     - _Requirements: 1.9, 9.1, 9.2, 9.3, 9.5_
 
-  - [~] 10.2 Update `AGENTS.md`
+  - [x] 10.2 Update `AGENTS.md`
     - "How a tool is wired" becomes ≤ 5 lines plus a link to `.kiro/steering/tool-authoring.md`
     - Add Code map rows for `tools/descriptions.py` and `tools/tool_budget.py`; the `oscal_agent.py` row mentions `agent_tools()`
     - _Requirements: 9.4_
 
-  - [~] 10.3 Add steering and `AGENTS.md` sync tests to `tests/test_tool_budget.py`
+  - [x] 10.3 Add steering and `AGENTS.md` sync tests to `tests/test_tool_budget.py`
     - Steering file has `inclusion: always`, the formatted values of `TOTAL_BUDGET`, `TOOL_DESCRIPTION_CAP`, `PARAMETER_DESCRIPTION_CAP` (formatted from the Budget_Module, not hard-coded), and names both files
     - `AGENTS.md` section body ≤ 5 non-blank lines and links to the steering file
     - _Requirements: 1.9, 9.1, 9.4, 9.5_
 
-- [~] 11. Final checkpoint: measure and run the full suite
+- [-] 11. Final checkpoint: measure and run the full suite
   - Measure the live `tools/list` size with `hatch run python -c "..."` using `main.build_server()`, `_setup_tools`, and `tool_budget.tools_list_size`; report it against `TOTAL_BUDGET` (38,979) and `BASELINE_SIZE` (55,685), and report the `instructions` length against `ROUTING_GUIDE_CAP`
   - Run `hatch check code`, `hatch check fmt`, then `hatch run tests` (typing, 3.13 + 3.14 with coverage, bandit)
   - Ensure all tests pass, ask the user if questions arise
