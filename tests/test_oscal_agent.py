@@ -387,7 +387,7 @@ class TestMainEntryPoint:
     """Unit tests for the main() entry point in oscal_agent.py."""
 
     @patch("mcp_server_for_oscal.oscal_agent.create_oscal_agent")
-    @patch("mcp_server_for_oscal.oscal_agent.verify_package_integrity")
+    @patch("mcp_server_for_oscal.oscal_agent.verify_bundled_content")
     @patch("mcp_server_for_oscal.oscal_agent.config")
     @patch("sys.argv", ["agent", "--aws-profile", "my-profile", "--log-level", "DEBUG"])
     def test_cli_parses_aws_profile_and_log_level(
@@ -410,11 +410,11 @@ class TestMainEntryPoint:
         mock_config.update_from_args.assert_called_once()
         call_kwargs = mock_config.update_from_args.call_args[1]
         assert call_kwargs["log_level"] == "DEBUG"
-        # Only oscal_schemas is verified (1 call, not 2)
+        # Bundled content is verified once at startup
         mock_verify.assert_called_once()
 
     @patch("mcp_server_for_oscal.oscal_agent.create_oscal_agent")
-    @patch("mcp_server_for_oscal.oscal_agent.verify_package_integrity")
+    @patch("mcp_server_for_oscal.oscal_agent.verify_bundled_content")
     @patch("mcp_server_for_oscal.oscal_agent.config")
     @patch(
         "sys.argv",
@@ -447,17 +447,18 @@ class TestMainEntryPoint:
         assert call_kwargs["knowledge_base_id"] == "kb-123"
         # max_tokens is set directly on config
         assert mock_config.agent_max_tokens == 8192
-        # Only oscal_schemas is verified (1 call, not 2)
+        # Bundled content is verified once at startup
         mock_verify.assert_called_once()
 
-    @patch("mcp_server_for_oscal.oscal_agent.verify_package_integrity")
+    @patch("mcp_server_for_oscal.oscal_agent.verify_bundled_content")
     @patch("mcp_server_for_oscal.oscal_agent.config")
     @patch("sys.argv", ["agent"])
     def test_exit_code_2_on_integrity_failure(self, mock_config, mock_verify):
-        """SystemExit(2) raised when verify_package_integrity raises RuntimeError.
+        """SystemExit(2) raised when verify_bundled_content raises RuntimeError.
 
-        verify_package_integrity is called exactly once for oscal_schemas only.
+        verify_bundled_content is called exactly once, with the package directory.
         """
+        from mcp_server_for_oscal import oscal_agent
         from mcp_server_for_oscal.oscal_agent import main
 
         mock_config.aws_profile = None
@@ -469,13 +470,10 @@ class TestMainEntryPoint:
             main()
 
         assert exc_info.value.code == 2
-        # Only oscal_schemas is verified — oscal_docs and component_definitions removed
-        mock_verify.assert_called_once()
-        call_args = mock_verify.call_args[0][0]
-        assert str(call_args).endswith("oscal_schemas")
+        mock_verify.assert_called_once_with(oscal_agent.PACKAGE_DIR)
 
     @patch("mcp_server_for_oscal.oscal_agent.create_oscal_agent")
-    @patch("mcp_server_for_oscal.oscal_agent.verify_package_integrity")
+    @patch("mcp_server_for_oscal.oscal_agent.verify_bundled_content")
     @patch("mcp_server_for_oscal.oscal_agent.config")
     @patch("sys.argv", ["agent"])
     def test_keyboard_interrupt_handled_gracefully(
@@ -495,11 +493,11 @@ class TestMainEntryPoint:
             # Should NOT raise — KeyboardInterrupt is caught internally
             main()
 
-        # Only oscal_schemas is verified (1 call, not 2)
+        # Bundled content is verified once at startup
         mock_verify.assert_called_once()
 
     @patch("mcp_server_for_oscal.oscal_agent.create_oscal_agent")
-    @patch("mcp_server_for_oscal.oscal_agent.verify_package_integrity")
+    @patch("mcp_server_for_oscal.oscal_agent.verify_bundled_content")
     @patch("mcp_server_for_oscal.oscal_agent.config")
     @patch("sys.argv", ["agent"])
     def test_exit_code_1_on_agent_creation_failure(
@@ -517,8 +515,58 @@ class TestMainEntryPoint:
             main()
 
         assert exc_info.value.code == 1
-        # Only oscal_schemas is verified (1 call, not 2)
+        # Bundled content is verified once at startup
         mock_verify.assert_called_once()
+
+    @patch("mcp_server_for_oscal.main._warm_metaschema_index")
+    @patch("mcp_server_for_oscal.main._init_oscal_store")
+    @patch("mcp_server_for_oscal.oscal_agent.create_oscal_agent")
+    @patch("mcp_server_for_oscal.oscal_agent.config")
+    @patch("sys.argv", ["agent"])
+    def test_exit_2_when_bundle_missing(
+        self, mock_config, mock_create_agent, mock_init, mock_warm, monkeypatch, tmp_path
+    ):
+        """Real verification against a dir without the bundle exits 2 (Req 2.4, 2.5)."""
+        from mcp_server_for_oscal.oscal_agent import main
+
+        mock_config.aws_profile = None
+        mock_config.log_level = "INFO"
+        monkeypatch.setattr("mcp_server_for_oscal.oscal_agent.PACKAGE_DIR", tmp_path)
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 2
+        mock_warm.assert_not_called()
+        mock_init.assert_not_called()
+        mock_create_agent.assert_not_called()
+
+    @patch("mcp_server_for_oscal.main._warm_metaschema_index")
+    @patch("mcp_server_for_oscal.main._init_oscal_store")
+    @patch("mcp_server_for_oscal.oscal_agent.create_oscal_agent")
+    @patch("mcp_server_for_oscal.oscal_agent.verify_bundled_content")
+    @patch("mcp_server_for_oscal.oscal_agent.config")
+    @patch("sys.argv", ["agent"])
+    def test_verification_runs_before_store_and_agent(
+        self, mock_config, mock_verify, mock_create_agent, mock_init, mock_warm
+    ):
+        """Verification, then index warm-up, precede store init and agent setup (Req 2.3)."""
+        from mcp_server_for_oscal.oscal_agent import main
+
+        mock_config.aws_profile = None
+        mock_config.log_level = "INFO"
+        mock_config.agent_max_tokens = 4096
+        order = MagicMock()
+        order.attach_mock(mock_verify, "verify")
+        order.attach_mock(mock_warm, "warm")
+        order.attach_mock(mock_init, "init_store")
+        order.attach_mock(mock_create_agent, "create_agent")
+
+        with patch("builtins.input", side_effect=EOFError):
+            main()
+
+        names = [c[0] for c in order.mock_calls]
+        assert names[:4] == ["verify", "warm", "init_store", "create_agent"]
 
     # -----------------------------------------------------------------------
     # Task 5.5 — Session ID logging and discoverability (Req 9.1–9.4)
@@ -527,7 +575,7 @@ class TestMainEntryPoint:
     @patch("mcp_server_for_oscal.oscal_agent.create_oscal_agent")
     @patch("mcp_server_for_oscal.oscal_agent._build_conversation_manager", return_value=None)
     @patch("mcp_server_for_oscal.oscal_agent._build_session_manager")
-    @patch("mcp_server_for_oscal.oscal_agent.verify_package_integrity")
+    @patch("mcp_server_for_oscal.oscal_agent.verify_bundled_content")
     @patch("mcp_server_for_oscal.oscal_agent.config")
     @patch("sys.argv", ["agent"])
     def test_interactive_mode_logs_session_id_at_info_and_prints(
@@ -563,13 +611,13 @@ class TestMainEntryPoint:
         # Verify stdout contains session ID
         captured = capsys.readouterr()
         assert "Session ID: test-session-abc" in captured.out
-        # Only oscal_schemas is verified (1 call, not 2)
+        # Bundled content is verified once at startup
         mock_verify.assert_called_once()
 
     @patch("mcp_server_for_oscal.oscal_agent.create_oscal_agent")
     @patch("mcp_server_for_oscal.oscal_agent._build_conversation_manager", return_value=None)
     @patch("mcp_server_for_oscal.oscal_agent._build_session_manager")
-    @patch("mcp_server_for_oscal.oscal_agent.verify_package_integrity")
+    @patch("mcp_server_for_oscal.oscal_agent.verify_bundled_content")
     @patch("mcp_server_for_oscal.oscal_agent.config")
     @patch("sys.argv", ["agent", "--query", "hello"])
     def test_query_mode_logs_session_id_at_debug_no_stdout(
@@ -609,13 +657,13 @@ class TestMainEntryPoint:
         # Verify stdout does NOT contain "Session ID:" (only the agent response)
         captured = capsys.readouterr()
         assert "Session ID:" not in captured.out
-        # Only oscal_schemas is verified (1 call, not 2)
+        # Bundled content is verified once at startup
         mock_verify.assert_called_once()
 
     @patch("mcp_server_for_oscal.oscal_agent.create_oscal_agent")
     @patch("mcp_server_for_oscal.oscal_agent._build_conversation_manager", return_value=None)
     @patch("mcp_server_for_oscal.oscal_agent._build_session_manager")
-    @patch("mcp_server_for_oscal.oscal_agent.verify_package_integrity")
+    @patch("mcp_server_for_oscal.oscal_agent.verify_bundled_content")
     @patch("mcp_server_for_oscal.oscal_agent.config")
     @patch("sys.argv", ["agent"])
     def test_no_session_manager_skips_session_id_logging(
@@ -650,7 +698,7 @@ class TestMainEntryPoint:
         # No "Session ID:" in stdout
         captured = capsys.readouterr()
         assert "Session ID:" not in captured.out
-        # Only oscal_schemas is verified (1 call, not 2)
+        # Bundled content is verified once at startup
         mock_verify.assert_called_once()
 
 
@@ -1066,7 +1114,7 @@ class TestCLISessionArgParsing:
     @patch("mcp_server_for_oscal.oscal_agent.create_oscal_agent")
     @patch("mcp_server_for_oscal.oscal_agent._build_conversation_manager", return_value=None)
     @patch("mcp_server_for_oscal.oscal_agent._build_session_manager", return_value=(None, None))
-    @patch("mcp_server_for_oscal.oscal_agent.verify_package_integrity")
+    @patch("mcp_server_for_oscal.oscal_agent.verify_bundled_content")
     @patch("mcp_server_for_oscal.oscal_agent.config")
     @patch(
         "sys.argv",
@@ -1111,13 +1159,13 @@ class TestCLISessionArgParsing:
         # Verify _build_conversation_manager was called with parsed args
         cm_call_args = mock_build_cm.call_args[0][0]
         assert cm_call_args.conversation_manager == "summarizing"
-        # Only oscal_schemas is verified (1 call, not 2)
+        # Bundled content is verified once at startup
         mock_verify.assert_called_once()
 
     @patch("mcp_server_for_oscal.oscal_agent.create_oscal_agent")
     @patch("mcp_server_for_oscal.oscal_agent._build_conversation_manager", return_value=None)
     @patch("mcp_server_for_oscal.oscal_agent._build_session_manager", return_value=(None, None))
-    @patch("mcp_server_for_oscal.oscal_agent.verify_package_integrity")
+    @patch("mcp_server_for_oscal.oscal_agent.verify_bundled_content")
     @patch("mcp_server_for_oscal.oscal_agent.config")
     @patch(
         "sys.argv",
@@ -1155,13 +1203,13 @@ class TestCLISessionArgParsing:
         assert sm_call_args.session_storage == "s3"
         assert sm_call_args.session_s3_bucket == "my-bucket"
         assert sm_call_args.session_s3_prefix == "my-prefix/"
-        # Only oscal_schemas is verified (1 call, not 2)
+        # Bundled content is verified once at startup
         mock_verify.assert_called_once()
 
     @patch("mcp_server_for_oscal.oscal_agent.create_oscal_agent")
     @patch("mcp_server_for_oscal.oscal_agent._build_conversation_manager", return_value=None)
     @patch("mcp_server_for_oscal.oscal_agent._build_session_manager", return_value=(None, None))
-    @patch("mcp_server_for_oscal.oscal_agent.verify_package_integrity")
+    @patch("mcp_server_for_oscal.oscal_agent.verify_bundled_content")
     @patch("mcp_server_for_oscal.oscal_agent.config")
     @patch("sys.argv", ["agent"])
     def test_session_args_default_to_none(
@@ -1191,7 +1239,7 @@ class TestCLISessionArgParsing:
         assert sm_call_args.session_s3_bucket is None
         assert sm_call_args.session_s3_prefix is None
         assert sm_call_args.conversation_manager is None
-        # Only oscal_schemas is verified (1 call, not 2)
+        # Bundled content is verified once at startup
         mock_verify.assert_called_once()
 
 

@@ -29,12 +29,14 @@ The generated hashes.json can then be verified at runtime using:
 
 import argparse
 import hashlib
-import json
 import logging
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+# Shared manifest format; needs the project installed (hatch envs install it in dev mode).
+from mcp_server_for_oscal.tools.utils import write_manifest
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -105,10 +107,9 @@ def capture_file_state(directory=".", outdir: str = "."):
 
     state = {"commit": commit, "file_hashes": file_hashes}
 
-    # Save hashes.json in the specified directory
-    output_file = os.path.join(outdir, "hashes.json")
-    with open(output_file, "w", encoding="utf-8") as output_f:
-        json.dump(state, output_f, indent=2)
+    # Save hashes.json in the specified directory, in the canonical form that
+    # verify_package_integrity requires byte-for-byte.
+    output_file = str(write_manifest(Path(outdir), state))
 
     return state, output_file
 

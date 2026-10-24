@@ -12,6 +12,11 @@ def get_tool_list() -> list[Callable]:
 
     Excludes the `about` tool (MCP-server-only).
     """
+    from mcp_server_for_oscal.tools.find_references_to import find_references_to
+    from mcp_server_for_oscal.tools.get_allowed_values import get_allowed_values
+    from mcp_server_for_oscal.tools.get_constraints import get_constraints
+    from mcp_server_for_oscal.tools.get_definition import get_definition
+    from mcp_server_for_oscal.tools.get_metaschema_source import get_metaschema_source
     from mcp_server_for_oscal.tools.get_schema import get_oscal_schema
     from mcp_server_for_oscal.tools.list_models import list_oscal_models
     from mcp_server_for_oscal.tools.list_oscal_resources import list_oscal_resources
@@ -60,6 +65,12 @@ def get_tool_list() -> list[Callable]:
     tools: list[Callable] = [
         list_oscal_models,
         get_oscal_schema,
+        # Metaschema constraint tools (bundled data only; no AWS dependency)
+        get_allowed_values,
+        get_constraints,
+        find_references_to,
+        get_definition,
+        get_metaschema_source,
         list_oscal_resources,
         query_component_definition,
         list_component_definitions,

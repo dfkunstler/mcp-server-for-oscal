@@ -1,0 +1,17 @@
+{
+  "commit": "",
+  "file_hashes": {
+    "allowed-values-component_component_software.ent": "35d1deb500ebda826ea495aeef8368526214e0ea584c0a25e1389b62f77a719c",
+    "allowed-values-control-group-property-name.ent": "6e714787b64f18964aa42fde3763005b2277818dd9c99637870653072f61718d",
+    "allowed-values-responsible-roles-system.ent": "3a8c1d7c1c7b8882fe535bbd72173972479515de81059c3ea2f27232e9dbed95",
+    "allowed-values-component_component_service.ent": "1bef38893ca22faa58f75afc2bb0d089719dd20a0a6c0f288513062f78a15aaa",
+    "allowed-values-responsible-roles-operations.ent": "b918a22a3c79d880e6ebdd24a46355fcf1986146f4bdfbe6e93250b7fd810ba4",
+    "allowed-values-component_component_property-name.ent": "017a424147e3f7b609d24d272fe9bc2dd3011972b487f29d4cac98da0bfdd87f",
+    "allowed-values-component_inventory-item_property-name.ent": "66eabff8955aaa7cd1905b93ef3a87b501ba8c7c66f7009f4e835f3927c8a6c6",
+    "allowed-values-responsible-roles-component-production.ent": "1f0361dc5c03e9e939402c2d3b8b7fa32b888d409d004e629714a919f610e5d6",
+    "allowed-values-component-type.ent": "9c484c3bb0a5da0ddd9d4be5e8da9269f84cfaab2869f70157b5b920d3b9276a",
+    "allowed-values-property-name-asset-type-values.ent": "b57fc8e461290577722862717ed34ba66042d7bddd50edcb4f68f481960e73fa",
+    "allowed-values-property-name-networked-components.ent": "6bdc300e2efb03bc09efc10f2bbcf5353f1fa8577c7694971506ff0fad6a6cbd",
+    "allowed-values-component_component_link-rel.ent": "3c098a7a6ab0e5be785af6004ef8d51cf9e88d0dcd16796b10a356a373c60a6f"
+  }
+}

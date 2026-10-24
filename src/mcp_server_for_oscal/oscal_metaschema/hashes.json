@@ -1,0 +1,20 @@
+{
+  "commit": "",
+  "file_hashes": {
+    "oscal_component_metaschema.xml": "c95b28997c986af2228dedc7a50718806a208980e612a995d1098677f8e10daa",
+    "oscal_profile_metaschema.xml": "6d7473bc0a77239fb9eb48c055c7642c93cb0733242dbee6bb232a0c87405335",
+    "oscal_metadata_metaschema.xml": "2e87a638e604f79c7d26a5fbed236f2c1b045a6baf5ac366fdec74e3404b7bb9",
+    "oscal_mapping-common_metaschema.xml": "ca0c7ac96fc4f5606df8e96de3cff402952de7102d60735acd7502d26224606e",
+    "README.md": "191ba0871069c206f8bfb8105981130b637d1768836f75e1c6355c89f78e3769",
+    "oscal_poam_metaschema.xml": "27a88951efea7ec786897eb320e920db315ebbfa49fa64cf1a9bff9952874b7f",
+    "oscal_assessment-plan_metaschema.xml": "40dce24e06ce1005295e0da44d39f95f1563f8829d8f3482b95b11524e1a73bb",
+    "oscal_ssp_metaschema.xml": "1109884e49675d900950c286b15b57812507d69210238344f0364c4b1b236f91",
+    "oscal_catalog_metaschema.xml": "2242a51cb3e307975a677e26816167df1d3dec759101074e58fcb3f3bca67d67",
+    "oscal_complete_metaschema.xml": "aa32028e7be81bae739a64b39d90c6f33894afc7232412d492a7f0520c93ab4f",
+    "oscal_implementation-common_metaschema.xml": "83f9dfa34d143a10aaa8894d5a848d85dcc05b5ccd1ae96b3e2c93c956ec2263",
+    "oscal_control-common_metaschema.xml": "e6903981455b839e6043cb02adaf9bb4b3a3f2ace84c24f23980ee3c0ab2d46c",
+    "oscal_mapping_metaschema.xml": "3f0d4ca01c74cacd751f4ae554c788be89f2049e2c3ba0f47ff8060c899ad482",
+    "oscal_assessment-common_metaschema.xml": "b67744cc1a8cb1fe43e0af85b9c0c79494f59f8ce7468739eb5b2a05cda5f388",
+    "oscal_assessment-results_metaschema.xml": "8f3e0ebec44ae985efcd21eab556ce48cd3fd0d823c5a3813a94ee837f9da3a6"
+  }
+}

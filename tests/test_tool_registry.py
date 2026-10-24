@@ -20,6 +20,12 @@ from mcp_server_for_oscal.tools import get_tool_list
 BASE_TOOL_NAMES = {
     "list_oscal_models",
     "get_oscal_schema",
+    # Metaschema constraint tools (unconditionally registered, no AWS dependency)
+    "get_allowed_values",
+    "get_constraints",
+    "find_references_to",
+    "get_definition",
+    "get_metaschema_source",
     "list_oscal_resources",
     "query_component_definition",
     "list_component_definitions",

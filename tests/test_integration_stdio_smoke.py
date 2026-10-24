@@ -1786,3 +1786,75 @@ def test_stdio_handshake_initialize_and_list_tools(launch_spec: LaunchSpec, tmp_
             lambda c: srv.handshake_request("tools/list", {} if c is None else {"cursor": c})
         )
         assert_tool_names(names, launch_spec)
+
+
+# --- Metaschema tool smoke check (metaschema-constraints, task 10.4) ------------------------
+
+ALLOWED_VALUES_TOOL = "get_allowed_values"
+_ALLOWED_VALUES_ARGS: Final = {
+    "model": "component-definition",
+    "target": "defined-component/prop/@name",
+}
+_ALLOWED_VALUES_EXPECTED = "asset-type"
+_ALLOWED_VALUES_PAGE_LIMIT = 100  # the tool's maximum; fewer round trips than the default 25
+
+
+def tool_call_payload(result: Mapping[str, Any], *, tool: str) -> dict[str, Any]:
+    """Return the JSON object a ``tools/call`` result carries, failing on a tool error.
+
+    Prefers ``structuredContent``; otherwise decodes the first text content block as JSON.
+    """
+    assert result.get("isError") is not True, f"{tool} returned isError: {_as_json(dict(result))}"
+    structured = result.get("structuredContent")
+    if isinstance(structured, dict):
+        return structured
+    for block in result.get("content") or []:
+        if isinstance(block, dict) and block.get("type") == "text":
+            payload = json.loads(block["text"])
+            assert isinstance(payload, dict), f"{tool} text content is not a JSON object"
+            return payload
+    raise SmokeProtocolError(f"{tool} result has no JSON payload: {_as_json(dict(result))}")
+
+
+def test_stdio_get_allowed_values(launch_spec: LaunchSpec, tmp_path: Path) -> None:
+    """The Metaschema bundle loads and answers over a real server subprocess (Req 1.5, 1.6, 7.2).
+
+    ``tools/list`` must include ``get_allowed_values``, and a ``tools/call`` for
+    ``defined-component/prop/@name`` must return ``asset-type`` on some page. The bundle is
+    read only through the installed package, so in the CI ``mcpb`` job (installed wheel) this
+    also shows the bundle is in the wheel (1.6) and that its LF-exact checkout passes the
+    startup hash check on macOS and Windows (1.5).
+    """
+    with StdioServer(launch_spec, cwd=tmp_path) as srv:
+        srv.modern_request("server/discover")
+        names = collect_tool_names(
+            lambda c: srv.modern_request("tools/list", {} if c is None else {"cursor": c})
+        )
+        assert ALLOWED_VALUES_TOOL in names, f"{ALLOWED_VALUES_TOOL} not listed: {sorted(names)}"
+
+        values: list[str] = []
+        offset = 0
+        for _ in range(DEFAULT_MAX_PAGES):
+            result = srv.modern_request(
+                "tools/call",
+                {
+                    "name": ALLOWED_VALUES_TOOL,
+                    "arguments": {
+                        **_ALLOWED_VALUES_ARGS,
+                        "offset": offset,
+                        "limit": _ALLOWED_VALUES_PAGE_LIMIT,
+                    },
+                },
+            )
+            page = tool_call_payload(result, tool=ALLOWED_VALUES_TOOL)
+            items = page.get("items")
+            assert isinstance(items, list), f"page has no items list: {_as_json(page)}"
+            values.extend(str(item.get("value")) for item in items)
+            if _ALLOWED_VALUES_EXPECTED in values or not page.get("hasMore") or not items:
+                break
+            offset += len(items)
+
+        assert _ALLOWED_VALUES_EXPECTED in values, (
+            f"{_ALLOWED_VALUES_EXPECTED!r} not among {ALLOWED_VALUES_TOOL} values {values}\n"
+            f"--- server stderr ---\n{srv.stderr_text()}"
+        )

@@ -15,9 +15,13 @@ from mcp.server.mcpserver import MCPServer
 
 from mcp_server_for_oscal.config import config
 from mcp_server_for_oscal.tools.utils import (
+    INTEGRITY_ERRORS,
     get_bundled_oscal_version,
-    verify_package_integrity,
+    verify_bundled_content,
 )
+
+# Package directory holding the bundled content; module constant so tests can patch it
+PACKAGE_DIR = Path(__file__).parent
 
 # Configure logging
 try:
@@ -115,6 +119,34 @@ def _init_oscal_store() -> None:
         )
 
 
+def _warm_metaschema_index() -> None:
+    """Load the process-wide Metaschema index once at startup (Req 2.3, 4.8).
+
+    Called right after integrity verification so the bundle is parsed while it is known
+    to be intact. Never exits: a bundle-level failure is logged with its traceback and
+    ``get_index()`` retries on the next tool call, and per-module load errors are logged
+    once each here and reported to clients per call by the affected tools.
+    """
+    try:
+        from mcp_server_for_oscal.tools.metaschema_index import get_index
+
+        index = get_index()
+    except Exception:
+        logger.warning(
+            "Failed to load the bundled Metaschema index; Metaschema tools "
+            "will report the error per call",
+            exc_info=True,
+        )
+        return
+    for module, errors in index.load_errors.items():
+        logger.warning(
+            "Metaschema module %s failed to load; models that use it will report "
+            "the error per call: %s",
+            module,
+            "; ".join(f"{e.subject}: {e.reason}" for e in errors),
+        )
+
+
 def _setup_tools() -> None:
     from mcp_server_for_oscal.tools import get_tool_list
 
@@ -202,13 +234,19 @@ def main():
         config.transport,
     )
 
-    # Attempt to verify integrity of bundled content
+    # Verify integrity of every bundled content directory before anything reads it
     try:
-        my_dir = Path(__file__).parent
-        verify_package_integrity(my_dir.joinpath("oscal_schemas"))
-    except (RuntimeError, KeyError) as err:
-        logger.exception("Bundled context files may have been tampered with; exiting.")
+        verify_bundled_content(PACKAGE_DIR)
+    except INTEGRITY_ERRORS as err:
+        logger.exception(
+            "Bundled content in %s failed integrity verification (%s); exiting.",
+            PACKAGE_DIR,
+            err,  # noqa: TRY401 - failing dir/file on the summary line, not only the traceback
+        )
         raise SystemExit(2) from err
+
+    # Parse the verified Metaschema bundle now; failures are logged, never fatal
+    _warm_metaschema_index()
 
     # Initialize OscalStore singleton before setting up tools
     _init_oscal_store()

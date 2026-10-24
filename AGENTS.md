@@ -43,9 +43,18 @@ These rules are defined in `.kiro/steering/`. Read the files for detail; they ta
 | `tools/query_component_definition.py` | Component Definition tools (capability-first, scoped by cdef UUID or exact title) | |
 | `tools/query_oscal_models.py` | `query_*`/`list_*` for the other 7 model types, child-element listers, `text_search_oscal`, `get_child_element` | |
 | `tools/validate_oscal_content.py` | 4-level validation: JSON → JSON Schema (`regex` pattern handler) → model (oscal-bindings via `MODEL_MAP`) → `oscal-cli` if on PATH | |
+| `tools/metaschema_index.py` | Safe `pyexpat` loader and index of the bundled Metaschema modules: definitions, constraints, import graph, `ModelScope`; process-wide `get_index()` singleton | |
+| `tools/metaschema_paths.py` | Pure string algorithms: constraint target → normalized paths and conditions; Target_Selector validate/parse/compose | |
+| `tools/get_allowed_values.py` | `get_allowed_values` tool: `allowed-values` lookup by model and Target_Selector (structural match, paginated) | |
+| `tools/get_constraints.py` | `get_constraints` tool: all constraint types (`allowed-values`, `matches`, `index`, `index-has-key`, `is-unique`, `has-cardinality`, `expect`) by model and Target_Selector, optional type filter, source file and line per item (paginated within a response budget) | |
+| `tools/find_references_to.py` | `find_references_to` tool: fields, flags, props, and links that must reference a given assembly by key, from `index`/`index-has-key` constraint pairs, optionally scoped to a model, with source file and line for both sides and a `cross-document` flag (paginated within a response budget) | |
+| `tools/get_definition.py` | `get_definition` tool: Metaschema definitions by exact name, optionally scoped to a model and kind, with formal name, description, remarks, flags, model children, and constraint summaries, source file and line per match (paginated within a response budget; long remarks truncated) | |
+| `tools/get_metaschema_source.py` | `get_metaschema_source` tool: verbatim line range of a bundled Metaschema source file, looked up by exact match in the manifest allowlist (`MetaschemaIndex.source_files()`), or the file list with line counts when `file` is omitted; lines come from `MetaschemaIndex.source_lines()`, never a direct file read (paged by line range within a response budget) | |
+| `tools/metaschema_common.py` | Helpers shared by the Metaschema tools: model/selector/page argument checks, unknown-definition messages, structural target matching | |
 | `tools/query_documentation.py`, `tools/list_oscal_resources.py` | Bedrock KB query with a local FTS fallback; awesome-oscal list read from the DB | |
 | `tools/utils.py` | `OSCALModelType`, `MODEL_MAP` (the single source of oscal-bindings model classes per model type), schema loading, bundled OSCAL version, `verify_package_integrity`, `paginate`, MCP client logging | |
 | `src/mcp_server_for_oscal/oscal_schemas/` | NIST JSON/XSD schemas + `hashes.json` (verified at startup; exit 2 on mismatch) | |
+| `src/mcp_server_for_oscal/oscal_metaschema/` | NIST Metaschema modules + `shared-constraints/*.ent`, provenance `README.md`, a `hashes.json` in each dir (verified at startup by `verify_bundled_content`; exit 2 on mismatch). Written by `bin/update_oscal_metaschema.py` | |
 | `data/` | Source content for the bundled DB (AWS cdef zip, awesome-oscal, fetched OSCAL-Pages). Not shipped in the wheel | |
 | `bin/` | DB build, hash, MCPB, and content-update scripts | |
 | `conf/mcpb/`, `conf/agentcore/`, `conf/powers/oscal/` | MCP Bundle template, AgentCore Dockerfile, Kiro Power | |
@@ -84,8 +93,8 @@ All of these are defined under `[tool.hatch.envs.default.scripts]` in `pyproject
 |---|---|
 | `hatch run tests` | Required before commit: mypy, `hatch test --exitfirst --all --cover` (3.13 + 3.14), bandit. Reports go to `private/docs/` |
 | `hatch run build-db` | After changing `data/` content or store schema/extraction logic; rebuilds `oscal_store.db` and its hash |
-| `hatch run rehash` | After changing files in `oscal_schemas/` or `data/*`; regenerates `hashes.json` and runs `git add` on the manifests |
-| `hatch run update-oscal-schemas` | After bumping `CURRENT_RELEASE_VERSION` in `bin/update-oscal-schemas.sh`; then `rehash`. That variable also drives the README OSCAL badge and `TestBundledOscalVersion`. Also requires a matching `oscal-bindings` release: `TestBundledOscalVersion` fails unless `oscal_bindings.__oscal_schema_version__` equals the bundled schema version |
+| `hatch run rehash` | After changing files in `oscal_schemas/`, `oscal_metaschema/`, or `data/*`; regenerates `hashes.json` (both metaschema manifests included) and runs `git add` on the manifests |
+| `hatch run update-oscal-schemas` | After bumping `CURRENT_RELEASE_VERSION` and `CURRENT_RELEASE_COMMIT` (full 40-hex SHA that tag `v<version>` points to) in `bin/update-oscal-schemas.sh`; then `rehash`. It first runs `bin/update_oscal_metaschema.py`, which downloads that commit's archive into `oscal_metaschema/`. That variable also drives the README OSCAL badge and `TestBundledOscalVersion`. Also requires a matching `oscal-bindings` release: `TestBundledOscalVersion` fails unless `oscal_bindings.__oscal_schema_version__` equals the bundled schema version |
 | `hatch run update` | Re-lock `requirements.txt` after editing dependencies (`UV_CONSTRAINT` pins every env to it) |
 | `hatch run release` | Full CI pipeline locally: tests, fetch NIST docs, build-db, build, build-mcpb (needs `uv` and `npx`) |
 | `hatch run http-server` / `hatch run oscal-agent` | Dev-only streamable-http server (no auth) / agent CLI (needs Bedrock) |
@@ -99,6 +108,7 @@ All of these are defined under `[tool.hatch.envs.default.scripts]` in `pyproject
 - The `MCPServer` and `config` are created at import time, so tests patch `mcp_server_for_oscal.<module>.config` rather than environment variables.
 - `MODEL_MAP` in `tools/utils.py` is the single source of OSCAL model classes; the store and validator both read it. Don't map or import model classes elsewhere.
 - Tools return stored OSCAL JSON (child `raw_json`) with hyphenated keys. Never return Pydantic models from tools. Since oscal-bindings 0.2.0, models serialize to valid OSCAL by default; explicit `by_alias=True, exclude_none=True` is optional.
+- Bundled `hashes.json` manifests must be byte-identical to `utils.manifest_bytes` (the format `bin/update_hashes.py` writes). Don't hand-edit or reformat them; run `hatch run rehash`.
 - The OSCAL version reported by `about` comes from the schema `$id` and is never hard-coded.
 - `README.md` must keep its first-line `<!-- mcp-name: io.github.dfkunstler/mcp-server-for-oscal -->`, which must match `server.json` `name` (tested).
 - Env vars are declared in `config.py`, `dotenv.example`, DEVELOPING.md, and partially in `server.json` and `conf/mcpb/manifest.json` + `conf/mcpb/src/server.py` (`USER_CONFIG_ENV`). Keep them in sync.
