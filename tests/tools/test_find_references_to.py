@@ -30,6 +30,7 @@ from mcp_server_for_oscal.tools.metaschema_index import (
 from mcp_server_for_oscal.tools.metaschema_paths import PathAlternative, normalize_target
 from mcp_server_for_oscal.tools.utils import OSCALModelType, paginate
 
+from .test_get_allowed_values import _signature_rows
 from .test_metaschema_index import CAT, PROF, _imports, _mod, _module, _write_bundle
 
 ITEM_KEYS = {
@@ -510,7 +511,6 @@ class TestRequiredExamples:
 
     def test_signature_and_defaults(self):
         """Req 9.1: assembly, model=None, offset=0, limit=25, ctx=None, with their types."""
-        params = inspect.signature(find_references_to).parameters
         expected = [
             ("assembly", str, inspect.Parameter.empty),
             ("model", str | None, None),
@@ -518,7 +518,7 @@ class TestRequiredExamples:
             ("limit", int, 25),
             ("ctx", Context | None, None),
         ]
-        assert [(p.name, p.annotation, p.default) for p in params.values()] == expected
+        assert _signature_rows(find_references_to) == expected
 
     def test_mcp_input_schema_hides_ctx(self):
         """The MCP server injects ``ctx``; callers see only the four documented arguments."""

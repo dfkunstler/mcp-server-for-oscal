@@ -13,7 +13,9 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 import mcp_server_for_oscal.tools.get_schema as get_schema_module
+from mcp_server_for_oscal.tools import tool_budget
 from mcp_server_for_oscal.tools.get_schema import get_oscal_schema, open_schema_file
+from mcp_server_for_oscal.tools.list_models import list_oscal_models
 from mcp_server_for_oscal.tools.utils import OSCALModelType, schema_names
 
 # Shared helpers for real-file tests (no json.load / file-content mocking).
@@ -62,14 +64,14 @@ class TestGetSchemaBugCondition:
     @pytest.mark.parametrize("model_name", VALID_MODELS)
     def test_get_schema_xsd_returns_bundled_text(self, model_name):
         """XSD request returns the bundled XSD file contents exactly."""
-        result = get_oscal_schema(None, model_name, "xsd")
+        result = get_oscal_schema(model_name, "xsd")
         assert result == expected_text(model_name, "xsd")
 
     def test_get_schema_xsd_does_not_notify_client_error(self):
         """A valid XSD request sends no error notification to the client."""
         ctx = AsyncMock()
         ctx.session.client_params = {}
-        result = get_oscal_schema(ctx, "catalog", "xsd")
+        result = get_oscal_schema("catalog", "xsd", ctx=ctx)
         assert result == expected_text("catalog", "xsd")
         ctx.error.assert_not_called()
 
@@ -78,7 +80,7 @@ class TestGetSchemaBugCondition:
     def test_get_schema_handle_closed(self, handle_tracker, model_name, schema_type):
         """Exactly one schema handle is opened, and it is closed after the call."""
         handles, mock_open_fn = handle_tracker
-        get_oscal_schema(None, model_name, schema_type)
+        get_oscal_schema(model_name, schema_type)
         mock_open_fn.assert_called_once_with(f"{schema_names[model_name]}.{schema_type}")
         assert len(handles) == 1
         assert handles[0].closed
@@ -97,7 +99,7 @@ class TestGetSchemaBugCondition:
         with patch("mcp_server_for_oscal.tools.get_schema.open_schema_file", side_effect=_open_bad):
             try:
                 with pytest.raises(json.JSONDecodeError):
-                    get_oscal_schema(None, "catalog", "json")
+                    get_oscal_schema("catalog", "json")
                 assert len(handles) == 1
                 assert handles[0].closed
             finally:
@@ -123,13 +125,16 @@ class TestGetSchemaPreservation:
     @pytest.mark.parametrize("model_name", VALID_MODELS)
     def test_json_output_identical(self, model_name):
         """JSON output is byte-identical to json.dumps(json.load(file)) and parses equal."""
-        result = get_oscal_schema(None, model_name, "json")
+        result = get_oscal_schema(model_name, "json")
         assert result == expected_json_output(model_name)
         assert json.loads(result) == json.loads(expected_text(model_name, "json"))
 
-    def test_default_arguments_return_complete_json(self):
-        """With no arguments, the tool returns the complete JSON schema."""
-        assert get_oscal_schema() == expected_json_output("complete")
+    def test_model_name_required_and_schema_type_defaults_to_json(self):
+        """model_name has no default; schema_type defaults to json, so "complete" gives the
+        complete JSON schema."""
+        with pytest.raises(TypeError):
+            get_oscal_schema()  # type: ignore[call-arg]
+        assert get_oscal_schema("complete") == expected_json_output("complete")
 
     @given(schema_type=st.text().filter(lambda s: s not in SCHEMA_TYPES))
     def test_invalid_schema_type_rejected_without_opening(self, schema_type):
@@ -138,7 +143,7 @@ class TestGetSchemaPreservation:
             with pytest.raises(
                 ValueError, match=f"^{re.escape(f'Invalid schema type: {schema_type}.')}$"
             ):
-                get_oscal_schema(None, "catalog", schema_type)
+                get_oscal_schema("catalog", schema_type)
             mock_open_fn.assert_not_called()
 
     @given(
@@ -149,7 +154,7 @@ class TestGetSchemaPreservation:
         """Any unknown model_name raises the existing ValueError and opens no file."""
         with patch("mcp_server_for_oscal.tools.get_schema.open_schema_file") as mock_open_fn:
             with pytest.raises(ValueError, match=r"^Invalid model: ") as exc_info:
-                get_oscal_schema(None, model_name, schema_type)
+                get_oscal_schema(model_name, schema_type)
             assert str(exc_info.value) == (
                 f"Invalid model: {model_name}. "
                 "Use the tool list_oscal_models to get valid model names."
@@ -172,9 +177,9 @@ class TestGetSchema:
     # Pass-through wrapper: the real open_schema_file reads the bundled file, while the
     # mock still records which file name the tool asked for.
     @patch("mcp_server_for_oscal.tools.get_schema.open_schema_file", side_effect=open_schema_file)
-    def test_get_schema_success_default_params(self, mock_open_schema_file, mock_context):
-        """Test successful schema retrieval with default parameters."""
-        result = get_oscal_schema(mock_context)
+    def test_get_schema_success_complete_model(self, mock_open_schema_file, mock_context):
+        """model_name "complete" with the default schema_type returns the complete JSON schema."""
+        result = get_oscal_schema(model_name="complete", ctx=mock_context)
 
         assert result == expected_json_output("complete")
         mock_open_schema_file.assert_called_once_with("oscal_complete_schema.json")
@@ -183,7 +188,7 @@ class TestGetSchema:
     @patch("mcp_server_for_oscal.tools.get_schema.open_schema_file", side_effect=open_schema_file)
     def test_get_schema_success_catalog_model(self, mock_open_schema_file, mock_context):
         """Test successful schema retrieval for catalog model."""
-        result = get_oscal_schema(mock_context, model_name="catalog", schema_type="json")
+        result = get_oscal_schema(ctx=mock_context, model_name="catalog", schema_type="json")
 
         assert result == expected_json_output("catalog")
         mock_open_schema_file.assert_called_once_with("oscal_catalog_schema.json")
@@ -192,7 +197,7 @@ class TestGetSchema:
     def test_get_schema_success_ssp_model(self, mock_open_schema_file, mock_context):
         """Test successful schema retrieval for system-security-plan model (mapped to ssp)."""
         result = get_oscal_schema(
-            mock_context, model_name="system-security-plan", schema_type="json"
+            ctx=mock_context, model_name="system-security-plan", schema_type="json"
         )
 
         assert result == expected_json_output("system-security-plan")
@@ -202,7 +207,7 @@ class TestGetSchema:
     def test_get_schema_success_poam_model(self, mock_open_schema_file, mock_context):
         """Test successful schema retrieval for plan-of-action-and-milestones model (mapped to poam)."""
         result = get_oscal_schema(
-            mock_context, model_name="plan-of-action-and-milestones", schema_type="json"
+            ctx=mock_context, model_name="plan-of-action-and-milestones", schema_type="json"
         )
 
         assert result == expected_json_output("plan-of-action-and-milestones")
@@ -212,7 +217,7 @@ class TestGetSchema:
         """Test error handling for invalid schema type."""
         # Execute test and verify exception
         with pytest.raises(ValueError, match="Invalid schema type: invalid"):
-            get_oscal_schema(mock_context, model_name="catalog", schema_type="invalid")
+            get_oscal_schema(ctx=mock_context, model_name="catalog", schema_type="invalid")
 
         # Verify error context call
         mock_context.error.assert_called_once_with("Invalid schema type: invalid.")
@@ -221,7 +226,7 @@ class TestGetSchema:
         """Test error handling for invalid model name."""
         # Execute test and verify exception
         with pytest.raises(ValueError, match="Invalid model: invalid-model"):
-            get_oscal_schema(mock_context, model_name="invalid-model", schema_type="json")
+            get_oscal_schema(ctx=mock_context, model_name="invalid-model", schema_type="json")
 
         # Verify error context call
         mock_context.error.assert_called_once()
@@ -237,7 +242,7 @@ class TestGetSchema:
 
         # Execute test and verify exception
         with pytest.raises(FileNotFoundError):
-            get_oscal_schema(mock_context, model_name="catalog", schema_type="json")
+            get_oscal_schema(ctx=mock_context, model_name="catalog", schema_type="json")
 
         # Verify error handling
         mock_context.error.assert_called_once_with(
@@ -250,7 +255,7 @@ class TestGetSchema:
         mock_open_schema_file.side_effect = FileNotFoundError("File not found")
 
         with pytest.raises(FileNotFoundError):
-            get_oscal_schema(mock_context, model_name="catalog", schema_type="xsd")
+            get_oscal_schema(ctx=mock_context, model_name="catalog", schema_type="xsd")
 
         mock_open_schema_file.assert_called_once_with("oscal_catalog_schema.xsd")
         mock_context.error.assert_called_once_with("failed to open schema oscal_catalog_schema.xsd")
@@ -262,7 +267,7 @@ class TestGetSchema:
         mock_open_schema_file.side_effect = mock_open(read_data="not json")
 
         with pytest.raises(json.JSONDecodeError):
-            get_oscal_schema(mock_context, model_name="catalog", schema_type="json")
+            get_oscal_schema(ctx=mock_context, model_name="catalog", schema_type="json")
 
         mock_open_schema_file.assert_called_once_with("oscal_catalog_schema.json")
         mock_context.error.assert_called_once_with(
@@ -270,19 +275,37 @@ class TestGetSchema:
         )
 
     def test_get_schema_docstring_documents_both_formats(self):
-        """The Returns section describes JSON and XSD output; the summary is unchanged.
+        """The summary sentence names JSON and XSD output and the docstring fits the
+        Description_Shape.
 
         Uses ``inspect.getdoc``, the same access ``bin/build_mcpb.py`` uses for the
         MCPB manifest tool description.
         """
         doc = inspect.getdoc(get_oscal_schema) or ""
-        assert doc.split("\n\n")[0].startswith(
-            "A tool that returns the schema for specified OSCAL model."
-        )
-        returns = doc.split("Returns:", 1)[1]
-        assert "JSON" in returns
-        assert "XSD" in returns
-        assert "XML" in returns
+        summary = tool_budget.summary_sentence(doc)
+        assert summary.startswith("Return the JSON schema or XML Schema (XSD)")
+        assert "JSON" in summary
+        assert "XSD" in summary
+        assert "XML" in summary
+        assert tool_budget.description_shape_problems(doc) == []
+
+    def test_get_schema_signature(self):
+        """model_name is required and first, schema_type is a json/xsd Literal, ctx is last."""
+        params = list(inspect.signature(get_oscal_schema).parameters.values())
+        assert [p.name for p in params] == ["model_name", "schema_type", "ctx"]
+        assert params[0].default is inspect.Parameter.empty
+        assert params[1].default == "json"
+        assert params[2].default is None
+        spec = get_oscal_schema.tool_spec["inputSchema"]["json"]
+        assert "model_name" in spec["required"]
+        assert spec["properties"]["schema_type"]["enum"] == ["json", "xsd"]
+        assert "complete" in spec["properties"]["model_name"]["description"]
+
+    def test_list_oscal_models_docstring_shape(self):
+        """list_oscal_models has a Description_Shape docstring."""
+        doc = inspect.getdoc(list_oscal_models) or ""
+        assert tool_budget.description_shape_problems(doc) == []
+        assert "Returns:" not in doc
 
     @patch("mcp_server_for_oscal.tools.get_schema.logger")
     def test_get_schema_logging(self, mock_logger, mock_context):
@@ -291,7 +314,7 @@ class TestGetSchema:
             "mcp_server_for_oscal.tools.get_schema.open_schema_file",
             side_effect=open_schema_file,
         ) as mock_open_schema_file:
-            get_oscal_schema(mock_context, model_name="catalog", schema_type="json")
+            get_oscal_schema(ctx=mock_context, model_name="catalog", schema_type="json")
 
             mock_open_schema_file.assert_called_once_with("oscal_catalog_schema.json")
 
@@ -344,7 +367,7 @@ class TestGetSchema:
         for model in OSCALModelType:
             mock_open_schema_file.reset_mock()
 
-            result = get_oscal_schema(mock_context, model_name=model, schema_type="json")
+            result = get_oscal_schema(ctx=mock_context, model_name=model, schema_type="json")
 
             assert result == expected_json_output(model.value)
 

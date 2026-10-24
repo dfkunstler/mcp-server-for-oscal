@@ -13,6 +13,13 @@ import logging
 from mcp.server.mcpserver import Context
 from strands import tool
 
+from mcp_server_for_oscal.tools.descriptions import (
+    BudgetedLimit,
+    ModelName,
+    Offset,
+    TargetSelector,
+)
+
 # Re-exported: callers and tests import the suggestion helpers from this module.
 from mcp_server_for_oscal.tools.metaschema_common import (
     Match,
@@ -60,50 +67,17 @@ MAX_SUGGESTED_TARGETS = 20
 
 @tool()
 def get_allowed_values(
-    model: str,
-    target: str,
-    offset: int = 0,
-    limit: int = 25,
+    model: ModelName,
+    target: TargetSelector,
+    offset: Offset = 0,
+    limit: BudgetedLimit = 25,
     ctx: Context | None = None,
 ) -> dict:
-    """Look up the values OSCAL Metaschema allows at a point in an OSCAL model, e.g. "Is asset-type an OSCAL prop name on defined-component, and are other names allowed?", "Which component types does an SSP accept?", or "Which link rel values can a service component use?".
-
-    Answers come from the Metaschema `allowed-values` constraints bundled with the server (the
-    primary source behind the OSCAL JSON and XML schemas, which do not list these values).
-
-    `target` is a Target_Selector: a Metaschema definition name, optionally followed by `/`
-    (child) or `//` (descendant) and a path in instance names. Examples:
-    "defined-component/prop/@name", "system-component/@type", "defined-component/link/@rel",
-    "property/@name", "part//part/@name". A bare definition name such as "defined-component"
-    returns the values constrained on that definition itself. Do not include predicates,
-    unions, or whitespace: Metaschema predicates are returned per value as `namespace` and
-    `conditions` instead (e.g. a `conditions` entry `{"step": "(.)", "predicate":
-    "@type='service'"}` means the value applies only to service components).
-
-    Only constraints declared on the named definition (and on its flags' definitions) are
-    returned. Values that apply to every prop or link are declared on the generic `property`
-    and `link` definitions, so also query "property/@name" and "link/@rel" for those.
-
-    Args:
-        model: OSCAL model name, e.g. "component-definition" or "system-security-plan". Use
-            list_oscal_models for valid names.
-        target: Target_Selector, 1-512 characters, as described above.
-        offset: Zero-based index of the first item to return (default 0).
-        limit: Maximum number of items to return, 1-100 (default 25). A page may hold fewer
-            items to stay within the response size budget; `limit` then reports the reduced
-            size.
-        ctx: MCP server context (injected automatically by the MCP server).
-
-    Returns:
-        dict: Page_Response with `items`, `total`, `offset`, `limit`, and `hasMore`. Each item
-        has `value`, `description`, `allow-other` (true if values outside the list are
-        allowed), `definition`, `target` (the constraint's Metapath target), `level`,
-        `source-file`, and `line` (where the value is declared in the bundled Metaschema), and
-        when applicable `namespace`, `conditions`, `extensible`, `deprecated`,
-        `constraint-id`, `flag-definition`, and `truncated`. When nothing matches, the
-        response also has `suggested-targets`: selectors on the same definition that do
-        return values.
-    """
+    """Return the values OSCAL Metaschema `allowed-values` constraints permit at a target, with
+    `allow-other`, `namespace` and `conditions` for predicates, and source file and line. Use
+    when the JSON schema does not list the values; use get_constraints for other constraint
+    types. Results are paged within a response budget, and an empty page lists
+    `suggested-targets`."""
     logger.debug(
         "get_allowed_values(model: %s, target: %s, offset: %s, limit: %s)",
         model,

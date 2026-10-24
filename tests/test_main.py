@@ -623,3 +623,33 @@ class TestWarmMetaschemaIndex:
         assert {w.args[0] for w in warnings} == set(load_errors)
         # Client-safe LoadError text only: no absolute paths in the log line
         assert all(str(tmp_path) not in w.getMessage() for w in warnings)
+
+
+class TestBuildServer:
+    """build_server() and _setup_tools(server) (tool-context-optimization Req 8.1)."""
+
+    def test_build_server_returns_fresh_server_with_instructions(self):
+        from mcp_server_for_oscal import main as main_module
+        from mcp_server_for_oscal.tools.descriptions import SERVER_INSTRUCTIONS
+
+        server = main_module.build_server()
+        assert server is not main_module.mcp
+        assert server is not main_module.build_server()
+        assert server.instructions == SERVER_INSTRUCTIONS
+        assert server.name == real_config.server_name
+
+    def test_setup_tools_registers_on_given_server_only(self):
+        import asyncio
+
+        from mcp_server_for_oscal import main as main_module
+        from mcp_server_for_oscal.tools import get_tool_list
+        from mcp_server_for_oscal.tools.descriptions import ABOUT_DESCRIPTION
+
+        before = {t.name for t in asyncio.run(main_module.mcp.list_tools())}
+        server = main_module.build_server()
+        main_module._setup_tools(server)
+
+        tools = {t.name: t for t in asyncio.run(server.list_tools())}
+        assert set(tools) == {fn.__name__ for fn in get_tool_list()} | {"about"}
+        assert tools["about"].description == ABOUT_DESCRIPTION
+        assert {t.name for t in asyncio.run(main_module.mcp.list_tools())} == before

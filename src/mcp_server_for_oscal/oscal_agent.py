@@ -6,6 +6,7 @@ configured with OSCAL-specific tools, retry strategy, and observability.
 """
 
 import argparse
+import copy
 import logging
 import uuid
 import warnings
@@ -26,6 +27,8 @@ from strands.hooks import (
     HookRegistry,
 )
 from strands.models import BedrockModel
+from strands.tools.decorator import DecoratedFunctionTool
+from strands.types.tools import ToolSpec
 
 from mcp_server_for_oscal.config import config
 from mcp_server_for_oscal.tools import get_tool_list
@@ -35,6 +38,54 @@ logger = logging.getLogger(__name__)
 
 # Package directory holding the bundled content; module constant so tests can patch it
 PACKAGE_DIR = Path(__file__).parent
+
+# The MCP SDK excludes this parameter from the inputSchema by its `Context` type. Strands
+# `@tool` treats only its own `tool_context` parameter as special, so it exposes `ctx` as a
+# normal optional property with a `$defs.Context` block. The Agent strips both.
+MCP_CONTEXT_PARAM = "ctx"
+MCP_CONTEXT_DEF = "Context"
+
+
+def strip_mcp_context(spec: ToolSpec) -> ToolSpec:
+    """Return a deep copy of a Strands tool spec without the MCP `ctx` parameter.
+
+    Removes `ctx` from `properties` and `required`, removes `$defs.Context`, and removes
+    `$defs` when it is then empty. Everything else is unchanged. The input is not mutated.
+    """
+    new_spec = copy.deepcopy(spec)
+    input_schema: Any = new_spec.get("inputSchema")
+    schema = input_schema.get("json") if isinstance(input_schema, dict) else None
+    if not isinstance(schema, dict):
+        return new_spec
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        properties.pop(MCP_CONTEXT_PARAM, None)
+    if isinstance(schema.get("required"), list):
+        schema["required"] = [r for r in schema["required"] if r != MCP_CONTEXT_PARAM]
+    defs = schema.get("$defs")
+    if isinstance(defs, dict):
+        defs.pop(MCP_CONTEXT_DEF, None)
+        if not defs:
+            del schema["$defs"]
+    return new_spec
+
+
+def agent_tool(tool: Any) -> Any:
+    """Return the Agent's copy of one tool: a `DecoratedFunctionTool` gets a stripped spec.
+
+    Other objects (plain callables, mocks, other AgentTool types) pass through unchanged.
+    The shared module-level tool, which the MCP server also registers, is not modified.
+    """
+    if not isinstance(tool, DecoratedFunctionTool):
+        return tool
+    clone = copy.copy(tool)  # shallow: shares the wrapped function and input model
+    clone.tool_spec = strip_mcp_context(tool.tool_spec)  # public setter, validates the spec
+    return clone
+
+
+def agent_tools(tools: list[Any]) -> list[Any]:
+    """Map `agent_tool` over a tool list, keeping order."""
+    return [agent_tool(t) for t in tools]
 
 
 def _build_system_prompt(tools: list[Any]) -> str:
@@ -262,6 +313,8 @@ def create_oscal_agent(
     """
     if tools is None:
         tools = get_tool_list()
+    # Per-agent copies whose specs omit the MCP-only `ctx` parameter (Req 11)
+    tools = agent_tools(tools)
 
     # Create boto3 session
     try:

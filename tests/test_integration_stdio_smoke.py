@@ -1695,6 +1695,9 @@ def expected_tool_set() -> set[str]:
     return {fn.__name__ for fn in get_tool_list()} | {"about"}
 
 
+ROUTING_GUIDE_TOOL = "list_oscal_models"  # a tool the Routing_Guide always names
+
+
 @pytest.fixture
 def launch_spec() -> LaunchSpec:
     return resolve_launch(os.environ)
@@ -1758,7 +1761,8 @@ def test_stdio_handshake_initialize_and_list_tools(launch_spec: LaunchSpec, tmp_
 
     This is a separate launch from the modern test because the SDK locks the protocol era
     per connection on its first request. ``initialize`` must answer with the requested
-    handshake version, a server name, and a tools capability (Req 9.9, 9.10); after
+    handshake version, a server name, a tools capability (Req 9.9, 9.10), and
+    ``instructions`` naming ``list_oscal_models`` (tool-context-optimization Req 8.1); after
     ``notifications/initialized``, the paged ``tools/list`` names must equal the
     Expected_Tool_Set (Req 9.11). The version comes from ``mcp_types``, never a literal.
     """
@@ -1778,6 +1782,13 @@ def test_stdio_handshake_initialize_and_list_tools(launch_spec: LaunchSpec, tmp_
         assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION, (
             f"initialize negotiated {init['protocolVersion']!r}, "
             f"expected {LATEST_HANDSHAKE_VERSION}: {_as_json(init)}"
+        )
+        # The server sends SERVER_INSTRUCTIONS (intro + Routing_Guide) from main.build_server()
+        # (tool-context-optimization Req 8.1).
+        instructions = init.get("instructions")
+        assert isinstance(instructions, str), f"initialize lacks instructions: {_as_json(init)}"
+        assert ROUTING_GUIDE_TOOL in instructions, (
+            f"initialize instructions don't name {ROUTING_GUIDE_TOOL}: {instructions!r}"
         )
         srv.notify("notifications/initialized")
 

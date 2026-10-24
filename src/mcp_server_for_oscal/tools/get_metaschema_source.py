@@ -10,10 +10,12 @@ manifest allowlist) before anything is read, and lines come only from
 
 import json
 import logging
+from typing import Annotated
 
 from mcp.server.mcpserver import Context
 from strands import tool
 
+from mcp_server_for_oscal.tools.descriptions import ParamDoc
 from mcp_server_for_oscal.tools.metaschema_common import shown
 from mcp_server_for_oscal.tools.metaschema_index import get_index
 from mcp_server_for_oscal.tools.utils import (
@@ -29,36 +31,26 @@ MAX_LINE_COUNT = 500
 
 @tool()
 def get_metaschema_source(
-    file: str | None = None,
-    start_line: int = 1,
-    line_count: int = 200,
+    file: Annotated[
+        str | None,
+        ParamDoc(
+            'Bundle-relative path exactly as listed, e.g. "oscal_component_metaschema.xml". '
+            "Omit to list the files."
+        ),
+    ] = None,
+    start_line: Annotated[
+        int, ParamDoc("1-based first line to return. Ignored when file is omitted.")
+    ] = 1,
+    line_count: Annotated[
+        int, ParamDoc("Maximum lines to return, 1-500. Ignored when file is omitted.")
+    ] = 200,
     ctx: Context | None = None,
 ) -> dict:
-    """Read a line range of a bundled OSCAL Metaschema source file verbatim, e.g. "Show the OSCAL Metaschema XML around oscal_component_metaschema.xml line 120", "What does shared-constraints/allowed-values-component-type.ent contain?", or "Which Metaschema source files are bundled?".
-
-    Use it to check a `source-file` and `line` reported by get_allowed_values,
-    get_constraints, find_references_to, or get_definition, or to read context those tools
-    do not summarize. Line numbers match their `line` values.
-
-    Call it without `file` to list the bundled files and their line counts. With `file`, it
-    returns lines `start_line` through `start_line + line_count - 1` (or to the end of the
-    file). A response may hold fewer lines to stay within the response size budget; continue
-    from `end-line + 1` while `has-more` is true.
-
-    Args:
-        file: Bundle-relative path exactly as listed, e.g. "oscal_component_metaschema.xml" or
-            "shared-constraints/allowed-values-component-type.ent". Omit to list the files.
-        start_line: 1-based first line to return, from 1 to the file's line count (default 1).
-            Ignored when `file` is omitted.
-        line_count: Maximum number of lines to return, 1-500 (default 200). Ignored when
-            `file` is omitted.
-        ctx: MCP server context (injected automatically by the MCP server).
-
-    Returns:
-        dict: With `file`: `file`, `start-line`, `end-line`, `total-lines`, `has-more`, and
-        `text` (the lines verbatim, with their line endings). Without `file`: `files`, a list
-        of `{file, line-count}` sorted by `file`.
-    """
+    """Read a line range of a bundled OSCAL Metaschema source file verbatim, or list the files
+    with line counts when `file` is omitted. Use when checking a `source-file` and `line` from
+    get_definition, get_allowed_values, get_constraints, or find_references_to. A response may
+    hold fewer lines to fit the response budget; continue from `end-line` + 1 while
+    `has-more` is true."""
     logger.debug(
         "get_metaschema_source(file: %s, start_line: %s, line_count: %s)",
         file,

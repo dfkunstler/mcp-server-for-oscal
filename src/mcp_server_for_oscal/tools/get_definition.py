@@ -8,10 +8,17 @@ data comes from ``metaschema_index`` (Requirement 7.1); shared checks come from
 """
 
 import logging
+from typing import Annotated, Literal
 
 from mcp.server.mcpserver import Context
 from strands import tool
 
+from mcp_server_for_oscal.tools.descriptions import (
+    BudgetedLimit,
+    Offset,
+    OptionalModelName,
+    ParamDoc,
+)
 from mcp_server_for_oscal.tools.metaschema_common import (
     check_model,
     check_page,
@@ -38,46 +45,27 @@ DEFAULT_DATATYPE = "string"
 
 @tool()
 def get_definition(
-    name: str,
-    model: str | None = None,
-    kind: str | None = None,
-    offset: int = 0,
-    limit: int = 10,
+    name: Annotated[
+        str,
+        ParamDoc(
+            "Metaschema definition name, 1-200 characters, matched exactly (case-sensitive), "
+            'e.g. "defined-component" or "uuid".'
+        ),
+    ],
+    model: OptionalModelName = None,
+    kind: Annotated[
+        Literal["assembly", "field", "flag"] | None,
+        ParamDoc("Definition kind to keep. Omit for all kinds."),
+    ] = None,
+    offset: Offset = 0,
+    limit: BudgetedLimit = 10,
     ctx: Context | None = None,
 ) -> dict:
-    """Read an OSCAL Metaschema definition with its full documentation and structure, e.g. "What is an OSCAL defined-component and which flags and children does it have?", "What do the OSCAL Metaschema remarks say about a by-component?", or "Which definitions named uuid exist across OSCAL models?".
-
-    Answers come from the Metaschema modules bundled with the server, which carry the formal
-    names, descriptions, and remarks that the generated JSON and XML schemas shorten or drop.
-    `name` is the Metaschema definition name (case-sensitive), such as "defined-component",
-    "metadata", or "uuid". Several definitions can share a name (global and local ones, in
-    different modules); each is returned as its own match.
-
-    Args:
-        name: Definition name, 1-200 characters, matched exactly.
-        model: Optional OSCAL model name, e.g. "component-definition", to search only the
-            definitions visible in that model. Omit to search every bundled module. Use
-            list_oscal_models for valid names.
-        kind: Optional definition kind: "assembly", "field", or "flag". Omit for all kinds.
-        offset: Zero-based index of the first match to return (default 0).
-        limit: Maximum number of matches to return, 1-100 (default 10). A page may hold
-            fewer matches to stay within the response size budget; `limit` then reports the
-            reduced size.
-        ctx: MCP server context (injected automatically by the MCP server).
-
-    Returns:
-        dict: Page_Response with `items`, `total`, `offset`, `limit`, and `hasMore`, ordered
-        by where each definition is declared. Each match has `kind`, `name`, `scope`
-        ("global" or "local"), `source-file`, and `line`, and when declared: `formal-name`,
-        `description`, `remarks` (paragraphs separated by blank lines, list items starting
-        with "- "), `use-name`, `group-as`, `parent-definition` (local matches),
-        `flags` (each with `name`, `required`, and `datatype`, plus `ref` or `inline`),
-        `model` (children, each with `name`, `kind`, `min-occurs`, `max-occurs`, and when
-        declared `group-as`, `ref` or `inline`, `in-choice`), `constraints` (each with
-        `type`, `target`, and `constraint-id` when declared; use get_constraints for details),
-        and `truncated` when `remarks` was shortened (read the full text at `source-file` and
-        `line`).
-    """
+    """Return every OSCAL Metaschema definition with a given name, with formal name,
+    description, remarks, flags, model children, constraint summaries, and source file and
+    line. Use when you need documentation or structure that the generated JSON and XML schemas
+    shorten or drop. Results are paged within a response budget, and long remarks are marked
+    `truncated`."""
     logger.debug(
         "get_definition(name: %s, model: %s, kind: %s, offset: %s, limit: %s)",
         name,

@@ -133,7 +133,7 @@ class TestIntegration:
         """get_oscal_schema returns the real bundled catalog JSON schema."""
         mock_context = self._schema_context()
 
-        result = get_oscal_schema(mock_context, model_name="catalog", schema_type="json")
+        result = get_oscal_schema(ctx=mock_context, model_name="catalog", schema_type="json")
 
         parsed_result = json.loads(result)
         bundled = json.loads((SCHEMA_DIR / "oscal_catalog_schema.json").read_bytes())
@@ -145,7 +145,7 @@ class TestIntegration:
         """get_oscal_schema returns the real bundled catalog XSD text unchanged (#13)."""
         mock_context = self._schema_context()
 
-        result = get_oscal_schema(mock_context, model_name="catalog", schema_type="xsd")
+        result = get_oscal_schema(ctx=mock_context, model_name="catalog", schema_type="xsd")
 
         expected = (SCHEMA_DIR / "oscal_catalog_schema.xsd").read_bytes().decode("utf-8")
         assert result == expected
@@ -301,7 +301,7 @@ class TestIntegration:
                 mock_open_schema_file.reset_mock()
 
                 # Pass-through wrapper: the real bundled file is read.
-                get_oscal_schema(mock_context, model_name=model, schema_type=schema_type)
+                get_oscal_schema(ctx=mock_context, model_name=model, schema_type=schema_type)
 
                 expected_filename = f"{schema_names.get(model)}.{schema_type}"
                 mock_open_schema_file.assert_called_with(expected_filename)

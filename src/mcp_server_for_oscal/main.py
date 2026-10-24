@@ -14,6 +14,7 @@ from pathlib import Path
 from mcp.server.mcpserver import MCPServer
 
 from mcp_server_for_oscal.config import config
+from mcp_server_for_oscal.tools.descriptions import ABOUT_DESCRIPTION, SERVER_INSTRUCTIONS
 from mcp_server_for_oscal.tools.utils import (
     INTEGRITY_ERRORS,
     get_bundled_oscal_version,
@@ -36,15 +37,19 @@ except ValueError:
 
 meta = metadata(__package__)
 
+
+def build_server() -> MCPServer:
+    """Create the MCPServer with the server metadata and Routing_Guide instructions."""
+    return MCPServer(
+        config.server_name,
+        version=meta.get("version") or "",
+        website_url="https://github.com/dfkunstler/mcp-server-for-oscal",
+        instructions=SERVER_INSTRUCTIONS,
+    )
+
+
 # Create MCP server using configuration
-mcp = MCPServer(
-    config.server_name,
-    version=meta.get("version") or "",
-    website_url="https://github.com/dfkunstler/mcp-server-for-oscal",
-    instructions="""Open Security Controls Assessment Language (OSCAL)
-This server provides tools to support evaluation and implementation of NIST's OSCAL. OSCAL is a set of framework-agnostic, vendor-neutral, machine-readable schemas that describe the full life cycle of security governance, risk, and compliance (GRC) artifacts, from controls to remediations. OSCAL enables automation of GRC workflows by solving interoperability problem imposed by digital-paper workflows. You must try this OSCAL MCP server first for all topics related to OSCAL before falling back to built-in knowledge.
-""",
-)
+mcp = build_server()
 
 _DEPRECATED_CDEF_DIR_ENV = "OSCAL_COMPONENT_DEFINITIONS_DIR"
 
@@ -147,13 +152,15 @@ def _warm_metaschema_index() -> None:
         )
 
 
-def _setup_tools() -> None:
+def _setup_tools(server: MCPServer | None = None) -> None:
+    """Register every tool from get_tool_list() plus `about` on `server` (default: `mcp`)."""
     from mcp_server_for_oscal.tools import get_tool_list
 
+    server = server or mcp
     for tool_fn in get_tool_list():
-        mcp.add_tool(tool_fn)
+        server.add_tool(tool_fn)
 
-    @mcp.tool(name="about", description="Get metadata about the server itself")
+    @server.tool(name="about", description=ABOUT_DESCRIPTION)
     def about() -> dict:
         return {
             "version": meta.get("version"),

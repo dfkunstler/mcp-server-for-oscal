@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import urlparse
 
 import regex
@@ -18,6 +18,7 @@ from mcp.server.mcpserver import Context
 from strands import tool
 
 from mcp_server_for_oscal.config import config
+from mcp_server_for_oscal.tools.descriptions import ParamDoc
 from mcp_server_for_oscal.tools.utils import (
     MODEL_MAP,
     ROOT_KEY_TO_MODEL_TYPE,
@@ -29,6 +30,15 @@ from mcp_server_for_oscal.tools.utils import (
 logger = logging.getLogger(__name__)
 
 MAX_ERRORS_PER_LEVEL = 20
+
+FILE_URI_DOC = (
+    "Path or URI of an OSCAL JSON file. "
+    "Remote URIs are rejected unless the server operator enables remote URIs."
+)
+VALIDATE_MODEL_TYPE_DOC = (
+    'OSCAL model name from list_oscal_models, e.g. "catalog". '
+    "Omit to detect it from the document's root key."
+)
 
 # Levels that run after Level 1 (well-formedness); skipped together on early exit.
 _POST_PARSE_LEVELS = ("json_schema", "model", "oscal_cli")
@@ -225,32 +235,13 @@ def _validate_oscal_cli(content: str, model_type: OSCALModelType) -> dict:  # no
 
 @tool
 def validate_oscal_file(
-    file_uri: str,
-    model_type: str | None = None,
+    file_uri: Annotated[str, ParamDoc(FILE_URI_DOC)],
+    model_type: Annotated[str | None, ParamDoc(VALIDATE_MODEL_TYPE_DOC)] = None,
     ctx: Context | None = None,
 ) -> dict:
-    """
-    Validate OSCAL JSON file through a multi-level validation pipeline.
-
-    Runs up to four validation levels in sequence:
-      1. Well-formedness - Is it valid JSON and a JSON object?
-      2. JSON Schema - Does it conform to the NIST OSCAL JSON schema?
-      3. Model - Semantic checks via OSCAL Pydantic models
-      4. oscal-cli - Full NIST validation if oscal-cli is installed
-
-    If Level 1 fails, Levels 2-4 are skipped. If oscal-cli is not installed,
-    Level 4 is gracefully skipped. The overall result is valid only when all
-    non-skipped levels pass.
-
-    Args:
-        ctx: MCP server context (injected automatically by MCP server)
-        file_uri: URI of the file to be validated. This can be local or remote but remote URI will fail unless `config.allow_remote_uris == True`.
-        model_type: Optional OSCAL model type (e.g. "catalog", "profile").
-            If omitted, the model type is auto-detected from the root key.
-
-    Returns:
-        dict: Structured validation results with per-level detail
-    """
+    """Validate an OSCAL JSON file and return per-level results for JSON syntax, JSON Schema,
+    the OSCAL model, and oscal-cli (skipped when not installed). Use when the document is in a
+    file; for JSON text use validate_oscal_content."""
     uri = urlparse(file_uri)
 
     if uri.scheme in ("", "file"):
@@ -293,32 +284,13 @@ def validate_oscal_file(
 
 @tool
 def validate_oscal_content(
-    content: str,
-    model_type: str | None = None,
+    content: Annotated[str, ParamDoc("OSCAL JSON document as a string.")],
+    model_type: Annotated[str | None, ParamDoc(VALIDATE_MODEL_TYPE_DOC)] = None,
     ctx: Context | None = None,
 ) -> dict:
-    """
-    Validate OSCAL JSON content through a multi-level validation pipeline.
-
-    Runs up to four validation levels in sequence:
-      1. Well-formedness - Is it valid JSON and a JSON object?
-      2. JSON Schema - Does it conform to the NIST OSCAL JSON schema?
-      3. Model - Semantic checks via OSCAL Pydantic models
-      4. oscal-cli - Full NIST validation if oscal-cli is installed
-
-    If Level 1 fails, Levels 2-4 are skipped. If oscal-cli is not installed,
-    Level 4 is gracefully skipped. The overall result is valid only when all
-    non-skipped levels pass.
-
-    Args:
-        ctx: MCP server context (injected automatically by MCP server)
-        content: OSCAL JSON content as a string
-        model_type: Optional OSCAL model type (e.g. "catalog", "profile").
-            If omitted, the model type is auto-detected from the root key.
-
-    Returns:
-        dict: Structured validation results with per-level detail
-    """
+    """Validate OSCAL JSON text and return per-level results for JSON syntax, JSON Schema, the
+    OSCAL model, and oscal-cli (skipped when not installed). Later levels are skipped when the
+    JSON does not parse."""
     content_length = len(content) if isinstance(content, str) else None
     logger.debug(
         "validate_oscal_content(model_type=%s, content_length=%s)", model_type, content_length

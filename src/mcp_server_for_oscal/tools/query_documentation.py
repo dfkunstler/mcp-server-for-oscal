@@ -4,13 +4,14 @@ Tool for querying OSCAL documentation from Amazon Bedrock Knowledge Base.
 
 import json
 import logging
-from typing import Any
+from typing import Annotated, Any
 
 from boto3 import Session
 from mcp.server.mcpserver import Context
 from strands import tool
 
 from mcp_server_for_oscal.config import config
+from mcp_server_for_oscal.tools.descriptions import ParamDoc
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 from mcp_server_for_oscal.tools.utils import try_notify_client_error
 
@@ -40,17 +41,13 @@ def _get_store() -> OscalStore:
 
 
 @tool
-def query_oscal_documentation(query: str, ctx: Context | None = None) -> Any:
-    """
-    A tool to query OSCAL-related documentation. Use this tool when a question about OSCAL cannot be answered just by analyzing model schemas. In case the question is about an explicit property of an OSCAL model, try to find the answer using the get_schema tool first.
-
-    Args:
-        query: Question or search query about OSCAL
-
-    Returns:
-        dict: A Bedrock RetrieveResponse when a Knowledge Base is configured; otherwise a local
-        page response with items, total, offset, limit, and hasMore.
-    """
+def query_oscal_documentation(
+    query: Annotated[str, ParamDoc("Question or search terms about OSCAL.")],
+    ctx: Context | None = None,
+) -> Any:
+    """Search OSCAL documentation and return matching passages: from a Bedrock Knowledge Base
+    when configured, else by full-text search of bundled docs. Use when a model schema
+    does not answer the question; for a model property try get_oscal_schema first."""
     # A blank or whitespace-only KB ID means no Knowledge Base is configured (#14).
     if config.knowledge_base_id.strip():
         logger.info("Using Knowledge Base search path (KB ID: %s)", config.knowledge_base_id)

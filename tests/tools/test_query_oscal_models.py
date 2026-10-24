@@ -2,11 +2,20 @@
 Tests for the new OSCAL model type MCP tools in query_oscal_models.py.
 """
 
+import inspect
 import json
 
 import pytest
 
-from mcp_server_for_oscal.tools import query_oscal_models
+from mcp_server_for_oscal.tools import query_oscal_models, tool_budget
+from mcp_server_for_oscal.tools.descriptions import (
+    Limit,
+    Offset,
+    OptionalModelName,
+    ParentDocUuid,
+    PerModelQueryType,
+    QueryValue,
+)
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 from mcp_server_for_oscal.tools.utils import OSCALModelType
 
@@ -330,6 +339,104 @@ class TestPageResponseFormat:
     def test_query_tools_return_page_response_keys(self, populated_store, tool_fn):
         result = tool_fn(ctx=None, query_type="all")
         assert set(result.keys()) == {"items", "total", "offset", "limit", "hasMore"}
+
+
+# ---------------------------------------------------------------------------
+# Signatures, schemas, and descriptions (tool-context-optimization, task 5.4)
+# ---------------------------------------------------------------------------
+
+# Per_Model_Query_Tool -> child list tools its description must name
+QUERY_TOOLS_AND_CHILD_TOOLS = [
+    (query_oscal_models.query_catalog, ["list_catalog_controls", "list_catalog_groups"]),
+    (
+        query_oscal_models.query_ssp,
+        ["list_ssp_control_implementations", "list_ssp_system_components"],
+    ),
+    (query_oscal_models.query_profile, ["list_profile_imports", "list_profile_modify"]),
+    (
+        query_oscal_models.query_assessment_plan,
+        ["list_assessment_plan_tasks", "list_assessment_plan_activities"],
+    ),
+    (
+        query_oscal_models.query_assessment_results,
+        ["list_assessment_results_results", "list_assessment_results_findings"],
+    ),
+    (query_oscal_models.query_poam, ["list_poam_items"]),
+    (query_oscal_models.query_mapping_collection, ["list_mapping_collection_mappings"]),
+]
+QUERY_TOOLS = [fn for fn, _ in QUERY_TOOLS_AND_CHILD_TOOLS]
+
+
+def _module_tools() -> list:
+    from mcp_server_for_oscal.tools import get_tool_list
+
+    return [fn for fn in get_tool_list() if fn.__module__ == query_oscal_models.__name__]
+
+
+class TestToolSignatures:
+    @pytest.mark.parametrize("tool_fn", QUERY_TOOLS, ids=lambda fn: fn.__name__)
+    def test_query_tool_signature(self, tool_fn):
+        sig = inspect.signature(tool_fn)
+        assert list(sig.parameters) == ["query_type", "query_value", "offset", "limit", "ctx"]
+        assert sig.parameters["query_type"].annotation == PerModelQueryType
+        assert sig.parameters["query_type"].default == "all"
+        assert sig.parameters["query_value"].annotation == QueryValue
+        assert sig.parameters["offset"].annotation == Offset
+        assert sig.parameters["limit"].annotation == Limit
+        assert sig.parameters["limit"].default == 10
+
+    @pytest.mark.parametrize("tool_fn", QUERY_TOOLS, ids=lambda fn: fn.__name__)
+    def test_query_type_enum_excludes_by_type(self, tool_fn):
+        schema = tool_fn.tool_spec["inputSchema"]["json"]
+        assert schema["properties"]["query_type"]["enum"] == ["all", "by_uuid", "by_title"]
+
+    def test_text_search_signature(self):
+        sig = inspect.signature(query_oscal_models.text_search_oscal)
+        assert next(iter(sig.parameters)) == "query_text"
+        assert list(sig.parameters)[-1] == "ctx"
+        assert sig.parameters["query_text"].default is inspect.Parameter.empty
+        assert sig.parameters["oscal_model_type"].annotation == OptionalModelName
+        assert "query_text" in query_oscal_models.text_search_oscal.tool_spec["inputSchema"][
+            "json"
+        ].get("required", [])
+
+    def test_get_child_element_signature(self):
+        sig = inspect.signature(query_oscal_models.get_child_element)
+        assert list(sig.parameters) == ["element_id", "parent_doc_uuid", "ctx"]
+        assert sig.parameters["element_id"].default is inspect.Parameter.empty
+        assert sig.parameters["parent_doc_uuid"].annotation == ParentDocUuid
+
+    def test_ctx_last_and_every_parameter_described(self):
+        tools = _module_tools()
+        assert len(tools) == 28
+        for fn in tools:
+            params = list(inspect.signature(fn).parameters)
+            assert params[-1] == "ctx", fn.__name__
+            props = fn.tool_spec["inputSchema"]["json"]["properties"]
+            for name in params[:-1]:
+                desc = props[name].get("description", "")
+                assert desc.strip(), f"{fn.__name__}.{name}"
+                assert len(desc) <= tool_budget.PARAMETER_DESCRIPTION_CAP
+
+
+class TestToolDescriptions:
+    def test_descriptions_fit_shape_and_size_target(self):
+        for fn in _module_tools():
+            doc = inspect.getdoc(fn) or ""
+            assert tool_budget.description_shape_problems(doc) == [], fn.__name__
+            assert len(" ".join(doc.split())) <= 180, fn.__name__
+
+    @pytest.mark.parametrize(
+        ("tool_fn", "child_tools"),
+        QUERY_TOOLS_AND_CHILD_TOOLS,
+        ids=[fn.tool_name for fn in QUERY_TOOLS],
+    )
+    def test_query_descriptions_direct_to_child_tools(self, tool_fn, child_tools):
+        doc = inspect.getdoc(tool_fn) or ""
+        assert "`childTypeCounts`" in doc
+        assert "get_child_element" in doc
+        for name in child_tools:
+            assert name in doc
 
 
 # ---------------------------------------------------------------------------

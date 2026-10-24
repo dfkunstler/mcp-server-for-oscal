@@ -34,6 +34,9 @@ BUNDLED_DB_PATH = Path(__file__).parent.parent / "oscal_store.db"
 # Path to the package-level hashes.json manifest (written by build_oscal_db.py)
 BUNDLED_HASHES_PATH = Path(__file__).parent.parent / "hashes.json"
 
+# Query types accepted by OscalStore.query (the per-model query tools expose the same set).
+VALID_QUERY_TYPES: tuple[str, ...] = ("all", "by_uuid", "by_title")
+
 # Maps each OSCAL model type to the child element types it can contain.
 CHILD_ELEMENT_TYPES: dict[OSCALModelType, tuple[str, ...]] = {
     OSCALModelType.COMPONENT_DEFINITION: ("component", "capability"),
@@ -932,19 +935,26 @@ class OscalStore:
             ctx: MCP server context (unused, kept for interface compat).
             oscal_model_type: Scope to a specific model type, or None for all.
             query_type: ``"all"`` (paginated scan), ``"by_uuid"`` (index
-                lookup), ``"by_title"`` (case-insensitive exact then FTS
-                fallback), or ``"by_type"`` (filter on model_type column).
-            query_value: Required for by_uuid, by_title, by_type.
+                lookup), or ``"by_title"`` (case-insensitive exact then FTS
+                fallback).
+            query_value: Required for by_uuid and by_title.
             offset: Zero-based pagination offset.
             limit: Maximum number of items to return.
 
         Returns:
             Page_Response dict with keys: items, total, offset, limit, hasMore.
+            Each item has uuid, title, model_type, file_path, sizeInBytes, and
+            childTypeCounts.
 
         Raises:
-            ValueError: If query_value is missing when required.
+            ValueError: If query_type is not one of VALID_QUERY_TYPES, or if
+                query_value is missing when required.
         """
-        if query_type in ("by_uuid", "by_title", "by_type") and not query_value:
+        if query_type not in VALID_QUERY_TYPES:
+            raise ValueError(
+                f"Invalid query_type {query_type!r}; valid types: {', '.join(VALID_QUERY_TYPES)}"
+            )
+        if query_type in ("by_uuid", "by_title") and not query_value:
             raise ValueError(f"query_value is required for query_type '{query_type}'")
 
         if query_type == "by_uuid":
@@ -952,8 +962,6 @@ class OscalStore:
             return self._query_by_uuid(query_value, oscal_model_type, offset, limit)  # type: ignore[arg-type]
         if query_type == "by_title":
             return self._query_by_title(query_value, oscal_model_type, offset, limit)  # type: ignore[arg-type]
-        if query_type == "by_type":
-            return self._query_by_type(query_value, oscal_model_type, offset, limit)  # type: ignore[arg-type]
         # "all" — paginated scan
         return self._query_all(oscal_model_type, offset, limit)
 
@@ -1071,36 +1079,6 @@ class OscalStore:
         items = self._build_query_items(rows)
         return self._page_response(items, total, offset, limit)
 
-    def _query_by_type(
-        self,
-        type_value: str,
-        oscal_model_type: OSCALModelType | None,
-        offset: int,
-        limit: int,
-    ) -> dict:
-        """Filter on model_type column."""
-        where = "WHERE d.model_type = ?"
-        params: list = [type_value]
-        if oscal_model_type is not None:
-            # Both filters apply — type_value from query_value and
-            # oscal_model_type from the parameter. They may overlap.
-            where += " AND d.model_type = ?"
-            params.append(oscal_model_type.value)
-
-        total = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM documents d {where}",  # nosec B608
-            params,
-        ).fetchone()["cnt"]
-
-        rows = self._conn.execute(
-            f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_path, d.file_size "  # nosec B608
-            f"FROM documents d {where} ORDER BY d.id LIMIT ? OFFSET ?",  # nosec B608
-            [*params, limit, offset],
-        ).fetchall()
-
-        items = self._build_query_items(rows)
-        return self._page_response(items, total, offset, limit)
-
     def _query_all(
         self,
         oscal_model_type: OSCALModelType | None,
@@ -1128,31 +1106,25 @@ class OscalStore:
         items = self._build_query_items(rows)
         return self._page_response(items, total, offset, limit)
 
+    def _child_type_counts(self, doc_id: int) -> dict[str, int]:
+        """Map each child element type of one document to its count (empty when none)."""
+        rows = self._conn.execute(
+            "SELECT element_type, COUNT(*) AS cnt FROM child_elements "
+            "WHERE parent_doc_id = ? GROUP BY element_type ORDER BY element_type",
+            (doc_id,),
+        ).fetchall()
+        return {r["element_type"]: r["cnt"] for r in rows}
+
     def _build_query_items(self, rows: list) -> list[dict]:
-        """Build item dicts from document rows, triggering _ensure_indexed."""
+        """Build item dicts from document rows, triggering _ensure_indexed.
+
+        Each item carries ``childTypeCounts`` (child element type -> count) instead of
+        inline child summaries; callers fetch children with the child-element tools.
+        """
         items = []
         for row in rows:
             doc_id = row["id"]
             self._ensure_indexed(doc_id)
-
-            # Fetch child elements for this document
-            children = self._conn.execute(
-                "SELECT uuid, title, element_type, description "
-                "FROM child_elements WHERE parent_doc_id = ? "
-                "ORDER BY element_type, title",
-                (doc_id,),
-            ).fetchall()
-
-            child_list = [
-                {
-                    "uuid": c["uuid"],
-                    "title": c["title"],
-                    "element_type": c["element_type"],
-                    "description": c["description"],
-                }
-                for c in children
-            ]
-
             items.append(
                 {
                     "uuid": row["uuid"],
@@ -1160,7 +1132,7 @@ class OscalStore:
                     "model_type": row["model_type"],
                     "file_path": row["file_path"],
                     "sizeInBytes": row["file_size"],
-                    "children": child_list,
+                    "childTypeCounts": self._child_type_counts(doc_id),
                 }
             )
         return items

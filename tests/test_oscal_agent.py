@@ -11,6 +11,10 @@ Covers:
 Feature: oscal-agent-production, agent-session-state
 """
 
+import asyncio
+import copy
+import inspect
+import json
 import logging
 import uuid
 from types import SimpleNamespace
@@ -19,12 +23,18 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from mcp.server.mcpserver import Context
+from strands import tool
 
 from mcp_server_for_oscal.oscal_agent import (
     AgentObservabilityHook,
     _build_system_prompt,
+    agent_tool,
+    agent_tools,
     create_oscal_agent,
+    strip_mcp_context,
 )
+from mcp_server_for_oscal.tools import get_tool_list
 
 # Passed as a CLI arg to a mocked session-manager builder; never created on disk.
 FAKE_SESSION_DIR = "/tmp/sessions"  # nosec B108 # never touched on disk
@@ -1561,3 +1571,268 @@ class TestProperty4SessionIDPropagation:
             f"FileSessionManager received '{call_kwargs['session_id']}' "
             f"but returned session_id was '{returned_sid}'"
         )
+
+
+# ---------------------------------------------------------------------------
+# Property 9: strip_mcp_context
+# Feature: tool-context-optimization, Property 9: Stripping the MCP context removes exactly
+# ctx and its definition
+# ---------------------------------------------------------------------------
+
+_CTX = "ctx"
+_CONTEXT_DEF = "Context"
+_SCHEMA_KEYS = {"properties", "required", "$defs"}  # keys the function may change
+
+_json_leaf = st.one_of(st.none(), st.booleans(), st.integers(), st.text(max_size=10))
+_prop_schemas = st.fixed_dictionaries(
+    {"type": st.sampled_from(["string", "integer", "boolean", "object"])},
+    optional={"description": st.text(max_size=20), "default": _json_leaf},
+)
+_prop_names = st.from_regex(r"[a-z][a-z_]{0,10}", fullmatch=True).filter(lambda n: n != _CTX)
+_def_names = st.from_regex(r"[A-Z][A-Za-z]{0,10}", fullmatch=True).filter(
+    lambda n: n != _CONTEXT_DEF
+)
+_extra_keys = st.from_regex(r"x[a-z]{1,8}", fullmatch=True)
+_ctx_property = {
+    "default": None,
+    "description": "Parameter ctx",
+    "$ref": "#/$defs/Context",
+}
+_context_def = {"type": "object", "title": "Context", "properties": {"a": {"type": "string"}}}
+
+
+@st.composite
+def _tool_specs(draw):
+    """Build a full Strands tool spec with optional ctx, required, $defs, and extra keys."""
+    properties = draw(st.dictionaries(_prop_names, _prop_schemas, max_size=6))
+    names = list(properties)
+    has_ctx = draw(st.booleans())
+    if has_ctx:
+        # Insert ctx at a random position to check that other key order is kept
+        pos = draw(st.integers(0, len(names)))
+        items = list(properties.items())
+        items.insert(pos, (_CTX, copy.deepcopy(_ctx_property)))
+        properties = dict(items)
+    schema: dict = {"type": "object", "properties": properties}
+
+    if draw(st.booleans()):
+        pool = list(properties)
+        required = draw(st.lists(st.sampled_from(pool), unique=True) if pool else st.just([]))
+        if draw(st.booleans()) and _CTX not in required:
+            required.insert(draw(st.integers(0, len(required))), _CTX)
+        schema["required"] = required
+
+    if draw(st.booleans()):
+        defs = draw(st.dictionaries(_def_names, _prop_schemas, max_size=3))
+        if draw(st.booleans()):
+            items = list(defs.items())
+            items.insert(draw(st.integers(0, len(items))), (_CONTEXT_DEF, _context_def))
+            defs = dict(items)
+        schema["$defs"] = defs
+
+    schema.update(draw(st.dictionaries(_extra_keys, _json_leaf, max_size=3)))
+    spec: dict = {
+        "name": draw(st.from_regex(r"[a-z][a-z_]{0,15}", fullmatch=True)),
+        "description": draw(st.text(max_size=40)),
+        "inputSchema": {"json": schema},
+    }
+    spec.update(draw(st.dictionaries(_extra_keys, _json_leaf, max_size=2)))
+    return spec
+
+
+class TestProperty9StripMcpContext:
+    """Feature: tool-context-optimization, Property 9: Stripping the MCP context removes
+    exactly ctx and its definition.
+
+    **Validates: Requirements 11.1, 11.2, 11.3, 11.4**
+    """
+
+    @settings(max_examples=100)
+    @given(spec=_tool_specs())
+    def test_strip_removes_exactly_ctx_and_context_def(self, spec):
+        original = copy.deepcopy(spec)
+        result = strip_mcp_context(spec)
+
+        # Input is not mutated
+        assert spec == original
+
+        in_schema = original["inputSchema"]["json"]
+        out_schema = result["inputSchema"]["json"]
+
+        # 11.1: properties lose exactly ctx, other order kept
+        expected_props = {k: v for k, v in in_schema["properties"].items() if k != _CTX}
+        assert out_schema["properties"] == expected_props
+        assert list(out_schema["properties"]) == list(expected_props)
+
+        # 11.2: required loses exactly "ctx", order kept; absent stays absent
+        if "required" in in_schema:
+            assert out_schema["required"] == [r for r in in_schema["required"] if r != _CTX]
+        else:
+            assert "required" not in out_schema
+
+        # 11.3, 11.4: $defs loses Context; removed when then empty; absent stays absent
+        expected_defs = {k: v for k, v in in_schema.get("$defs", {}).items() if k != _CONTEXT_DEF}
+        if expected_defs:
+            assert out_schema["$defs"] == expected_defs
+        else:
+            assert "$defs" not in out_schema
+
+        # Every other key of the schema and of the spec is unchanged
+        for key in in_schema.keys() - _SCHEMA_KEYS:
+            assert out_schema[key] == in_schema[key]
+        assert out_schema.keys() - _SCHEMA_KEYS == in_schema.keys() - _SCHEMA_KEYS
+        assert {k: v for k, v in result.items() if k != "inputSchema"} == {
+            k: v for k, v in original.items() if k != "inputSchema"
+        }
+        assert result["inputSchema"].keys() == original["inputSchema"].keys()
+
+        # Idempotence
+        assert strip_mcp_context(result) == result
+
+
+# ---------------------------------------------------------------------------
+# Task 7.6: Agent tool specs without ctx (tool-context-optimization Req 11)
+# ---------------------------------------------------------------------------
+
+_CONTEXT_REF = "#/$defs/Context"
+
+
+def _assert_no_mcp_context(name: str, schema: dict) -> None:
+    """Assert one input schema has no ctx property, required entry, or Context definition."""
+    assert _CTX not in schema.get("properties", {}), f"{name}: ctx property"
+    assert _CTX not in schema.get("required", []), f"{name}: ctx in required"
+    if "$defs" in schema:
+        assert schema["$defs"], f"{name}: empty $defs"
+        assert _CONTEXT_DEF not in schema["$defs"], f"{name}: $defs.Context"
+    assert _CONTEXT_REF not in json.dumps(schema), f"{name}: reference to $defs.Context"
+
+
+def _declares_ctx(fn) -> bool:
+    return _CTX in inspect.signature(fn).parameters
+
+
+@pytest.fixture
+def make_real_agent(monkeypatch, tmp_path):
+    """Factory for real Agents from create_oscal_agent() with a region-only boto3 session.
+
+    Dummy env credentials, no profile, and empty AWS config files keep it hermetic: the
+    bedrock-runtime client resolves credentials at construction, but no network call is made.
+    """
+    import boto3
+
+    for key in ("AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_SESSION_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "aws_config"))
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "aws_credentials"))
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
+    real_session = boto3.Session
+
+    def make():
+        with patch(
+            "mcp_server_for_oscal.oscal_agent.boto3.Session",
+            side_effect=lambda **_kw: real_session(region_name="us-east-1"),
+        ):
+            return create_oscal_agent(callback_handler=None)
+
+    return make
+
+
+@pytest.fixture
+def real_agent(make_real_agent):
+    """A real Agent built by create_oscal_agent()."""
+    return make_real_agent()
+
+
+class TestAgentToolSpecs:
+    """Agent tool specs omit ctx (Req 11.1-11.4, 11.8)."""
+
+    def test_agent_tools_specs_have_no_ctx(self):
+        """Every Agent copy of a registry tool has no ctx, Context def, or reference."""
+        for t in agent_tools(get_tool_list()):
+            _assert_no_mcp_context(t.tool_name, t.tool_spec["inputSchema"]["json"])
+
+    def test_real_agent_registry_has_no_ctx(self, real_agent):
+        """The tool config the Agent sends to the model has no ctx or Context."""
+        configs = real_agent.tool_registry.get_all_tools_config()
+        assert set(configs) == {fn.__name__ for fn in get_tool_list()}
+        for name, cfg in configs.items():
+            schema = cfg["inputSchema"]["json"]
+            _assert_no_mcp_context(name, schema)
+            assert _CONTEXT_DEF not in json.dumps(schema), f"{name}: Context in schema"
+
+
+class TestAgentToolInvocation:
+    """Agent tools run without ctx and receive ctx=None (Req 11.5, 11.8)."""
+
+    def test_direct_tool_call_succeeds(self, real_agent):
+        result = real_agent.tool.get_oscal_schema(
+            model_name="catalog", record_direct_tool_call=False
+        )
+        assert result["status"] == "success"
+
+    def test_stream_without_ctx_passes_none(self):
+        seen: list = []
+
+        @tool
+        def spy_tool(model_name: str, ctx: Context | None = None) -> str:
+            """Return the model name."""
+            seen.append(ctx)
+            return model_name
+
+        clone = agent_tool(spy_tool)
+        assert _CTX not in clone.tool_spec["inputSchema"]["json"]["properties"]
+
+        async def run() -> list:
+            tool_use = {"toolUseId": "t1", "name": "spy_tool", "input": {"model_name": "catalog"}}
+            return [e async for e in clone.stream(tool_use, {})]
+
+        events = asyncio.run(run())
+        assert seen == [None]
+        final = events[-1].tool_result
+        assert final["status"] == "success"
+        assert final["content"][0]["text"] == "catalog"
+
+
+class TestAgentToolOriginalsUnchanged:
+    """agent_tools() leaves the shared tool objects alone (Req 11.6)."""
+
+    def test_originals_keep_ctx(self):
+        tools = get_tool_list()
+        before = {t.tool_name: copy.deepcopy(t.tool_spec) for t in tools}
+        clones = agent_tools(tools)
+
+        with_ctx = [t for t in tools if _declares_ctx(t)]
+        assert len(with_ctx) == len(tools) - 1  # list_oscal_models has no ctx
+        for t in with_ctx:
+            assert _CTX in t.tool_spec["inputSchema"]["json"]["properties"], t.tool_name
+        for t, c in zip(tools, clones, strict=True):
+            assert t.tool_spec == before[t.tool_name]
+            assert c is not t
+            assert c.tool_name == t.tool_name
+
+    def test_non_decorated_items_pass_through(self):
+        items = [_make_mock_tool("plain"), lambda: None]
+        assert all(a is b for a, b in zip(agent_tools(items), items, strict=True))
+        assert agent_tool(items[0]) is items[0]
+
+
+class TestServerUnchangedByAgent:
+    """Creating the Agent does not change the Server tools/list (Req 11.7)."""
+
+    @staticmethod
+    def _live_tools() -> list[dict]:
+        from mcp_server_for_oscal import main as main_module
+
+        server = main_module.build_server()
+        main_module._setup_tools(server)
+        tools = asyncio.run(server.list_tools())
+        return [t.model_dump(by_alias=True, exclude_none=True, mode="json") for t in tools]
+
+    def test_tools_list_equal_before_and_after(self, make_real_agent):
+        before = self._live_tools()
+        make_real_agent()
+        after = self._live_tools()
+        assert after == before
+        assert all(_CTX not in t["inputSchema"].get("properties", {}) for t in after)

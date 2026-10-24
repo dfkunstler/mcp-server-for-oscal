@@ -50,14 +50,20 @@ def find_wheel() -> Path:
 
 
 def tool_list() -> list[dict[str, str]]:
-    """Describe the tools registered by the server, for manifest.json."""
+    """Describe the tools registered by the server, for manifest.json.
+
+    Each description is the summary sentence of the tool's live description, so the manifest
+    stays in sync with ``tools/list``.
+    """
     from mcp_server_for_oscal.tools import get_tool_list
+    from mcp_server_for_oscal.tools.descriptions import ABOUT_DESCRIPTION
+    from mcp_server_for_oscal.tools.tool_budget import summary_sentence
 
     tools = []
     for fn in get_tool_list():
         doc = inspect.getdoc(fn) or ""
-        tools.append({"name": fn.__name__, "description": doc.split("\n\n")[0].strip()})
-    tools.append({"name": "about", "description": "Get metadata about the server itself"})
+        tools.append({"name": fn.__name__, "description": summary_sentence(doc)})
+    tools.append({"name": "about", "description": summary_sentence(ABOUT_DESCRIPTION)})
     return tools
 
 

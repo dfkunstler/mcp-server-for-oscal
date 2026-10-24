@@ -5,7 +5,6 @@ listing mode, the signature, and range errors (task 18.5).
 """
 
 import asyncio
-import inspect
 import io
 import json
 from pathlib import Path
@@ -26,6 +25,7 @@ from mcp_server_for_oscal.tools.metaschema_index import (
 )
 from mcp_server_for_oscal.tools.utils import RESPONSE_BUDGET, TRUNCATION_MARK
 
+from .test_get_allowed_values import _signature_rows
 from .test_metaschema_index import CAT, ENT, _module, _write_bundle
 
 MODULE = "oscal_component_metaschema.xml"
@@ -514,14 +514,13 @@ class TestRequiredExamples:
 
     def test_signature_and_defaults(self):
         """Req 11.1: file=None, start_line=1, line_count=200, ctx=None, with their types."""
-        params = inspect.signature(get_metaschema_source).parameters
         expected = [
             ("file", str | None, None),
             ("start_line", int, 1),
             ("line_count", int, 200),
             ("ctx", Context | None, None),
         ]
-        assert [(p.name, p.annotation, p.default) for p in params.values()] == expected
+        assert _signature_rows(get_metaschema_source) == expected
 
     def test_mcp_input_schema_hides_ctx(self):
         """The MCP server injects ``ctx``; callers see three optional arguments."""

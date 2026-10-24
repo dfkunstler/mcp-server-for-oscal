@@ -5,11 +5,12 @@ Tool for retrieving OSCAL schemas.
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from mcp.server.mcpserver import Context
 from strands import tool
 
+from mcp_server_for_oscal.tools.descriptions import ParamDoc
 from mcp_server_for_oscal.tools.utils import (
     OSCALModelType,
     schema_names,
@@ -21,20 +22,22 @@ logger = logging.getLogger(__name__)
 
 @tool
 def get_oscal_schema(
-    ctx: Context | None = None, model_name: str = "complete", schema_type: str = "json"
+    model_name: Annotated[
+        str,
+        ParamDoc(
+            'OSCAL model name from list_oscal_models, or "complete" for all models (very large).'
+        ),
+    ],
+    schema_type: Annotated[
+        Literal["json", "xsd"],
+        ParamDoc('"json" returns the JSON schema as JSON text; "xsd" returns the XML Schema.'),
+    ] = "json",
+    ctx: Context | None = None,
 ) -> str:
-    """
-    A tool that returns the schema for specified OSCAL model. Try this tool first for any questions about the structure of OSCAL models.
-    By default we return a JSON schema, but `schema_type` parameter can change that behavior. You can use the list_models tool to get
-    a list of valid model names. Request the `complete` schema only as a last resort - it's very large and may overflow your context window.
+    """Return the JSON schema or XML Schema (XSD) of one OSCAL model as text.
 
-    Args:
-        ctx: MCP server context (should be injected automatically by MCP server)
-        model_name: The name of the OSCAL model. If no value is provided, then we return a "complete" schema including all models, which is large.
-        schema_type: `json` (default) returns the JSON schema; `xsd` returns the XML Schema (XSD). Other values are rejected.
-
-    Returns:
-        str: For `json`, the schema as a JSON string. For `xsd`, the schema as XML (XSD) text.
+    Use when you need the structure of an OSCAL model: its properties, types, and required
+    fields.
     """
     logger.debug(
         "get_oscal_model_schema(model_name: %s, syntax: %s, session client params: %s)",

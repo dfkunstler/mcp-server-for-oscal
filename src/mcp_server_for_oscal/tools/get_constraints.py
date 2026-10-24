@@ -9,10 +9,18 @@ comes from ``metaschema_index`` (Requirement 7.1); shared checks and matching co
 """
 
 import logging
+from typing import Annotated, Literal
 
 from mcp.server.mcpserver import Context
 from strands import tool
 
+from mcp_server_for_oscal.tools.descriptions import (
+    BudgetedLimit,
+    ModelName,
+    Offset,
+    ParamDoc,
+    TargetSelector,
+)
 from mcp_server_for_oscal.tools.metaschema_common import (
     Match,
     add_namespace_and_conditions,
@@ -51,60 +59,37 @@ _TYPE_ATTRS: dict[str, tuple[str, ...]] = {
 }
 _KEY_FIELD_TYPES = frozenset({"index", "index-has-key", "is-unique"})
 
+# The closed set of constraint types as a schema enum; a test keeps it equal to
+# ``CONSTRAINT_TYPES``. ``_check_constraint_types`` still checks direct Python calls.
+ConstraintType = Literal[
+    "allowed-values",
+    "matches",
+    "index",
+    "index-has-key",
+    "is-unique",
+    "has-cardinality",
+    "expect",
+]
+
 
 @tool()
 def get_constraints(
-    model: str,
-    target: str,
-    constraint_types: list[str] | None = None,
-    offset: int = 0,
-    limit: int = 25,
+    model: ModelName,
+    target: TargetSelector,
+    constraint_types: Annotated[
+        list[ConstraintType] | None,
+        ParamDoc("Constraint types to keep. Omit or pass an empty list for all types."),
+    ] = None,
+    offset: Offset = 0,
+    limit: BudgetedLimit = 25,
     ctx: Context | None = None,
 ) -> dict:
-    """List the OSCAL Metaschema constraints that apply at a point in an OSCAL model, e.g. "Which rules does OSCAL Metaschema place on a defined-component?", "Which datatype must a defined-component's release-date prop value have?", or "How many addresses must a metadata location have?".
-
-    Answers come from the Metaschema constraints bundled with the server: `allowed-values`,
-    `matches` (datatype or regex), `index` and `index-has-key` (UUID and ID references),
-    `is-unique`, `has-cardinality`, and `expect` (co-occurrence rules). The generated JSON and
-    XML schemas do not express most of these.
-
-    `target` is a Target_Selector: a Metaschema definition name, optionally followed by `/`
-    (child) or `//` (descendant) and a path in instance names. Examples:
-    "defined-component/prop/@name", "system-component/@type",
-    "defined-component/responsible-role", "part//part/@name". With a path, only constraints whose target is that path are returned.
-    A bare definition name such as "defined-component" returns every constraint declared on
-    that definition and on the local definitions nested in it, whatever their targets. Do not
-    include predicates, unions, or whitespace: Metaschema predicates are returned per item as
-    `namespace` and `conditions` instead.
-
-    Only constraints declared on the named definition (and on its flags' definitions) are
-    returned. Constraints on generic definitions such as `property` and `link` apply too;
-    query those names as well.
-
-    Args:
-        model: OSCAL model name, e.g. "component-definition" or "system-security-plan". Use
-            list_oscal_models for valid names.
-        target: Target_Selector, 1-512 characters, as described above.
-        constraint_types: Optional list of constraint types to keep, from "allowed-values",
-            "matches", "index", "index-has-key", "is-unique", "has-cardinality", "expect".
-            Omitted or empty means all types.
-        offset: Zero-based index of the first item to return (default 0).
-        limit: Maximum number of items to return, 1-100 (default 25). A page may hold fewer
-            items to stay within the response size budget; `limit` then reports the reduced
-            size.
-        ctx: MCP server context (injected automatically by the MCP server).
-
-    Returns:
-        dict: Page_Response with `items`, `total`, `offset`, `limit`, and `hasMore`, ordered by
-        where each constraint is declared. Each item has `type`, `definition`, `target` (the
-        constraint's Metapath target), `level`, `source-file`, and `line` (where the
-        constraint is declared in the bundled Metaschema), and when applicable
-        `constraint-id`, `namespace`, `conditions`, `flag-definition`, and `truncated`, plus
-        per type: `allow-other`, `extensible`, `value-count` (allowed-values; use
-        get_allowed_values for the values); `datatype`, `regex` (matches); `name`,
-        `key-fields` (index, index-has-key, is-unique); `min-occurs`, `max-occurs`
-        (has-cardinality); `test`, `message` (expect).
-    """
+    """List the OSCAL Metaschema constraints at a target (`allowed-values`, `matches`, `index`,
+    `index-has-key`, `is-unique`, `has-cardinality`, `expect`) with type-specific details and
+    source file and line; a bare definition name returns every constraint declared on it and
+    its local definitions. Use when you need rules the JSON schema does not express; use
+    get_allowed_values for the values themselves. Results are paged within a response
+    budget."""
     logger.debug(
         "get_constraints(model: %s, target: %s, constraint_types: %s, offset: %s, limit: %s)",
         model,

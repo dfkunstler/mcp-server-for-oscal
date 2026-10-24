@@ -5,18 +5,19 @@ Tests for OscalStore.scan_directory() and _detect_model_type().
 import json
 import os
 import sqlite3
+import tempfile
 import uuid as uuid_mod
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 from oscal_bindings.models import ComponentDefinition
 
 from mcp_server_for_oscal.config import config
-from mcp_server_for_oscal.tools.oscal_store import OscalStore
+from mcp_server_for_oscal.tools.oscal_store import VALID_QUERY_TYPES, OscalStore
 from mcp_server_for_oscal.tools.utils import MODEL_MAP, ROOT_KEY_TO_MODEL_TYPE, OSCALModelType
 
 
@@ -1310,38 +1311,29 @@ class TestQuery:
         result = store.query(query_type="by_title", query_value="Nonexistent Title")
         assert result["total"] == 0
 
-    def test_query_by_type(self, store, tmp_path):
-        """by_type filters on model_type column."""
+    def test_query_by_type_rejected(self, store, tmp_path):
+        """by_type is no longer a per-model query type and raises ValueError."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
         (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog()))
         store.scan_directory(doc_dir)
 
-        result = store.query(query_type="by_type", query_value="catalog")
-        assert result["total"] == 1
-        assert result["items"][0]["model_type"] == "catalog"
+        with pytest.raises(ValueError, match="Invalid query_type 'by_type'") as exc_info:
+            store.query(query_type="by_type", query_value="catalog")
+        assert "all, by_uuid, by_title" in str(exc_info.value)
 
-    def test_query_by_type_no_match(self, store, tmp_path):
-        """by_type returns empty when no documents of that type."""
-        doc_dir = tmp_path / "docs"
-        doc_dir.mkdir()
-        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
-        store.scan_directory(doc_dir)
-
-        result = store.query(query_type="by_type", query_value="catalog")
-        assert result["total"] == 0
+    def test_query_unknown_type_rejected_without_value(self, store):
+        """An unknown query_type raises before the query_value check."""
+        with pytest.raises(ValueError, match="Invalid query_type 'by_type'"):
+            store.query(query_type="by_type")
 
     def test_query_raises_for_missing_query_value(self, store):
-        """ValueError raised when query_value missing for by_uuid/by_title/by_type."""
+        """ValueError raised when query_value missing for by_uuid/by_title."""
         with pytest.raises(ValueError, match="query_value is required"):
             store.query(query_type="by_uuid")
 
         with pytest.raises(ValueError, match="query_value is required"):
             store.query(query_type="by_title")
-
-        with pytest.raises(ValueError, match="query_value is required"):
-            store.query(query_type="by_type")
 
     def test_query_raises_for_empty_query_value(self, store):
         """ValueError raised when query_value is empty string."""
@@ -1398,8 +1390,8 @@ class TestQuery:
         row = store._conn.execute("SELECT indexed FROM documents").fetchone()
         assert row["indexed"] == 1
 
-    def test_query_items_include_children(self, store, tmp_path):
-        """query() items include children after _ensure_indexed."""
+    def test_query_items_include_child_type_counts(self, store, tmp_path):
+        """query() items carry childTypeCounts (not inline children) after _ensure_indexed."""
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
         (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
@@ -1407,10 +1399,20 @@ class TestQuery:
 
         result = store.query(query_type="all")
         item = result["items"][0]
-        assert "children" in item
-        assert len(item["children"]) == 3  # 2 components + 1 capability
-        child_types = {c["element_type"] for c in item["children"]}
-        assert child_types == {"component", "capability"}
+        assert "children" not in item
+        assert item["childTypeCounts"] == {"capability": 1, "component": 2}
+
+    def test_query_item_child_type_counts_empty(self, store, tmp_path):
+        """A document without child elements gets an empty childTypeCounts."""
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        empty = _make_component_definition()
+        empty["component-definition"].pop("components", None)
+        (doc_dir / "cdef.json").write_text(json.dumps(empty))
+        store.scan_directory(doc_dir)
+
+        result = store.query(query_type="all")
+        assert result["items"][0]["childTypeCounts"] == {}
 
     def test_query_item_format(self, store, tmp_path):
         """query() items have the expected keys."""
@@ -1421,7 +1423,14 @@ class TestQuery:
 
         result = store.query(query_type="all")
         item = result["items"][0]
-        expected_keys = {"uuid", "title", "model_type", "file_path", "sizeInBytes", "children"}
+        expected_keys = {
+            "uuid",
+            "title",
+            "model_type",
+            "file_path",
+            "sizeInBytes",
+            "childTypeCounts",
+        }
         assert set(item.keys()) == expected_keys
 
     def test_query_page_response_format(self, store):
@@ -2618,7 +2627,7 @@ class TestPropertyBackwardCompatibleReturnFormat:
     )
     @given(
         doc_set=component_definition_doc_set(),
-        query_type=st.sampled_from(["all", "by_uuid", "by_title", "by_type"]),
+        query_type=st.sampled_from(["all", "by_uuid", "by_title"]),
     )
     def test_query_returns_page_response_keys(self, doc_set, query_type, tmp_path_factory):
         """OscalStore.query() with COMPONENT_DEFINITION returns Page_Response keys.
@@ -2649,8 +2658,6 @@ class TestPropertyBackwardCompatibleReturnFormat:
                 kwargs["query_value"] = doc_set[0][2]  # first doc's UUID
             elif query_type == "by_title":
                 kwargs["query_value"] = doc_set[0][3]  # first doc's title
-            elif query_type == "by_type":
-                kwargs["query_value"] = "component-definition"
 
             result = store.query(**kwargs)
 
@@ -3847,3 +3854,185 @@ class TestListChildElementsFilters:
             element_id=None, title=None, include_raw_json=False
         )
         assert explicit == result
+
+
+class TestPropertyQueryTypeGuard:
+    """Feature: tool-context-optimization, Property 4: Only the three per-model query types
+    are accepted.
+
+    For any string not in VALID_QUERY_TYPES (including the removed "by_type"),
+    OscalStore.query raises ValueError naming all three valid types. Each valid type, with a
+    query_value where required, passes the guard.
+
+    **Validates: Requirements 5.9, 6.1, 6.2**
+    """
+
+    def test_valid_query_types_are_exactly_three(self):
+        assert VALID_QUERY_TYPES == ("all", "by_uuid", "by_title")
+
+    # The store is read-only in this test (an empty DB is never written to by query()),
+    # so sharing the function-scoped fixture across examples is safe.
+    @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(query_type=st.text().filter(lambda q: q not in VALID_QUERY_TYPES))
+    @example(query_type="by_type")
+    @example(query_type="")
+    @example(query_type="ALL")
+    def test_invalid_query_type_rejected(self, store, query_type):
+        with pytest.raises(ValueError, match="Invalid query_type") as exc_info:
+            store.query(query_type=query_type, query_value="anything")
+        message = str(exc_info.value)
+        for valid in VALID_QUERY_TYPES:
+            assert valid in message
+
+    @pytest.mark.parametrize(
+        ("query_type", "query_value"),
+        [("all", None), ("by_uuid", "a1b2c3d4-5678-4abc-8def-123456789012"), ("by_title", "x")],
+    )
+    def test_valid_query_types_accepted(self, store, query_type, query_value):
+        result = store.query(query_type=query_type, query_value=query_value)
+        assert result["items"] == []
+        assert result["total"] == 0
+
+
+# Group tree shape. An OSCAL group holds either controls (CatalogGroupWithControls) or
+# subgroups (CatalogGroupWithGroups), never both: a leaf is an int (number of controls, 0 for
+# an empty group) and a branch is a non-empty list of subgroups.
+_group_tree = st.recursive(
+    st.integers(min_value=0, max_value=3),
+    lambda children: st.lists(children, min_size=1, max_size=2),
+    max_leaves=4,
+)
+
+
+class TestPropertyChildTypeCounts:
+    """Feature: tool-context-optimization, Property 5: Query items carry exact child type counts.
+
+    For generated Catalogs with arbitrary numbers of top-level controls, top-level groups, and
+    controls nested in groups (at any depth), each query("all") item has exactly the keys
+    uuid, title, model_type, file_path, sizeInBytes, childTypeCounts. ``childTypeCounts``
+    equals the per-type counts the store extracts: every top-level control and every control
+    inside a group (recursively) counts as ``control``; only top-level groups count as
+    ``group`` (``_extract_child_elements`` does not extract nested groups). Types with no
+    elements are absent, so a catalog without controls or groups gives ``{}``. The other keys
+    match ``list_documents`` and the scanned file.
+
+    **Validates: Requirements 6.3, 6.4, 6.5, 6.7**
+    """
+
+    _ITEM_KEYS = frozenset(
+        {"uuid", "title", "model_type", "file_path", "sizeInBytes", "childTypeCounts"}
+    )
+
+    @staticmethod
+    def _build_catalog(
+        title: str, top_controls: int, groups: list[int | list]
+    ) -> tuple[dict, dict[str, int]]:
+        """Render a catalog dict and the childTypeCounts the store should report for it."""
+        counter = {"control": 0, "group": 0}
+
+        def next_id(kind: str) -> str:
+            counter[kind] += 1
+            return f"{kind[:3]}-{counter[kind]}"
+
+        def controls(n: int) -> list[dict]:
+            ids = [next_id("control") for _ in range(n)]
+            return [{"id": cid, "title": f"Control {cid}"} for cid in ids]
+
+        def render_group(node: int | list) -> dict:
+            gid = next_id("group")
+            grp: dict = {"id": gid, "title": f"Group {gid}"}
+            if isinstance(node, list):
+                grp["groups"] = [render_group(sub) for sub in node]
+            elif node:
+                grp["controls"] = controls(node)
+            return grp
+
+        def count_group_controls(node: int | list) -> int:
+            if isinstance(node, list):
+                return sum(count_group_controls(sub) for sub in node)
+            return node
+
+        catalog: dict = {
+            "uuid": str(uuid_mod.uuid4()),
+            "metadata": {**_COMMON_METADATA, "title": title},
+        }
+        if top_controls:
+            catalog["controls"] = controls(top_controls)
+        if groups:
+            catalog["groups"] = [render_group(g) for g in groups]
+
+        expected: dict[str, int] = {}
+        n_controls = top_controls + sum(count_group_controls(g) for g in groups)
+        if n_controls:
+            expected["control"] = n_controls
+        if groups:
+            expected["group"] = len(groups)
+        return {"catalog": catalog}, expected
+
+    # Each example builds a SQLite store; I/O time varies too much for the default deadline.
+    @settings(max_examples=30, deadline=None)
+    @given(
+        specs=st.lists(
+            st.tuples(
+                st.integers(min_value=0, max_value=4),
+                st.lists(_group_tree, min_size=0, max_size=3),
+            ),
+            min_size=1,
+            max_size=3,
+        )
+    )
+    @example(specs=[(0, [])])
+    @pytest.mark.slow
+    def test_query_items_carry_exact_child_type_counts(self, specs):
+        with tempfile.TemporaryDirectory() as tmp:
+            doc_dir = Path(tmp) / "docs"
+            doc_dir.mkdir()
+            expected_by_uuid: dict[str, dict] = {}
+            for idx, (top_controls, groups) in enumerate(specs):
+                title = f"Catalog {idx}"
+                doc, expected_counts = self._build_catalog(title, top_controls, groups)
+                # The generated document must be valid OSCAL before it is scanned.
+                MODEL_MAP[OSCALModelType.CATALOG].model_validate(doc["catalog"])
+                path = doc_dir / f"catalog_{idx}.json"
+                path.write_text(json.dumps(doc))
+                expected_by_uuid[doc["catalog"]["uuid"]] = {
+                    "title": title,
+                    "file_path": str(path),
+                    "sizeInBytes": path.stat().st_size,
+                    "childTypeCounts": expected_counts,
+                }
+
+            store = OscalStore(
+                db_path=str(Path(tmp) / "test.db"), cache_size=10, seed_from_bundled=False
+            )
+            try:
+                assert store.scan_directory(doc_dir) == len(specs)
+                result = store.query(
+                    oscal_model_type=OSCALModelType.CATALOG, query_type="all", limit=100
+                )
+                listed = {
+                    item["uuid"]: item
+                    for item in store.list_documents(
+                        oscal_model_type=OSCALModelType.CATALOG, limit=100
+                    )["items"]
+                }
+            finally:
+                store.close()
+
+        assert result["total"] == len(specs)
+        assert {item["uuid"] for item in result["items"]} == set(expected_by_uuid)
+        for item in result["items"]:
+            assert set(item) == self._ITEM_KEYS
+            assert "children" not in item
+            want = expected_by_uuid[item["uuid"]]
+            assert item["childTypeCounts"] == want["childTypeCounts"]
+            assert all(v >= 1 for v in item["childTypeCounts"].values())
+            assert item["model_type"] == OSCALModelType.CATALOG.value
+            assert item["title"] == want["title"]
+            assert item["file_path"] == want["file_path"]
+            assert item["sizeInBytes"] == want["sizeInBytes"]
+            doc_summary = listed[item["uuid"]]
+            assert item["title"] == doc_summary["title"]
+            assert item["model_type"] == doc_summary["model_type"]
+            assert item["sizeInBytes"] == doc_summary["sizeInBytes"]
+            assert sum(item["childTypeCounts"].values()) == doc_summary["childCount"]
