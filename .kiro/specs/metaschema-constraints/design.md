@@ -846,7 +846,7 @@ Security controls are summarized in the Threat Model section below.
 
 ## Threat Model
 
-Source: `threat-model.tc.json` in this spec directory (Threat Composer v1), generated with threat-composer-ai (Sonnet 4.6): 20 threats, 23 mitigations. The orchestrator triaged it; this section records the outcome.
+Source: `threat-model.tc.json` in this spec directory (Threat Composer v1), generated with threat-composer-ai (Sonnet 4.6): 20 threats, 23 mitigations. The orchestrator triaged it; this section records the outcome. After implementation the model was updated to match: each threat and mitigation carries a status and a comment with its disposition, and the markup-safety item below was added as T21 with mitigation M24.
 
 Trust boundaries for this feature:
 
@@ -860,9 +860,9 @@ Trust boundaries for this feature:
 | T15 | Oversized or deeply nested XML exhausts the loader | Adopted in reduced form (M19): 2 MiB per-file cap and depth 64. Cross-file element-count cap rejected as redundant | Safe loader resource limits (RC-10; Property 23); expat amplification guard as second line |
 | T10 | Many or expensive tool calls exhaust the server | Partly adopted: the unknown-definition suggestion path is bounded. M16 rate limiting rejected: stdio is single-client and local, and reads are lock-free after load | Suggestion cost bound (RC-12; Property 8) |
 | T12 | Error messages disclose host paths and internals | Adopted in narrow form (M18): client messages carry bundle-relative names and the rule broken only; tracebacks stay in server logs. Generic exception-to-message mapping rejected: it would remove the actionable errors the requirements specify | Safe loader `LoadError` text, Error Handling (RC-13; Property 24) |
-| (triage) | Rendered descriptions break Markdown or carry unsafe links into LLM output | Adopted. No content filtering: the content is NIST-authored and hash-verified, so indirect prompt-injection risk is low | Markup rendering (RC-11; Property 11) |
+| T21 | Rendered descriptions break Markdown or carry unsafe links into LLM output | Adopted. No content filtering: the content is NIST-authored and hash-verified, so indirect prompt-injection risk is low | Markup rendering (RC-11; Property 11) |
 | T2 | Crafted selector or path reaches file I/O (traversal) | Already mitigated. Selectors are matched against in-memory strings and never reach file I/O; `get_metaschema_source` uses exact allowlist lookup before any read; `resolve_bundle_path` resolves, follows symlinks, checks containment and the allowlist. M4 is subsumed; M3 (PurePosixPath normalization of selectors) does not apply because selectors are not paths | `metaschema_paths.validate_selector`, `resolve_bundle_path`, Properties 3, 13, 22 |
-| T14 | Attacker with write access to the installed package swaps bundle files and `hashes.json` | Accepted. M6 rejected: whoever can write the package can also change the code that checks a signature. Release-level provenance (PyPI trusted publishing, already used; PEP 740 attestations) is the right layer, follow-up issue | Startup verification still catches accidental or partial changes (Property 15) |
+| T14 | Attacker with write access to the installed package swaps bundle files and `hashes.json` | Accepted. M6 rejected: whoever can write the package can also change the code that checks a signature. Release-level provenance (PyPI trusted publishing, already used; PEP 740 attestations) is the right layer and is already in place: PyPI publishes PEP 740 attestations for releases (verified for 0.6.3) | Startup verification still catches accidental or partial changes (Property 15) |
 | T18 | Reading bundled content through the tools | Accepted: public NIST data | None needed |
 | T1 | Unauthenticated `streamable-http` transport (M1, M2) | Out of scope: pre-existing, dev-only, already documented | Existing docs |
 | T4-T9, T11, T13, T16, T19, T20 | Credentials, S3 sessions, agent prompt injection, `validate_oscal_content` input size, FTS5 queries, Bedrock cost, `OSCAL_DOCUMENTS_DIR`, KB output | Out of scope: pre-existing server and agent concerns unrelated to this feature | None in this feature |
@@ -875,7 +875,7 @@ Controls in this design, for reference:
 - Rendered Markdown links use only `http`, `https`, fragment, or scheme-less relative targets, with structural characters escaped.
 - No new network-exposed surface. The new tools are read-only and run with the existing transports; the existing note that `streamable-http` has no authentication still applies.
 - The update script downloads a pinned commit over verified TLS and checks the archive's commit comment. bandit: `urllib.request.urlopen` on a URL built from a fixed `https://github.com/` prefix and a validated 40-hex commit (`# nosec B310` with that reason).
-- Known gap, out of scope: the JSON/XSD release download in `update-oscal-schemas.sh` is not pinned (follow-up issue).
+- Known gap, out of scope: the JSON/XSD release download in `update-oscal-schemas.sh` is not pinned (#38).
 
 ## Testing Strategy
 
