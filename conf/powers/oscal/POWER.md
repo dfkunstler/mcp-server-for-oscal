@@ -47,6 +47,7 @@ OSCAL (Open Security Controls Assessment Language) is a set of framework-agnosti
 |------|-------------|
 | `list_oscal_models` | List all 8 OSCAL model types with metadata (layer, status, descriptions) |
 | `get_oscal_schema` | Retrieve JSON or XSD schema for any OSCAL model |
+| `get_allowed_values` | Look up the values bundled OSCAL Metaschema `allowed-values` constraints permit at a target (e.g. `defined-component/prop/@name`), with per-value namespace and conditions (paginated) |
 | `list_oscal_resources` | Browse curated OSCAL community resources, tools, and educational content |
 | `validate_oscal_content` | Validate OSCAL JSON content through a 4-level pipeline (well-formedness, JSON Schema, OSCAL model, oscal-cli) |
 | `validate_oscal_file` | Validate an OSCAL JSON file (local or remote URI) through the same 4-level pipeline |

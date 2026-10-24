@@ -2,18 +2,25 @@
 Tests for the utils module.
 """
 
+import json
 import re
 from pathlib import Path
 
 import pytest
+from hypothesis import HealthCheck, event, given, settings
+from hypothesis import strategies as st
 from oscal_bindings import models
 
 from mcp_server_for_oscal.tools.utils import (
+    MAX_PAGE_LIMIT,
     MODEL_MAP,
+    RESPONSE_BUDGET,
+    TRUNCATION_MARK,
     OSCALModelType,
     get_bundled_oscal_version,
     load_oscal_json_schema,
     oscal_version_from_schema,
+    paginate_within_budget,
     schema_names,
 )
 
@@ -266,3 +273,127 @@ class TestBundledOscalVersion:
         # The about output is unchanged by the bindings switch: no bindings-version field
         assert set(result) == {"version", "keywords", "oscal-version"}
         assert not any("bindings" in key.lower() for key in result)
+
+
+# --- Property 10: paginate_within_budget -------------------------------------
+
+_TRUNCATABLE = ("description", "message")
+_MIN_BUDGET = 2_000
+
+# Mix ASCII, Latin-1, CJK, an astral emoji (12 chars under ensure_ascii), and
+# characters JSON escapes (quote, backslash, newline, control).
+_ALPHABET = st.sampled_from(["a", "Z", " ", "é", "ß", "漢", "😀", '"', "\\", "\n", "\x01"])
+
+
+@st.composite
+def _long_text(draw: st.DrawFn) -> str:
+    """Draw a string of 0-30,000 characters built by repeating a short motif."""
+    motif = draw(st.text(alphabet=_ALPHABET, min_size=1, max_size=6))
+    # Small, mid-size (several per page), and oversized (truncation) values.
+    length = draw(st.integers(0, 200) | st.integers(200, 3_000) | st.integers(0, 30_000))
+    return (motif * (length // len(motif) + 1))[:length]
+
+
+@st.composite
+def _budget_item(draw: st.DrawFn) -> dict:
+    """Draw an item whose non-truncatable fields stay small enough for any budget >= 2,000."""
+    item: dict = {
+        "value": draw(st.text(alphabet=_ALPHABET, max_size=40)),
+        "source-file": "oscal_metaschema/src/metaschema/oscal_catalog_metaschema.xml",
+        "line": draw(st.integers(1, 100_000)),
+        "description": draw(_long_text()),
+    }
+    if draw(st.booleans()):
+        item["message"] = draw(_long_text())
+    return item
+
+
+def _envelope(window: list[dict], offset: int, total: int, extra: dict) -> dict:
+    """Page with ``limit`` reduced to ``len(window)``, as the pager builds it."""
+    k = len(window)
+    return {
+        "items": window,
+        "total": total,
+        "offset": offset,
+        "limit": k,
+        "hasMore": offset + k < total,
+        **extra,
+    }
+
+
+class TestPaginateWithinBudgetProperty:
+    """Feature: metaschema-constraints, Property 10: Budget pager returns the longest
+    fitting prefix.
+
+    **Validates: Requirements 12.3, 12.4, 12.5**
+    """
+
+    @settings(
+        max_examples=150,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large],
+    )
+    @given(
+        items=st.lists(_budget_item(), max_size=40),
+        data=st.data(),
+        limit=st.integers(1, MAX_PAGE_LIMIT),
+        budget=st.integers(_MIN_BUDGET, RESPONSE_BUDGET) | st.integers(_MIN_BUDGET, 3_000),
+        extra=st.sampled_from([{}, {"suggested-targets": ["a/@b", "c/@d"]}]),
+    )
+    def test_longest_fitting_prefix(self, items, data, limit, budget, extra):
+        # Mostly in range; occasionally at or past the end (Requirement 12.7 shape).
+        offset = data.draw(st.integers(0, max(len(items) - 1, 0)) | st.integers(0, 45))
+        page = paginate_within_budget(
+            items, offset, limit, budget=budget, truncatable=_TRUNCATABLE, extra=extra
+        )
+        total = len(items)
+        window = items[offset : offset + limit]
+        returned = page["items"]
+        k = len(returned)
+
+        # 12.3: serialized size within budget; envelope facts unchanged.
+        assert len(json.dumps(page)) <= budget
+        assert page["total"] == total
+        assert page["offset"] == offset
+        for key, value in extra.items():
+            assert page[key] == value
+        assert page["hasMore"] == (offset + k < total)
+
+        if offset >= total:
+            event("empty page")
+            assert returned == []
+            return
+
+        assert k >= 1
+
+        if returned[0].get("truncated") is True and "truncated" not in window[0]:
+            # 12.5: one shortened item, because the untouched item alone did not fit.
+            event("single truncated item")
+            assert k == 1
+            assert page["limit"] == 1
+            assert len(json.dumps(_envelope(window[:1], offset, total, extra))) > budget
+            got, original = returned[0], window[0]
+            assert set(got) == set(original) | {"truncated"}
+            shortened_any = False
+            for key, value in original.items():
+                if key not in _TRUNCATABLE:
+                    assert got[key] == value, key
+                elif got[key] != value:
+                    shortened_any = True
+                    assert got[key].endswith(TRUNCATION_MARK)
+                    prefix = got[key][: -len(TRUNCATION_MARK)]
+                    assert len(prefix) < len(value)
+                    assert value.startswith(prefix)
+            assert shortened_any
+            return
+
+        # 12.4: an unmodified prefix of the requested window.
+        assert returned == window[:k]
+        if k < len(window):
+            event("reduced prefix")
+            assert page["limit"] == k
+            one_more = _envelope(window[: k + 1], offset, total, extra)
+            assert len(json.dumps(one_more)) > budget
+        else:
+            event("full window")
+            assert page["limit"] == limit

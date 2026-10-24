@@ -14,10 +14,12 @@
 # Usage: ./bin/update-oscal-schemas.sh
 #
 # The script will:
-#   1. Download the OSCAL release package (CURRENT_RELEASE_VERSION) from GitHub
-#   2. Extract JSON schema files and XSD files 
-#   3. Place them in the project's schema directory
-#   4. Clean up temporary download files
+#   1. Update the bundled Metaschema sources (oscal_metaschema/) from the
+#      commit archive of CURRENT_RELEASE_COMMIT via update_oscal_metaschema.py
+#   2. Download the OSCAL release package (CURRENT_RELEASE_VERSION) from GitHub
+#   3. Extract JSON schema files and XSD files 
+#   4. Place them in the project's schema directory
+#   5. Clean up temporary download files
 #==============================================================================
 
 # Determine script directory using POSIX-compliant method
@@ -25,6 +27,18 @@
 SCRIPT_DIR="$(CDPATH="" cd -- "$(dirname -- "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 CURRENT_RELEASE_VERSION="1.2.3"
+# Commit that tag v$CURRENT_RELEASE_VERSION points to (dereference annotated tags):
+#   gh api repos/usnistgov/OSCAL/git/ref/tags/v$CURRENT_RELEASE_VERSION
+#   gh api repos/usnistgov/OSCAL/git/tags/<tag-object-sha> --jq .object.sha
+CURRENT_RELEASE_COMMIT="e061961c7702afeabffdf5e59894d35e748dade1"
+
+# Update the bundled Metaschema sources first, from the commit archive of
+# CURRENT_RELEASE_COMMIT. A failure here stops before the JSON/XSD schemas
+# change, so the two bundles never move to different versions in one run.
+# Runs under `hatch run update-oscal-schemas`, so `python` is the hatch env interpreter.
+python "$SCRIPT_DIR/update_oscal_metaschema.py" --version "$CURRENT_RELEASE_VERSION" \
+    --commit "$CURRENT_RELEASE_COMMIT" \
+    --dest "$PROJECT_ROOT/src/mcp_server_for_oscal/oscal_metaschema" || exit 1
 
 # Define the target directory where OSCAL schemas will be stored
 # This is where the MCP server will look for schema definitions

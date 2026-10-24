@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import warnings
+from collections.abc import Mapping
 from enum import StrEnum
 from functools import cache
 from pathlib import Path
@@ -163,6 +164,71 @@ def safe_log_mcp(
         asyncio.run(log_fn(msg))
 
 
+# Hash manifest written by bin/update_hashes.py and read by verify_package_integrity.
+MANIFEST_NAME: Final = "hashes.json"
+# Top-level keys a manifest may contain; any other key fails verification.
+MANIFEST_KEYS: Final = frozenset({"commit", "file_hashes"})
+
+
+def manifest_bytes(state: Mapping[str, object]) -> bytes:
+    """Return the canonical serialization of a ``hashes.json`` manifest.
+
+    The single definition of the manifest format: ``bin/update_hashes.py`` writes it and
+    ``verify_package_integrity`` requires a manifest's raw bytes to equal it, so
+    formatting-only edits (whitespace, escapes) fail verification. Two-space indent,
+    key order as given, ASCII-escaped, UTF-8, LF line endings, no trailing newline.
+    """
+    return json.dumps(state, indent=2).encode("utf-8")
+
+
+def write_manifest(directory: Path, state: Mapping[str, object]) -> Path:
+    """Write ``state`` as the canonical ``hashes.json`` in ``directory``; return its path.
+
+    Written as bytes so line endings are LF on every OS.
+    """
+    path = directory / MANIFEST_NAME
+    path.write_bytes(manifest_bytes(state))
+    return path
+
+
+def _load_manifest(directory: Path) -> dict:
+    """Read, parse, and check the form of ``directory/hashes.json``.
+
+    Raises:
+        OSError: The manifest is missing or unreadable.
+        ValueError: The manifest is not UTF-8 or not valid JSON (``json.JSONDecodeError``
+            is kept as the type for invalid JSON; tests/test_file_integrity.py relies on it).
+        RuntimeError: The manifest is not a JSON object, has keys other than
+            ``MANIFEST_KEYS``, or is not byte-identical to ``manifest_bytes`` of its content.
+    """
+    raw = directory.joinpath(MANIFEST_NAME).read_bytes()
+    try:
+        state = json.loads(raw.decode("utf-8"))
+    except ValueError:
+        # Malformed manifest: log file and directory, keep the original error type.
+        logger.exception(f"Malformed manifest {MANIFEST_NAME} in directory {directory}")
+        raise
+
+    if not isinstance(state, dict):
+        msg = f"Manifest {MANIFEST_NAME} in {directory} is not a JSON object"
+        logger.error(msg)
+        raise RuntimeError(msg)  # noqa: TRY004 - all manifest failures are RuntimeError
+    unexpected = sorted(set(state) - MANIFEST_KEYS)
+    if unexpected:
+        msg = f"Manifest {MANIFEST_NAME} in {directory} has unexpected keys {unexpected}"
+        logger.error(msg)
+        raise RuntimeError(msg)
+    # Byte-for-byte check: the JSON parse alone accepts whitespace and escape changes.
+    if raw != manifest_bytes(state):
+        msg = (
+            f"Manifest {MANIFEST_NAME} in {directory} is not in canonical form "
+            "(regenerate it with bin/update_hashes.py)"
+        )
+        logger.error(msg)
+        raise RuntimeError(msg)
+    return state
+
+
 def verify_package_integrity(directory: Path) -> None:
     """Verify all files in a package directory match their expected SHA-256 hashes.
 
@@ -175,7 +241,9 @@ def verify_package_integrity(directory: Path) -> None:
     .kiro/specs/file-integrity-testing/requirements.md - Requirements 1-6
 
     The function performs comprehensive validation:
-    1. Parses and validates the hashes.json manifest file
+    1. Parses the hashes.json manifest and requires it to be byte-identical to the
+       canonical form (``manifest_bytes``) written by bin/update_hashes.py, with only
+       the keys in ``MANIFEST_KEYS``
     2. Verifies all files listed in the manifest exist
     3. Computes SHA-256 hashes for all files and compares with expected values
     4. Detects orphaned files (present but not in manifest)
@@ -196,14 +264,13 @@ def verify_package_integrity(directory: Path) -> None:
         None: Function completes silently on success
 
     Raises:
-        RuntimeError: Raised in the following cases:
-            - hashes.json file is missing or contains malformed JSON
-            - hashes.json is missing required 'file_hashes' section
-            - Any file listed in the manifest is missing from the directory
-            - Any file's computed hash doesn't match the expected hash
-            - Any file exists in the directory but isn't listed in the manifest
-            - I/O errors occur during file reading or hash computation
-            - Permission errors prevent file access
+        RuntimeError: hashes.json is not a JSON object, has unexpected top-level keys,
+            or is not in canonical form; a listed file is missing; or a file's hash
+            doesn't match.
+        KeyError: hashes.json has no 'file_hashes' section, or a file in the directory
+            isn't listed in the manifest.
+        OSError: hashes.json or the directory is missing, or a file can't be read.
+        ValueError: hashes.json is not UTF-8 or not valid JSON (json.JSONDecodeError).
 
     Example:
         >>> from pathlib import Path
@@ -231,14 +298,13 @@ def verify_package_integrity(directory: Path) -> None:
     """
 
     logger.info(f"Verifying contents of package {directory.name}")
-    with open(directory.joinpath("hashes.json"), encoding="utf-8") as hashes:
-        state = json.load(hashes)
+    state = _load_manifest(directory)
 
     # Confirm that all files listed in hashes.json actually exist
     for file_path in state["file_hashes"]:
         sfp = directory.joinpath(file_path)
         if not sfp.exists():
-            raise RuntimeError(f"File {file_path} missing from package.")
+            raise RuntimeError(f"File {file_path} missing from package. Directory: {directory}")
         logger.debug("File %s exists", sfp)
 
     # Validate that all files in directory are unmodified
@@ -254,12 +320,37 @@ def verify_package_integrity(directory: Path) -> None:
             try:
                 if h != state["file_hashes"][fn.name]:
                     raise RuntimeError(
-                        f"File {fn.name} has been modified; expected hash {state['file_hashes'][fn.name]} != {h}"
+                        f"File {fn.name} has been modified; expected hash "
+                        f"{state['file_hashes'][fn.name]} != {h}. Directory: {directory}"
                     )
             except KeyError:
-                logger.exception(f"Unexpected file {fn.name} in directory {directory.name}")
+                # Unlisted file: log file and directory, keep the KeyError type
+                # (tests/test_file_integrity.py relies on it).
+                logger.exception(f"Unexpected file {fn.name} in directory {directory}")
                 raise
             logger.debug("Hash for file %s matches", fn.name)
+
+
+# Bundled content directories (relative to the package dir) verified at startup.
+BUNDLED_CONTENT_DIRS: Final = ("oscal_schemas", "oscal_metaschema")
+
+# Exceptions verify_package_integrity / verify_bundled_content can raise on a failed
+# check: RuntimeError (hash mismatch, missing file), KeyError (unlisted file, manifest
+# without file_hashes), OSError (missing manifest or directory, unreadable file),
+# ValueError (manifest is not valid JSON; json.JSONDecodeError subclasses it).
+INTEGRITY_ERRORS: Final = (RuntimeError, KeyError, OSError, ValueError)
+
+
+def verify_bundled_content(package_dir: Path) -> None:
+    """Verify every bundled content directory under ``package_dir``.
+
+    Calls ``verify_package_integrity`` on each entry of ``BUNDLED_CONTENT_DIRS``, which
+    recurses into subdirectories (e.g. ``oscal_metaschema/shared-constraints/``). A
+    missing directory fails verification. Raises whatever ``verify_package_integrity``
+    raises; all such failures are instances of ``INTEGRITY_ERRORS``.
+    """
+    for name in BUNDLED_CONTENT_DIRS:
+        verify_package_integrity(package_dir / name)
 
 
 def paginate(
@@ -296,3 +387,122 @@ def paginate(
         "limit": limit,
         "hasMore": has_more,
     }
+
+
+# Maximum serialized size, in characters, of a Metaschema tool response.
+RESPONSE_BUDGET: Final = 20_000
+
+# Suffix appended to a free-text value shortened by paginate_within_budget().
+TRUNCATION_MARK: Final = "…"
+
+_PAGE_KEYS: Final = frozenset({"items", "total", "offset", "limit", "hasMore"})
+
+
+def _json_size(value: object) -> int:
+    """Return the serialized size used for the Response_Budget.
+
+    Default separators and ``ensure_ascii=True`` give a length at least as long as
+    the compact or UTF-8 encodings the MCP SDK and Strands produce.
+    """
+    return len(json.dumps(value))
+
+
+def paginate_within_budget(
+    items: list[dict],
+    offset: int,
+    limit: int,
+    *,
+    budget: int = RESPONSE_BUDGET,
+    truncatable: tuple[str, ...] = ("description",),
+    extra: Mapping[str, object] | None = None,
+) -> dict:
+    """Paginate like ``paginate`` but keep the serialized page within ``budget``.
+
+    If the requested page is too large, the longest fitting prefix is returned with
+    ``limit`` set to the number of items returned and ``hasMore`` recomputed. If the
+    single item at ``offset`` alone is too large, its ``truncatable`` string values
+    are shortened (longest first, cut at a code-point boundary, suffixed with ``…``)
+    and the item gets ``truncated: true``. Other keys, including ``source-file`` and
+    ``line``, are kept unchanged.
+
+    Args:
+        items: The full, ordered list of result dicts.
+        offset: Zero-based index of the first item to return.
+        limit: Maximum number of items to return (1-100).
+        budget: Maximum ``len(json.dumps(page))``.
+        truncatable: Keys of free-text values that may be shortened.
+        extra: Additional top-level keys merged into the page (envelope keys win).
+
+    Returns:
+        A Page_Response dict: items, total, offset, limit, hasMore, plus ``extra``.
+
+    Raises:
+        ValueError: From ``paginate`` if offset or limit is out of range.
+        RuntimeError: If one item cannot fit even with every truncatable value
+            shortened to the truncation mark (an item shape the caller must avoid).
+    """
+    page = paginate(items, offset, limit)
+    extras = {k: v for k, v in (extra or {}).items() if k not in _PAGE_KEYS}
+    page.update(extras)
+    if _json_size(page) <= budget or not page["items"]:
+        return page
+
+    total = page["total"]
+    window: list[dict] = page["items"]
+
+    def build(page_items: list[dict]) -> dict:
+        k = len(page_items)
+        return {
+            "items": page_items,
+            "total": total,
+            "offset": offset,
+            "limit": k,
+            "hasMore": offset + k < total,
+            **extras,
+        }
+
+    # Largest k in [1, len(window)) whose page fits; size grows with k.
+    lo, hi = 0, len(window) - 1
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if _json_size(build(window[:mid])) <= budget:
+            lo = mid
+        else:
+            hi = mid - 1
+    if lo >= 1:
+        return build(window[:lo])
+
+    # The single item at offset is too large on its own: shorten its free text.
+    item = dict(window[0])
+    item["truncated"] = True
+    fields = sorted(
+        (key for key in truncatable if isinstance(item.get(key), str)),
+        key=lambda key: len(item[key]),
+        reverse=True,
+    )
+    for key in fields:
+        candidate = build([item])
+        if _json_size(candidate) <= budget:
+            return candidate
+        original: str = window[0][key]
+        # Longest prefix length in [0, len(original)) that fits with the mark.
+        lo, hi = 0, len(original) - 1
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            item[key] = original[:mid] + TRUNCATION_MARK
+            if _json_size(build([item])) <= budget:
+                lo = mid
+            else:
+                hi = mid - 1
+        shortened = original[:lo] + TRUNCATION_MARK
+        # Very short values can serialize longer with the mark; keep those as is.
+        item[key] = shortened if _json_size(shortened) < _json_size(original) else original
+
+    candidate = build([item])
+    if _json_size(candidate) <= budget:
+        return candidate
+    msg = (
+        f"item at offset {offset} exceeds the response budget of {budget} characters "
+        f"even with {', '.join(truncatable) or 'no fields'} shortened"
+    )
+    raise RuntimeError(msg)

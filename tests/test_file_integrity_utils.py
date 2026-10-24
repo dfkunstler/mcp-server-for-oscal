@@ -16,6 +16,7 @@ from pathlib import Path
 # Import the hash generation function directly instead of calling via subprocess
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from bin.update_hashes import capture_file_state
+from mcp_server_for_oscal.tools.utils import write_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -172,12 +173,12 @@ class TestPackageManager:
 
         if error_type == "invalid_json":
             manifest_path.write_text('{"invalid": json}', encoding="utf-8")
+        # Canonical form, so these fail on content rather than on the canonical-form check
         elif error_type == "missing_section":
-            manifest_path.write_text('{"commit": "abc123"}', encoding="utf-8")
+            write_manifest(package_dir, {"commit": "abc123"})
         elif error_type == "invalid_hash":
-            manifest_path.write_text(
-                '{"commit": "abc123", "file_hashes": {"test.txt": "invalid_hash"}}',
-                encoding="utf-8",
+            write_manifest(
+                package_dir, {"commit": "abc123", "file_hashes": {"test.txt": "invalid_hash"}}
             )
         else:
             raise ValueError(f"Unknown error type: {error_type}")

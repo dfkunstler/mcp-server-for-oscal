@@ -3,17 +3,28 @@ Tests for the main module.
 """
 
 import logging
+import shutil
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
 from mcp_server_for_oscal.config import config as real_config
-from mcp_server_for_oscal.main import main
+from mcp_server_for_oscal.main import _warm_metaschema_index, main
 
 
 class TestMain:
     """Test cases for the main function and module."""
+
+    @pytest.fixture(autouse=True)
+    def skip_integrity_check(self):
+        """These tests cover CLI and transport handling, not bundle integrity.
+
+        Startup integrity is covered by TestStartupIntegrity below and
+        tests/test_file_integrity_integration.py.
+        """
+        with patch("mcp_server_for_oscal.main.verify_bundled_content"):
+            yield
 
     @pytest.fixture
     def mock_config(self):
@@ -443,7 +454,7 @@ class TestDeprecatedSettings:
         monkeypatch.setattr("sys.argv", ["main.py"])
         with (
             patch("mcp_server_for_oscal.main.mcp") as mock_mcp,
-            patch("mcp_server_for_oscal.main.verify_package_integrity"),
+            patch("mcp_server_for_oscal.main.verify_bundled_content"),
             patch("mcp_server_for_oscal.main._init_oscal_store") as mock_init,
             patch("mcp_server_for_oscal.main._setup_tools") as mock_setup,
             patch("mcp_server_for_oscal.main.logging.basicConfig"),
@@ -516,3 +527,99 @@ class TestDeprecatedSettings:
         assert attr_files == {"config.py"}
         assert env_files <= {"config.py", "main.py"}
         assert "config.py" in env_files
+
+
+class TestStartupIntegrity:
+    """main() verifies bundled content first and exits 2 on failure (Req 2.3, 2.4, 2.5)."""
+
+    @pytest.fixture
+    def startup(self, monkeypatch):
+        """Patch the side effects after verification; attach them to one parent mock
+        so tests can assert call order."""
+        monkeypatch.setattr("sys.argv", ["main.py"])
+        order = Mock()
+        with (
+            patch("mcp_server_for_oscal.main.config") as mock_config,
+            patch("mcp_server_for_oscal.main.mcp") as mock_mcp,
+            patch("mcp_server_for_oscal.main._warm_metaschema_index") as mock_warm,
+            patch("mcp_server_for_oscal.main._init_oscal_store") as mock_init,
+            patch("mcp_server_for_oscal.main._setup_tools") as mock_setup,
+            patch("mcp_server_for_oscal.main.logging.basicConfig"),
+        ):
+            mock_config.log_level = "INFO"
+            mock_config.transport = "stdio"
+            order.attach_mock(mock_warm, "warm")
+            order.attach_mock(mock_init, "init_store")
+            order.attach_mock(mock_setup, "setup_tools")
+            mock_mcp.run = order.run
+            yield order
+
+    def test_exit_2_when_bundle_missing(self, startup, monkeypatch, tmp_path):
+        # tmp_path has no bundled content dirs, so the real check fails
+        monkeypatch.setattr("mcp_server_for_oscal.main.PACKAGE_DIR", tmp_path)
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 2
+        assert startup.mock_calls == []
+
+    def test_verification_runs_before_store_and_tools(self, startup):
+        with patch("mcp_server_for_oscal.main.verify_bundled_content") as mock_verify:
+            startup.attach_mock(mock_verify, "verify")
+            main()
+        names = [c[0] for c in startup.mock_calls]
+        assert names[:4] == ["verify", "warm", "init_store", "setup_tools"]
+
+
+class TestWarmMetaschemaIndex:
+    """_warm_metaschema_index() loads the index at startup and never exits (Req 2.3, 4.8)."""
+
+    @staticmethod
+    def _warnings(caplog) -> list[logging.LogRecord]:
+        return [
+            r
+            for r in caplog.records
+            if r.name == "mcp_server_for_oscal.main" and r.levelno == logging.WARNING
+        ]
+
+    def test_loads_bundled_index_without_warnings(self, reset_metaschema_index, caplog):
+        from mcp_server_for_oscal.tools import metaschema_index as msi
+
+        with caplog.at_level(logging.WARNING):
+            _warm_metaschema_index()
+        assert msi._index is not None
+        assert self._warnings(caplog) == []
+
+    def test_bundle_failure_logs_warning_and_returns(
+        self, reset_metaschema_index, monkeypatch, tmp_path, caplog
+    ):
+        from mcp_server_for_oscal.tools import metaschema_index as msi
+
+        # An empty dir has no manifest, so the real get_index() raises MetaschemaLoadError
+        monkeypatch.setattr(msi, "BUNDLE_DIR", tmp_path)
+        with caplog.at_level(logging.WARNING):
+            _warm_metaschema_index()  # no exception, no SystemExit
+        warnings = self._warnings(caplog)
+        assert len(warnings) == 1
+        assert warnings[0].exc_info is not None
+        assert isinstance(warnings[0].exc_info[1], msi.MetaschemaLoadError)
+        assert msi._index is None  # next call retries
+
+    def test_one_warning_per_module_with_load_errors(
+        self, reset_metaschema_index, monkeypatch, tmp_path, caplog
+    ):
+        from mcp_server_for_oscal.tools import metaschema_index as msi
+
+        bundle = tmp_path / "oscal_metaschema"
+        shutil.copytree(msi.BUNDLE_DIR, bundle)
+        # Listed in the manifest but missing: a per-module LoadError, not a bundle failure
+        (bundle / "oscal_catalog_metaschema.xml").unlink()
+        monkeypatch.setattr(msi, "BUNDLE_DIR", bundle)
+        with caplog.at_level(logging.WARNING):
+            _warm_metaschema_index()
+        load_errors = msi.get_index().load_errors
+        assert "oscal_catalog_metaschema.xml" in load_errors
+        warnings = self._warnings(caplog)
+        assert len(warnings) == len(load_errors)
+        assert {w.args[0] for w in warnings} == set(load_errors)
+        # Client-safe LoadError text only: no absolute paths in the log line
+        assert all(str(tmp_path) not in w.getMessage() for w in warnings)

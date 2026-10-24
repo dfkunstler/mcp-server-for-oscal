@@ -189,12 +189,16 @@ mcp-server-for-oscal/
 │   ├── oscal_store.db              # Pre-built SQLite database with bundled OSCAL content index
 │   ├── hashes.json                 # Hash manifest for package-level bundled content
 │   ├── oscal_schemas/              # Bundled OSCAL JSON & XSD schemas + hashes.json manifest
+│   ├── oscal_metaschema/           # Bundled OSCAL Metaschema modules + shared-constraints/ + hashes.json manifests
 │   └── tools/                      # MCP tool implementations (one tool per file)
 │       ├── __init__.py             # get_tool_list() — canonical tool registry
 │       ├── utils.py                # Shared: OSCALModelType enum, schema loading, hash verification
+│       ├── get_allowed_values.py   # Metaschema allowed-values lookup
 │       ├── get_schema.py
 │       ├── list_models.py
 │       ├── list_oscal_resources.py
+│       ├── metaschema_index.py     # Safe loader and index of the bundled Metaschema modules
+│       ├── metaschema_paths.py     # Constraint target / Target_Selector string algorithms
 │       ├── oscal_store.py          # OscalStore — SQLite-backed content indexing and FTS5 search
 │       ├── query_component_definition.py
 │       ├── query_documentation.py
@@ -248,10 +252,10 @@ This runs mypy for static type checking.
 Formats and lints your code using ruff (replaces the deprecated `hatch fmt`). Omit `--fix` to report without changing files.
 
 `hatch run rehash`
-Regenerates SHA-256 hash manifests for all bundled content directories.
+Regenerates SHA-256 hash manifests for all bundled content directories, including `oscal_metaschema/` and `oscal_metaschema/shared-constraints/`. Manifests must match this generated format byte for byte, so don't edit them by hand.
 
 `hatch run update-oscal-schemas`
-Downloads and updates the bundled OSCAL schemas from NIST.
+Downloads and updates the bundled OSCAL schemas and Metaschema modules from NIST. Set `CURRENT_RELEASE_VERSION` and `CURRENT_RELEASE_COMMIT` (the full commit SHA that tag `v<version>` points to) in `bin/update-oscal-schemas.sh` first, then run `hatch run rehash`.
 
 `hatch run update`
 Re-locks `requirements.txt` and syncs the default env. It compiles with `--upgrade`, so it bumps every dependency to the latest version `pyproject.toml` allows, not only the one you changed. After raising a pin in `pyproject.toml`, the first run fails: the default env syncs against the old `requirements.txt` under `UV_CONSTRAINT` before the script runs. Hand-edit that pin in `requirements.txt` to the new version first, then run `hatch run update`.

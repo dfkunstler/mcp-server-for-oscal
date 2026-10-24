@@ -29,7 +29,7 @@ class TestFileIntegrityIntegration:
         """Clean up test fixtures after each test method."""
         self.test_manager.__exit__(None, None, None)
 
-    @patch("mcp_server_for_oscal.main.verify_package_integrity")
+    @patch("mcp_server_for_oscal.main.verify_bundled_content")
     @patch("mcp_server_for_oscal.main.mcp")
     @patch("mcp_server_for_oscal.main.config")
     @patch("mcp_server_for_oscal.main.logging.basicConfig")
@@ -37,7 +37,7 @@ class TestFileIntegrityIntegration:
     def test_successful_server_startup_with_valid_packages(
         self, mock_logging_config, mock_config, mock_mcp, mock_verify_integrity
     ):
-        """Test successful server startup when oscal_schemas passes integrity check.
+        """Test successful server startup when bundled content passes integrity check.
 
         Requirements: 8.1, 8.2, 8.6
         """
@@ -48,20 +48,13 @@ class TestFileIntegrityIntegration:
         mock_verify_integrity.return_value = None  # Success (no exception)
 
         # Import and run main
-        from mcp_server_for_oscal.main import main
+        from mcp_server_for_oscal.main import PACKAGE_DIR, main
 
         # Execute test
         main()
 
-        # Verify integrity was checked only for oscal_schemas
-        assert mock_verify_integrity.call_count == 1
-
-        # Get the call arguments to verify correct directory was checked
-        call_args = [call[0][0] for call in mock_verify_integrity.call_args_list]
-
-        # Verify only oscal_schemas directory was checked
-        schema_dir_checked = any("oscal_schemas" in str(arg) for arg in call_args)
-        assert schema_dir_checked, "oscal_schemas directory should be verified"
+        # Verify bundled content was checked once, against the package directory
+        mock_verify_integrity.assert_called_once_with(PACKAGE_DIR)
 
         # Verify transport validation was called
         mock_config.validate_transport.assert_called_once()
@@ -69,7 +62,7 @@ class TestFileIntegrityIntegration:
         # Verify MCP server was started (integrity checks passed)
         mock_mcp.run.assert_called_once_with(transport="stdio")
 
-    @patch("mcp_server_for_oscal.main.verify_package_integrity")
+    @patch("mcp_server_for_oscal.main.verify_bundled_content")
     @patch("mcp_server_for_oscal.main.mcp")
     @patch("mcp_server_for_oscal.main.config")
     @patch("mcp_server_for_oscal.main.logging.basicConfig")
@@ -110,12 +103,12 @@ class TestFileIntegrityIntegration:
         # Verify error was logged before exit
         mock_logger.exception.assert_called_once()
         error_call_args = mock_logger.exception.call_args[0][0]
-        assert "Bundled context files may have been tampered with" in error_call_args
+        assert "failed integrity verification" in error_call_args
 
         # Verify MCP server was NOT started (integrity check failed)
         mock_mcp.run.assert_not_called()
 
-    @patch("mcp_server_for_oscal.main.verify_package_integrity")
+    @patch("mcp_server_for_oscal.main.verify_bundled_content")
     @patch("mcp_server_for_oscal.main.mcp")
     @patch("mcp_server_for_oscal.main.config")
     @patch("mcp_server_for_oscal.main.logging.basicConfig")
@@ -151,15 +144,19 @@ class TestFileIntegrityIntegration:
 
         assert exc_info.value.code == 2
 
-        # Verify detailed error was logged before exit
-        mock_logger.exception.assert_called_once_with(
-            "Bundled context files may have been tampered with; exiting."
-        )
+        # Verify detailed error (package dir and the failing file) was logged before exit
+        from mcp_server_for_oscal.main import PACKAGE_DIR
+
+        mock_logger.exception.assert_called_once()
+        log_args = mock_logger.exception.call_args[0]
+        rendered = log_args[0] % log_args[1:]
+        assert str(PACKAGE_DIR) in rendered
+        assert "catalog.json" in rendered
 
         # Verify MCP server was NOT started
         mock_mcp.run.assert_not_called()
 
-    @patch("mcp_server_for_oscal.main.verify_package_integrity")
+    @patch("mcp_server_for_oscal.main.verify_bundled_content")
     @patch("mcp_server_for_oscal.main.mcp")
     @patch("mcp_server_for_oscal.main.config")
     @patch("mcp_server_for_oscal.main.logging.basicConfig")
@@ -167,7 +164,7 @@ class TestFileIntegrityIntegration:
     def test_verification_of_oscal_schemas_directory_only(
         self, mock_logging_config, mock_config, mock_mcp, mock_verify_integrity
     ):
-        """Test that only the oscal_schemas directory is verified at startup.
+        """Test that the bundled content directories are verified at startup.
 
         Requirements: 8.1, 8.2, 8.6
         """
@@ -178,27 +175,17 @@ class TestFileIntegrityIntegration:
         mock_verify_integrity.return_value = None  # Success
 
         # Import main function
-        from mcp_server_for_oscal.main import main
+        from mcp_server_for_oscal.main import PACKAGE_DIR, main
+        from mcp_server_for_oscal.tools.utils import BUNDLED_CONTENT_DIRS
 
         # Execute test
         main()
 
-        # Verify integrity was checked exactly once (only oscal_schemas)
-        assert mock_verify_integrity.call_count == 1
+        # One call covering every bundled content dir under the package directory
+        mock_verify_integrity.assert_called_once_with(PACKAGE_DIR)
+        assert BUNDLED_CONTENT_DIRS == ("oscal_schemas", "oscal_metaschema")
 
-        # Get the call arguments to verify correct directory was checked
-        call_args = [call[0][0] for call in mock_verify_integrity.call_args_list]
-
-        # Convert Path objects to strings for easier checking
-        call_paths = [str(arg) for arg in call_args]
-
-        # Verify only oscal_schemas was checked
-        schema_dir_checked = any("oscal_schemas" in path for path in call_paths)
-        assert schema_dir_checked, (
-            f"oscal_schemas directory should be verified. Actual calls: {call_paths}"
-        )
-
-    @patch("mcp_server_for_oscal.main.verify_package_integrity")
+    @patch("mcp_server_for_oscal.main.verify_bundled_content")
     @patch("mcp_server_for_oscal.main.mcp")
     @patch("mcp_server_for_oscal.main.config")
     @patch("mcp_server_for_oscal.main.logging.basicConfig")
@@ -227,13 +214,13 @@ class TestFileIntegrityIntegration:
 
         assert exc_info.value.code == 2
 
-        # Verify integrity was checked only once (for oscal_schemas)
+        # Verify integrity was checked once
         assert mock_verify_integrity.call_count == 1
 
         # Verify MCP server was NOT started
         mock_mcp.run.assert_not_called()
 
-    @patch("mcp_server_for_oscal.main.verify_package_integrity")
+    @patch("mcp_server_for_oscal.main.verify_bundled_content")
     @patch("mcp_server_for_oscal.main.mcp")
     @patch("mcp_server_for_oscal.main.config")
     @patch("mcp_server_for_oscal.main.logging.basicConfig")
@@ -247,7 +234,7 @@ class TestFileIntegrityIntegration:
         mock_mcp,
         mock_verify_integrity,
     ):
-        """Test that integrity check uses proper path resolution for oscal_schemas.
+        """Test that integrity check uses the package directory next to main.py.
 
         Requirements: 8.1, 8.6
         """
@@ -258,28 +245,21 @@ class TestFileIntegrityIntegration:
         mock_verify_integrity.return_value = None  # Success
 
         # Import main function
-        from mcp_server_for_oscal.main import main
+        import mcp_server_for_oscal.main as main_module
 
         # Execute test
-        main()
+        main_module.main()
 
-        # Verify integrity was checked once (only oscal_schemas)
         assert mock_verify_integrity.call_count == 1
-
-        # Get the call argument to verify path resolution
         call_arg = mock_verify_integrity.call_args_list[0][0][0]
 
         # Verify path is resolved relative to main.py location
         assert isinstance(call_arg, Path), f"Expected Path object, got {type(call_arg)}"
-        path_str = str(call_arg)
-        assert call_arg.is_absolute(), f"Path should be absolute: {path_str}"
+        assert call_arg.is_absolute(), f"Path should be absolute: {call_arg}"
+        assert call_arg == Path(main_module.__file__).parent
+        assert (call_arg / "oscal_schemas").is_dir()
 
-        # Verify only oscal_schemas path
-        assert "oscal_schemas" in path_str, (
-            f"oscal_schemas directory should be verified. Call: {path_str}"
-        )
-
-    @patch("mcp_server_for_oscal.main.verify_package_integrity")
+    @patch("mcp_server_for_oscal.main.verify_bundled_content")
     @patch("mcp_server_for_oscal.main.mcp")
     @patch("mcp_server_for_oscal.main.config")
     @patch("mcp_server_for_oscal.main.logging.basicConfig")
@@ -309,7 +289,7 @@ class TestFileIntegrityIntegration:
         # Execute test
         main()
 
-        # Verify integrity check completed successfully (only oscal_schemas)
+        # Verify integrity check completed successfully
         assert mock_verify_integrity.call_count == 1
 
         # Verify transport validation was called (part of normal initialization)

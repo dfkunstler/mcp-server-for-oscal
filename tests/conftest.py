@@ -8,6 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from mcp_server_for_oscal.tools import metaschema_index as _msi_module
 from mcp_server_for_oscal.tools import query_component_definition as _qcd_module
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
@@ -32,6 +33,20 @@ def reset_oscal_store():
     _qcd_module._oscal_store = None
     yield
     _qcd_module._oscal_store = saved
+
+
+@pytest.fixture
+def reset_metaschema_index():
+    """Isolate the ``metaschema_index._index`` singleton for a test that touches it.
+
+    Sets ``_index`` to ``None`` before the test, so the next ``get_index()`` loads afresh,
+    and restores the prior value afterward, so an index built from a patched bundle never
+    leaks into another test.
+    """
+    saved = _msi_module._index
+    _msi_module._index = None
+    yield
+    _msi_module._index = saved
 
 
 @pytest.fixture

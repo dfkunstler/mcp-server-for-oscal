@@ -198,6 +198,10 @@ rehash = [
   # Regenerate hash files for bundled content
   "hatch run bin/update_hashes.py src/mcp_server_for_oscal/oscal_schemas",
   "git add src/mcp_server_for_oscal/oscal_schemas/hashes.json",
+  # update_hashes.py recurses, so this also writes shared-constraints/hashes.json
+  "hatch run bin/update_hashes.py src/mcp_server_for_oscal/oscal_metaschema",
+  "git add src/mcp_server_for_oscal/oscal_metaschema/hashes.json",
+  "git add src/mcp_server_for_oscal/oscal_metaschema/shared-constraints/hashes.json",
   "hatch run bin/update_hashes.py data/oscal_docs",
   "git add data/oscal_docs/hashes.json",
   "hatch run bin/update_hashes.py data/component_definitions",

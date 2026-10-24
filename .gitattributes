@@ -4,5 +4,6 @@
 # byte-identical to the committed blobs on every OS. These lines must stay
 # after the `*` line: for each attribute, the last matching line wins.
 src/mcp_server_for_oscal/oscal_schemas/** -text
+src/mcp_server_for_oscal/oscal_metaschema/** -text
 data/** -text
 tests/fixtures/** -text

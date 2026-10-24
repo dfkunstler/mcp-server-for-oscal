@@ -29,9 +29,12 @@ from strands.models import BedrockModel
 
 from mcp_server_for_oscal.config import config
 from mcp_server_for_oscal.tools import get_tool_list
-from mcp_server_for_oscal.tools.utils import verify_package_integrity
+from mcp_server_for_oscal.tools.utils import INTEGRITY_ERRORS, verify_bundled_content
 
 logger = logging.getLogger(__name__)
+
+# Package directory holding the bundled content; module constant so tests can patch it
+PACKAGE_DIR = Path(__file__).parent
 
 
 def _build_system_prompt(tools: list[Any]) -> str:
@@ -421,15 +424,20 @@ def main() -> None:
 
     # Verify bundled content integrity
     try:
-        my_dir = Path(__file__).parent
-        verify_package_integrity(my_dir.joinpath("oscal_schemas"))
-    except (RuntimeError, KeyError) as err:
-        logger.exception("Bundled context files may have been tampered with; exiting.")
+        verify_bundled_content(PACKAGE_DIR)
+    except INTEGRITY_ERRORS as err:
+        logger.exception(
+            "Bundled content in %s failed integrity verification (%s); exiting.",
+            PACKAGE_DIR,
+            err,  # noqa: TRY401 - failing dir/file on the summary line, not only the traceback
+        )
         raise SystemExit(2) from err
 
-    # Initialize OscalStore so store-backed tools work in agent mode
-    from mcp_server_for_oscal.main import _init_oscal_store
+    # Warm the Metaschema index (non-fatal), then initialize OscalStore so store-backed
+    # tools work in agent mode. Both reuse the server's implementation.
+    from mcp_server_for_oscal.main import _init_oscal_store, _warm_metaschema_index
 
+    _warm_metaschema_index()
     _init_oscal_store()
 
     # Build session and conversation managers from CLI args / config

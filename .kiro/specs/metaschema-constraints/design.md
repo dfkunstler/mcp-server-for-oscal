@@ -306,6 +306,8 @@ except INTEGRITY_ERRORS as err:
 
 `verify_package_integrity` messages gain the directory (`File X has been modified in <dir>; expected hash ...`, `File X missing from package <dir>.`). The existing tests match substrings (`"File file2.json missing from package."`, `"test.bin has been modified"`), so the suffix keeps them passing. The unexpected-file path already logs the directory before re-raising `KeyError`.
 
+Manifests are checked byte-for-byte, not only parsed: `utils.manifest_bytes(state)` (`json.dumps(state, indent=2)`, UTF-8, LF, no trailing newline) is the single definition of the format. `bin/update_hashes.py` writes through `utils.write_manifest`, and `verify_package_integrity` raises `RuntimeError("Manifest hashes.json in <dir> is not in canonical form ...")` when the raw bytes differ from `manifest_bytes` of the parsed content, or names the keys when the manifest has top-level keys other than `commit` and `file_hashes`. Without this, whitespace or escape edits to a manifest parse to the same object and pass.
+
 ### `get_allowed_values` (core tool)
 
 ```python
@@ -737,7 +739,7 @@ Includes the manifest allowlist from RC-5.
 
 ### Property 15: Any single-byte change fails startup verification
 
-*For any* file in a temporary copy of the bundle (module, `.ent`, `README.md`, or `hashes.json`), *any* byte offset in it, and *any* replacement byte different from the original, `verify_bundled_content` SHALL raise an exception in `INTEGRITY_ERRORS`, and `main.main()` started against that copy SHALL exit with status 2.
+*For any* file in a temporary copy of the bundle (module, `.ent`, `README.md`, or `hashes.json`), *any* byte offset in it, and *any* replacement byte different from the original, `verify_bundled_content` SHALL raise an exception in `INTEGRITY_ERRORS`, and `main.main()` started against that copy SHALL exit with status 2. For `hashes.json` this relies on the canonical-form and key-set checks: a whitespace change still parses to the same manifest.
 
 **Validates: Requirements 2.4, 2.6**
 
