@@ -13,6 +13,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from mcp_server_for_oscal.tools import query_oscal_models
+from mcp_server_for_oscal.tools.descriptions import Limit, Offset, ParentDocUuid
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
 # ---------------------------------------------------------------------------
@@ -195,25 +196,26 @@ class TestProperty2ConsistentInterfaceSignature:
     def test_signature_params(self, tool_fn):
         sig = inspect.signature(tool_fn)
         param_names = list(sig.parameters.keys())
-        assert param_names == ["ctx", "parent_doc_uuid", "offset", "limit"]
+        assert param_names == ["parent_doc_uuid", "offset", "limit", "ctx"]
 
-        # ctx: Context | None = None
+        # ctx: Context | None = None, last
         p_ctx = sig.parameters["ctx"]
         assert p_ctx.default is None
 
-        # parent_doc_uuid: str | None = None
+        # parent_doc_uuid: ParentDocUuid = None
         p_parent = sig.parameters["parent_doc_uuid"]
         assert p_parent.default is None
+        assert p_parent.annotation == ParentDocUuid
 
-        # offset: int = 0
+        # offset: Offset = 0
         p_offset = sig.parameters["offset"]
         assert p_offset.default == 0
-        assert p_offset.annotation is int
+        assert p_offset.annotation == Offset
 
-        # limit: int = 10
+        # limit: Limit = 10
         p_limit = sig.parameters["limit"]
         assert p_limit.default == 10
-        assert p_limit.annotation is int
+        assert p_limit.annotation == Limit
 
     @pytest.mark.parametrize(
         "tool_fn",

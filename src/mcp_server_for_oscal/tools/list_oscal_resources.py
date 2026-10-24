@@ -3,13 +3,15 @@ Tool for listing OSCAL community resources.
 """
 
 import logging
+import re
 from pathlib import Path
 
 from mcp.server.mcpserver import Context
 from strands import tool
 
+from mcp_server_for_oscal.tools.descriptions import Limit, Offset
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
-from mcp_server_for_oscal.tools.utils import try_notify_client_error
+from mcp_server_for_oscal.tools.utils import paginate, try_notify_client_error
 
 logger = logging.getLogger(__name__)
 
@@ -27,54 +29,71 @@ def init_store(store: OscalStore) -> None:
     _store = store
 
 
+DEFAULT_CATEGORY = "General"
+
+_HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
+_TOP_LEVEL_ITEM = re.compile(r"^[-*+]\s+")
+
+
+def parse_resource_entries(markdown: str) -> list[dict[str, str]]:
+    """Split awesome-oscal markdown into one entry per top-level list item.
+
+    A heading of level 2-6 sets the category; entries before any such heading get
+    "General". A line matching ``^[-*+]\\s+`` starts an entry. Following non-blank lines that
+    are not headings or top-level items (indented continuations and sub-items) are joined to
+    it with single spaces. A blank line ends the entry. Other prose is skipped.
+    """
+    entries: list[dict[str, str]] = []
+    category = DEFAULT_CATEGORY
+    parts: list[str] | None = None  # parts of the entry being collected, if any
+    entry_category = category
+
+    def flush() -> None:
+        nonlocal parts
+        if parts:
+            entries.append({"category": entry_category, "text": " ".join(parts)})
+        parts = None
+
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            flush()
+            continue
+        heading = _HEADING.match(line)
+        if heading:
+            flush()
+            if len(heading.group(1)) >= 2:  # noqa: PLR2004 - level 1 is the document title
+                category = heading.group(2) or DEFAULT_CATEGORY
+            continue
+        item = _TOP_LEVEL_ITEM.match(line)
+        if item:
+            flush()
+            entry_category = category
+            parts = [line[item.end() :].strip()]
+        elif parts is not None:
+            parts.append(stripped)
+        # else: prose outside any entry is skipped
+    flush()
+    return entries
+
+
 @tool
-def list_oscal_resources(ctx: Context | None = None) -> str:
-    """
-    Retrieve a comprehensive directory of OSCAL community resources and tools.
-
-    This tool provides access to a curated collection of OSCAL (Open Security Controls Assessment Language)
-    community resources that can help users:
-
-    - Find OSCAL-compatible tools and software implementations
-    - Discover educational content, tutorials, and documentation
-    - Access example OSCAL documents and templates
-    - Locate presentations, articles, and research papers about OSCAL
-    - Identify government and industry adoption examples
-    - Find libraries and SDKs for OSCAL development
-    - Access validation tools and utilities
-
-    The returned content is structured markdown that categorizes resources by type (tools, content,
-    presentations, etc.) making it easy to find specific types of OSCAL resources based on user needs.
-
-    Use this tool when users ask about:
-    - "What OSCAL tools are available?"
-    - "How can I learn more about OSCAL?"
-    - "Are there examples of OSCAL implementations?"
-    - "What resources exist for OSCAL development?"
-    - "Who is using OSCAL in production?"
-
-    Args:
-        ctx: MCP server context (should be injected automatically by MCP server)
-
-    Returns:
-        str: Complete markdown content containing categorized OSCAL community resources,
-             tools, documentation, examples, and educational materials
-
-    Raises:
-        FileNotFoundError: If the awesome-oscal.md content cannot be found
-        IOError: If there are issues reading the content
-    """
+def list_oscal_resources(offset: Offset = 0, limit: Limit = 10, ctx: Context | None = None) -> dict:
+    """List OSCAL community resources (tools, content, articles, talks) from the awesome-oscal
+    list, each with `category` and markdown `text`. Results are paged."""
     logger.debug(
-        "list_oscal_resources() called with session client params: %s",
+        "list_oscal_resources(offset=%s, limit=%s) called with session client params: %s",
+        offset,
+        limit,
         ctx.session.client_params if ctx else None,
     )
 
     try:
-        content = read_resources_file()
-        logger.debug("Successfully read OSCAL resources file")
-        return content
-    except Exception:
-        msg = "Failed to read OSCAL resources file."
+        entries = parse_resource_entries(read_resources_file())
+        logger.debug("Successfully read OSCAL resources file: %d entries", len(entries))
+        return paginate(entries, offset, limit)
+    except Exception as err:
+        msg = f"Failed to list OSCAL resources: {err}"
         logger.exception(msg)
         try_notify_client_error(msg, ctx)
         raise

@@ -12,6 +12,7 @@ import tempfile
 from collections.abc import Callable
 from functools import cache
 from pathlib import Path
+from typing import get_args
 from unittest.mock import patch
 from xml.sax.saxutils import quoteattr
 
@@ -23,7 +24,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp_server_for_oscal.tools import get_allowed_values as gav_module
 from mcp_server_for_oscal.tools import get_constraints as gc_module
 from mcp_server_for_oscal.tools.get_allowed_values import get_allowed_values
-from mcp_server_for_oscal.tools.get_constraints import get_constraints
+from mcp_server_for_oscal.tools.get_constraints import ConstraintType, get_constraints
 from mcp_server_for_oscal.tools.metaschema_index import (
     BUNDLE_DIR,
     CONSTRAINT_TYPES,
@@ -59,6 +60,7 @@ from .test_get_allowed_values import (
     _flag_slot_definitions,
     _real_selector_pools,
     _selector_totals,
+    _signature_rows,
     _syn_module_body,
     _syn_selectors,
 )
@@ -80,7 +82,9 @@ from .test_metaschema_index import (
 COMMON_KEYS = {"type", "definition", "target", "level", "source-file", "line"}
 
 
-def _all_items(model: str, target: str, constraint_types: list[str] | None = None) -> list[dict]:
+def _all_items(
+    model: str, target: str, constraint_types: list[ConstraintType] | None = None
+) -> list[dict]:
     """Walk every page of a result and return the items in order."""
     items: list[dict] = []
     offset = 0
@@ -225,16 +229,25 @@ class TestRequiredExamples:
 
     def test_signature_and_defaults(self):
         """Req 8.1: parameters, types, and defaults in order."""
-        params = inspect.signature(get_constraints).parameters
         expected = [
             ("model", str, inspect.Parameter.empty),
             ("target", str, inspect.Parameter.empty),
-            ("constraint_types", list[str] | None, None),
+            ("constraint_types", list[ConstraintType] | None, None),
             ("offset", int, 0),
             ("limit", int, 25),
             ("ctx", Context | None, None),
         ]
-        assert [(p.name, p.annotation, p.default) for p in params.values()] == expected
+        assert _signature_rows(get_constraints) == expected
+
+    def test_constraint_type_enum_matches_index(self):
+        """The ``constraint_types`` enum is exactly the index's CONSTRAINT_TYPES, in order."""
+        assert get_args(ConstraintType) == CONSTRAINT_TYPES
+        server = MCPServer("test")
+        server.add_tool(get_constraints)
+        (tool_def,) = asyncio.run(server.list_tools())
+        prop = tool_def.input_schema["properties"]["constraint_types"]
+        (array,) = [s for s in prop["anyOf"] if s.get("type") == "array"]
+        assert tuple(array["items"]["enum"]) == CONSTRAINT_TYPES
 
     def test_mcp_input_schema_hides_ctx(self):
         """The MCP server injects ``ctx``; callers see only the five documented arguments."""
@@ -470,7 +483,7 @@ def _check_agreement(
     by_location: dict[_Location, Constraint],
     model: str,
     selector: str,
-    types: list[str],
+    types: list[ConstraintType],
 ) -> dict[str, int]:
     """Assert Property 17 for one selector and type filter; return counts for events.
 

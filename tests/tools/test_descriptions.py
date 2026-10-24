@@ -138,3 +138,52 @@ class TestSharedDocLengths:
         assert len(value) <= PARAMETER_DESCRIPTION_CAP, (
             f"{name} length {len(value)} > limit {PARAMETER_DESCRIPTION_CAP}"
         )
+
+
+class TestServerInstructions:
+    """Validates: Requirements 8.1, 8.2, 8.5."""
+
+    def test_composed_from_intro_and_guide(self) -> None:
+        assert descriptions.SERVER_INSTRUCTIONS == (
+            descriptions.INTRO + "\n\n" + descriptions.ROUTING_GUIDE
+        )
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "OSCAL MCP server",
+            "Open Security Controls Assessment Language",
+            "NIST",
+            "security",
+            "controls",
+        ],
+    )
+    def test_intro_keeps_asserted_strings(self, text: str) -> None:
+        assert text in descriptions.INTRO
+
+    @pytest.mark.parametrize(
+        "tool_name",
+        [
+            "list_oscal_models",
+            "get_oscal_schema",
+            "get_definition",
+            "get_constraints",
+            "query_catalog",
+            "text_search_oscal",
+            "query_component_definition",
+            "validate_oscal_content",
+            "query_oscal_documentation",
+            "list_oscal_resources",
+        ],
+    )
+    def test_guide_names_tool_per_task(self, tool_name: str) -> None:
+        assert tool_name in descriptions.ROUTING_GUIDE
+
+    def test_guide_has_property_link_tip(self) -> None:
+        assert '"property/@name"' in descriptions.ROUTING_GUIDE
+        assert '"link/@rel"' in descriptions.ROUTING_GUIDE
+
+    def test_within_routing_guide_cap(self) -> None:
+        from mcp_server_for_oscal.tools.tool_budget import ROUTING_GUIDE_CAP
+
+        assert len(descriptions.SERVER_INSTRUCTIONS) <= ROUTING_GUIDE_CAP

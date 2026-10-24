@@ -9,13 +9,11 @@ from mcp_server_for_oscal.tools.utils import OSCALModelType
 
 @tool
 def list_oscal_models() -> dict:
-    """
-    List all available OSCAL model types with metadata.
+    """List the OSCAL model names, each with description, layer, formal and short names, and
+    release status.
 
-    Returns:
-        dict: List of OSCAL models where the key is model's name as used
-            in the schema, and value is an object that includes description,
-            layer, formal and short names, and release status.
+    Use when you need a valid `model_name` for get_oscal_schema or a `model` for the Metaschema
+    tools.
     """
     return {
         OSCALModelType.CATALOG: {

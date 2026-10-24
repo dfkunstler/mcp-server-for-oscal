@@ -11,6 +11,7 @@ import re
 import tempfile
 from functools import cache
 from pathlib import Path
+from typing import Annotated, get_args, get_origin
 from unittest.mock import patch
 from xml.sax.saxutils import escape as xml_escape
 from xml.sax.saxutils import quoteattr
@@ -21,6 +22,7 @@ from hypothesis import strategies as st
 from mcp.server.mcpserver import Context, MCPServer
 
 from mcp_server_for_oscal.tools import get_allowed_values as gav_module
+from mcp_server_for_oscal.tools.descriptions import ROUTING_GUIDE, TARGET_SELECTOR_DOC, ParamDoc
 from mcp_server_for_oscal.tools.get_allowed_values import (
     _bounded_levenshtein,
     get_allowed_values,
@@ -40,6 +42,7 @@ from mcp_server_for_oscal.tools.metaschema_paths import (
     compose_selector,
     validate_selector,
 )
+from mcp_server_for_oscal.tools.tool_budget import summary_sentence
 from mcp_server_for_oscal.tools.utils import (
     MAX_PAGE_LIMIT,
     RESPONSE_BUDGET,
@@ -1645,8 +1648,25 @@ _PROFILE_BODY = """\
 </define-assembly>"""
 
 
-def _paragraphs(doc: str) -> list[str]:
-    return [p.strip() for p in re.split(r"\n\s*\n", inspect.cleandoc(doc))]
+def _signature_rows(fn) -> list[tuple[str, object, object]]:
+    """``(name, base type, default)`` per parameter, with ``Annotated`` metadata removed.
+
+    Every parameter except ``ctx`` must carry exactly one non-blank ``ParamDoc``, the
+    description both the MCP inputSchema and the Strands tool spec read.
+    """
+    rows = []
+    for p in inspect.signature(fn).parameters.values():
+        annotation = p.annotation
+        if p.name == "ctx":
+            assert get_origin(annotation) is not Annotated
+        else:
+            assert get_origin(annotation) is Annotated, p.name
+            docs = [m for m in get_args(annotation)[1:] if isinstance(m, ParamDoc)]
+            assert len(docs) == 1, p.name
+            assert docs[0].strip(), p.name
+            annotation = get_args(annotation)[0]
+        rows.append((p.name, annotation, p.default))
+    return rows
 
 
 @pytest.mark.usefixtures("reset_metaschema_index")
@@ -1663,7 +1683,6 @@ class TestFurtherExamples:
 
     def test_signature_and_defaults(self):
         """Req 5.1: model, target, offset=0, limit=25, ctx=None, with their types."""
-        params = inspect.signature(get_allowed_values).parameters
         expected = [
             ("model", str, inspect.Parameter.empty),
             ("target", str, inspect.Parameter.empty),
@@ -1671,7 +1690,7 @@ class TestFurtherExamples:
             ("limit", int, 25),
             ("ctx", Context | None, None),
         ]
-        assert [(p.name, p.annotation, p.default) for p in params.values()] == expected
+        assert _signature_rows(get_allowed_values) == expected
 
     def test_mcp_input_schema_hides_ctx(self):
         """The MCP server injects ``ctx``; callers see only the four documented arguments."""
@@ -1684,35 +1703,46 @@ class TestFurtherExamples:
         assert schema["properties"]["offset"]["default"] == 0
         assert schema["properties"]["limit"]["default"] == 25
 
-    def test_docstring_first_paragraph_has_example_questions(self):
-        """Req 7.4: the first paragraph (before the first blank line) holds example questions."""
-        assert get_allowed_values.__doc__
-        first = _paragraphs(get_allowed_values.__doc__)[0]
-        assert "OSCAL Metaschema" in first
-        questions = re.findall(r'"([^"]+\?)"', first)
-        assert questions, "no quoted example question in the first paragraph"
+    def test_summary_sentence_names_allowed_values_source(self):
+        """The summary sentence says what the tool returns and where the values come from.
 
-    def test_docstring_documents_target_selector_syntax(self):
-        """Req 7.4: Target_Selector syntax with at least two valid example selectors."""
-        assert get_allowed_values.__doc__
-        syntax = [p for p in _paragraphs(get_allowed_values.__doc__) if "Target_Selector" in p]
-        assert syntax
+        Supersedes metaschema-constraints Req 7.4 (example questions in the first paragraph);
+        tool-context-optimization Req 2 limits descriptions to three sentences.
+        """
+        summary = summary_sentence(inspect.getdoc(get_allowed_values) or "")
+        assert summary.startswith("Return ")
+        assert "OSCAL Metaschema" in summary
+        assert "`allowed-values`" in summary
+
+    def test_target_parameter_documents_target_selector_syntax(self):
+        """Req 7.4: the ``target`` description is TARGET_SELECTOR_DOC, with valid examples."""
+        server = MCPServer("test")
+        server.add_tool(get_allowed_values)
+        (tool_def,) = asyncio.run(server.list_tools())
+        description = tool_def.input_schema["properties"]["target"]["description"]
+        assert description == TARGET_SELECTOR_DOC
         examples: list[str] = []
-        for quoted in re.findall(r'"([^"]+)"', syntax[0]):
+        for quoted in re.findall(r'"([^"]+)"', description):
             try:
                 validate_selector(quoted)
             except ValueError:
                 continue
             examples.append(quoted)
-        assert len([e for e in examples if "/" in e]) >= 2, examples
+        assert [e for e in examples if "/" in e], examples
 
-    def test_docstring_advises_generic_property_and_link(self):
-        """The docstring points callers at the generic property and link definitions."""
-        assert get_allowed_values.__doc__
-        advice = [p for p in _paragraphs(get_allowed_values.__doc__) if "also query" in p]
-        assert advice
-        assert '"property/@name"' in advice[0]
-        assert '"link/@rel"' in advice[0]
+    def test_routing_guide_advises_generic_property_and_link(self):
+        """The Routing_Guide advises querying the generic property and link definitions.
+
+        Supersedes metaschema-constraints Req 7.4 (advice in the tool docstring);
+        tool-context-optimization Req 10.4 moves it to the server-level ROUTING_GUIDE.
+        """
+        assert '"property"' in ROUTING_GUIDE
+        assert '"link"' in ROUTING_GUIDE
+        assert '"property/@name"' in ROUTING_GUIDE
+        assert '"link/@rel"' in ROUTING_GUIDE
+        docstring = inspect.getdoc(get_allowed_values) or ""
+        assert "property/@name" not in docstring
+        assert "link/@rel" not in docstring
 
     def test_load_error_names_bundle_relative_source(self, tmp_path: Path):
         """Req 5.13: a refused entity fails the scope with a client-safe MetaschemaLoadError."""

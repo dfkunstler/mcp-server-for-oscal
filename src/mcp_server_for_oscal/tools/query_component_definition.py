@@ -18,12 +18,14 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from mcp.server.mcpserver import Context  # noqa: TC002 - MCP resolves ctx annotations at runtime
 from oscal_bindings.models import ComponentDefinition
 from strands import tool
 
+# Runtime imports: the MCP SDK and Strands resolve these annotations at runtime.
+from mcp_server_for_oscal.tools.descriptions import Limit, Offset, ParamDoc
 from mcp_server_for_oscal.tools.utils import (
     OSCALModelType,
     paginate,
@@ -535,76 +537,37 @@ def _list_component_definitions(
 
 @tool()
 def query_component_definition(
+    component_definition_filter: Annotated[
+        str | None,
+        ParamDoc(
+            "UUID or exact title (case-insensitive) of one Component Definition to search. "
+            "Omit to search all."
+        ),
+    ] = None,
+    query_type: Annotated[
+        Literal["all", "by_uuid", "by_title", "by_type"],
+        ParamDoc(
+            '"all" (paged, large without a filter), "by_uuid", "by_title" (title, then '
+            'property value), or "by_type" (Component type). by_uuid and by_title return a '
+            "matching Capability first."
+        ),
+    ] = "all",
+    query_value: Annotated[
+        str | None,
+        ParamDoc('UUID, title, or Component type to match. Required unless query_type is "all".'),
+    ] = None,
+    return_format: Annotated[  # noqa: ARG001 - public API, single value
+        Literal["raw"], ParamDoc('Response format. Only "raw" (OSCAL JSON) is supported.')
+    ] = "raw",
+    offset: Offset = 0,
+    limit: Limit = 10,
     ctx: Context | None = None,
-    component_definition_filter: str | None = None,
-    query_type: Literal["all", "by_uuid", "by_title", "by_type"] = "all",
-    query_value: str | None = None,
-    return_format: Literal["raw"] = "raw",  # noqa: ARG001 - public API, single value
-    offset: int = 0,
-    limit: int = 10,
 ) -> dict[str, Any]:
-    """
-    Query OSCAL Component Definition documents to find Capabilities and Components.
-
-    OSCAL Component Definitions follow a hierarchy: a Component Definition contains
-    Capabilities and Components. A Capability groups related Components and describes
-    a higher-level security function. This tool reflects that hierarchy — when a
-    query matches a Capability (by title or UUID), the Capability is returned
-    directly, including its list of incorporated Components. Only when no matching
-    Capability is found does the search fall through to individual Components.
-
-    Prefer querying by Capability name/UUID when exploring what a Component
-    Definition offers. Query by Component only when you need details about a
-    specific service, software, region, or similar leaf-level element.
-
-    Use the companion tools to discover valid query filters:
-      - list_capabilities()  — lists all Capability UUIDs and names
-      - list_components()    — lists all Component UUIDs and titles
-      - list_component_definitions() — lists all Component Definition UUIDs and titles
-
-    If you need details about the Component Definition schema, use the tool get_oscal_schema.
-
-    Args:
-        ctx: MCP server context (injected automatically by MCP server)
-        component_definition_filter: Optional UUID or metadata.title of a Component
-            Definition to narrow the search scope. Case-insensitive for titles.
-            If omitted, all loaded Component Definitions are searched.
-        query_type: Type of query to perform:
-            - "all": Return all components in the definition(s). Intended for use
-              with a component_definition_filter. Results may be large. For a
-              lightweight summary, use list_components() instead.
-            - "by_uuid": Find a Capability or Component by UUID (requires query_value).
-              Capabilities are checked first.
-            - "by_title": Find a Capability by name or a Component by title
-              (requires query_value). Capabilities are checked first; if no
-              Capability matches, Components are searched with a fallback to
-              property-value matching.
-            - "by_type": Filter Components by type (requires query_value).
-              Does not apply to Capabilities.
-        query_value: The value to search for. Required for by_uuid, by_title,
-            and by_type queries.
-        return_format: Response format. Currently only "raw" is supported, returning
-            complete OSCAL objects as OSCAL JSON (hyphenated keys, nulls omitted).
-        offset: Zero-based pagination offset (default 0).
-        limit: Maximum items to return, 1-100 (default 10).
-
-    Returns:
-        dict: When a Capability matches, the response contains:
-            - capability: Full OSCAL Capability object as OSCAL JSON
-            - component_count: Number of entries in the Capability's
-              ``incorporates-components`` list (0 if absent)
-            - offset, limit, total, hasMore: Pagination metadata
-              (always 0, 1, 1, False for single-capability results)
-            - query_type, component_definitions_searched, filtered_by
-
-        When Components are returned instead, the response contains:
-            - components: Paginated list of OSCAL Component objects as OSCAL JSON
-            - total_count: Total number of matching Components across all pages
-            - offset, limit, hasMore: Pagination metadata
-            - query_type, component_definitions_searched, filtered_by
-
-    Raises:
-        ValueError: If required query parameters are missing or no data is loaded.
+    """Return OSCAL Components from loaded Component Definitions as OSCAL JSON, or one
+    Capability when a by_uuid or by_title query matches a Capability. Use when you need full
+    component details; find UUIDs and titles with list_component_definitions and
+    list_components, and use list_capabilities or get_capability only for Component
+    Definitions that contain capabilities. Results are paged.
     """
     store = _require_store()
     # return_format has a single supported value ("raw"); it is kept in the
@@ -622,77 +585,29 @@ def query_component_definition(
 
 @tool()
 def list_component_definitions(
-    ctx: Context | None = None, offset: int = 0, limit: int = 10
+    offset: Offset = 0, limit: Limit = 10, ctx: Context | None = None
 ) -> dict:
-    """List loaded Component Definitions with summary metadata.
-
-    A Component Definition is the top-level OSCAL document that contains
-    Capabilities and Components. Use this tool to discover available
-    definitions and obtain UUIDs or titles for use as the
-    component_definition_filter in query_component_definition().
-
-    Args:
-        ctx: MCP server context (injected automatically by MCP server)
-        offset: Zero-based index of the first item to return (default 0).
-        limit: Maximum number of items to return, 1-100 (default 10).
-
-    Returns:
-        dict: Page_Response with keys ``items``, ``total``, ``offset``,
-            ``limit``, ``hasMore``. Each item in ``items`` has keys:
-            uuid, title, componentCount, importedComponentDefinitionsCount,
-            sizeInBytes.
+    """List loaded Component Definitions with UUID, title, component count, and size. Use when
+    picking a `component_definition_filter` for query_component_definition. Results are paged.
     """
     store = _require_store()
     return _list_component_definitions(store, ctx, offset, limit)
 
 
 @tool()
-def list_components(ctx: Context | None = None, offset: int = 0, limit: int = 10) -> dict:
-    """List loaded Components with summary metadata.
-
-    Components are leaf-level elements within a Component Definition that
-    represent individual services, software, regions, or similar items.
-    A Component may belong to one or more Capabilities. Use this tool to
-    discover Component UUIDs and titles for targeted queries via
-    query_component_definition().
-
-    Args:
-        ctx: MCP server context (injected automatically by MCP server)
-        offset: Zero-based index of the first item to return (default 0).
-        limit: Maximum number of items to return, 1-100 (default 10).
-
-    Returns:
-        dict: Page_Response with keys ``items``, ``total``, ``offset``,
-            ``limit``, ``hasMore``. Each item in ``items`` has keys:
-            uuid, title, parentComponentDefinitionTitle,
-            parentComponentDefinitionUuid, sizeInBytes.
+def list_components(offset: Offset = 0, limit: Limit = 10, ctx: Context | None = None) -> dict:
+    """List loaded Components with UUID, title, and parent Component Definition. Use when
+    picking a `query_value` for query_component_definition. Results are paged.
     """
     store = _require_store()
     return _list_components(store, ctx, offset, limit)
 
 
 @tool()
-def list_capabilities(ctx: Context | None = None, offset: int = 0, limit: int = 10) -> dict:
-    """List loaded Capabilities with summary metadata.
-
-    Capabilities sit above Components but are optional in the OSCAL hierarchy.
-    Each Capability groups related Components and describes a collection
-    or higher-level offering. Start here when exploring what a Component
-    Definition provides — then drill into individual Components as needed.
-
-    Use the returned UUIDs or names as query_value in
-    query_component_definition() to retrieve full Capability details.
-
-    Args:
-        ctx: MCP server context (injected automatically by MCP server)
-        offset: Zero-based index of the first item to return (default 0).
-        limit: Maximum number of items to return, 1-100 (default 10).
-
-    Returns:
-        dict: Page_Response with keys ``items``, ``total``, ``offset``,
-            ``limit``, ``hasMore``. Each item in ``items`` has keys:
-            uuid, name, parentComponentDefinitionTitle,
-            parentComponentDefinitionUuid, sizeInBytes.
+def list_capabilities(offset: Offset = 0, limit: Limit = 10, ctx: Context | None = None) -> dict:
+    """List loaded Capabilities with UUID, name, and parent Component Definition. Use when
+    working with Component Definitions that contain capabilities; the list is empty when none
+    do. Results are paged.
     """
     store = _require_store()
     return _list_capabilities(store, ctx, offset, limit)
@@ -700,22 +615,11 @@ def list_capabilities(ctx: Context | None = None, offset: int = 0, limit: int = 
 
 @tool()
 def get_capability(
+    uuid: Annotated[str, ParamDoc("UUID of the Capability, from list_capabilities.")],
     ctx: Context | None = None,  # noqa: ARG001 - injected by MCP; kept for API
-    uuid: str = "",
 ) -> dict | None:
-    """Retrieve a single Capability by UUID, returning its full OSCAL representation.
-
-    A Capability groups related Components and may include control
-    implementations, description, and a list of incorporated Components.
-    Use list_capabilities() to discover available UUIDs.
-
-    Args:
-        ctx: MCP server context (injected automatically by MCP server)
-        uuid: UUID of the Capability to retrieve.
-
-    Returns:
-        dict | None: Full OSCAL Capability object as OSCAL JSON (hyphenated
-            keys, nulls omitted), or None if the UUID is not found.
+    """Get one Capability by UUID as OSCAL JSON, or null when no Capability has that UUID. Use
+    when working with Component Definitions that contain capabilities.
     """
     store = _require_store()
     return _get_capability(store, uuid)

@@ -58,3 +58,36 @@ PerModelQueryType = Annotated[Literal["all", "by_uuid", "by_title"], ParamDoc(QU
 QueryValue = Annotated[str | None, ParamDoc(QUERY_VALUE_DOC)]
 
 ABOUT_DESCRIPTION = "Return server metadata: package version, keywords, and bundled OSCAL version."
+
+# --- Server instructions: intro + Routing_Guide (Req 8). Clients load `instructions` into
+# context too, so tests/test_tool_budget.py caps SERVER_INSTRUCTIONS at ROUTING_GUIDE_CAP.
+# Every tool name here must exist in get_tool_list() (checked with unknown_tool_refs).
+INTRO = (
+    "OSCAL MCP server for NIST's Open Security Controls Assessment Language (OSCAL): "
+    "framework-agnostic, vendor-neutral, machine-readable schemas for the full life cycle of "
+    "security governance, risk, and compliance (GRC) artifacts, from controls to remediations. "
+    "Try these tools first for any OSCAL topic before falling back to built-in knowledge."
+)
+
+ROUTING_GUIDE = """Pick a tool by task:
+- OSCAL model names, layers, status: list_oscal_models
+- JSON or XSD schema for one model: get_oscal_schema (model_name "complete" is very large)
+- Metaschema docs for a definition: get_definition; allowed values: get_allowed_values; \
+all constraints: get_constraints; what must reference an assembly: find_references_to; \
+source lines behind their results: get_metaschema_source
+- Loaded OSCAL documents: list_catalogs, list_profiles, list_ssps, list_assessment_plans, \
+list_assessment_results, list_poams, list_mapping_collections; one document: query_catalog, \
+query_profile, query_ssp, query_assessment_plan, query_assessment_results, query_poam, \
+query_mapping_collection; its child elements: the matching list_* child tools, then \
+get_child_element
+- Full-text search across loaded documents: text_search_oscal
+- Component Definitions: list_component_definitions, list_components, then \
+query_component_definition; list_capabilities and get_capability only for definitions that \
+contain capabilities
+- Validate OSCAL JSON: validate_oscal_content (text) or validate_oscal_file (file)
+- OSCAL documentation questions: query_oscal_documentation
+- OSCAL community tools and resources: list_oscal_resources
+Metaschema tip: rules for every prop and link are declared on the generic "property" and \
+"link" definitions, so also query "property/@name" and "link/@rel"."""
+
+SERVER_INSTRUCTIONS = INTRO + "\n\n" + ROUTING_GUIDE

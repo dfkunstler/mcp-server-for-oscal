@@ -2,11 +2,15 @@
 Tests for the query_documentation tool.
 """
 
+import asyncio
+import inspect
 from unittest.mock import Mock, patch
 
 import pytest
 from botocore.exceptions import ClientError, NoCredentialsError
+from mcp.server.mcpserver import MCPServer
 
+from mcp_server_for_oscal.tools import tool_budget
 from mcp_server_for_oscal.tools.query_documentation import query_oscal_documentation
 
 
@@ -278,3 +282,30 @@ class TestQueryDocumentation:
 
         # Verify JSON logging
         mock_json_dumps.assert_called_once_with(mock_bedrock_response, indent=1)
+
+
+class TestQueryDocumentationDescription:
+    """tool-context-optimization Req 2.1-2.4, 3.1: Description_Shape and parameter docs."""
+
+    def test_docstring_shape(self):
+        doc = inspect.getdoc(query_oscal_documentation) or ""
+        assert tool_budget.description_shape_problems(doc) == []
+        assert len(" ".join(doc.split())) <= 250
+        assert "get_schema tool" not in doc
+        assert "get_oscal_schema" in doc
+        assert "Knowledge Base" in doc
+        assert "full-text search" in doc
+
+    def test_query_parameter_description_in_both_registries(self):
+        props = query_oscal_documentation.tool_spec["inputSchema"]["json"]["properties"]
+        assert props["query"]["description"] == "Question or search terms about OSCAL."
+
+        server = MCPServer("test")  # fresh instance, never main.mcp
+        server.add_tool(query_oscal_documentation)
+        (mcp_tool,) = asyncio.run(server.list_tools())
+        schema = mcp_tool.input_schema
+        assert schema["properties"]["query"]["description"] == (
+            "Question or search terms about OSCAL."
+        )
+        assert schema["required"] == ["query"]
+        assert "ctx" not in schema["properties"]

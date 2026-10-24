@@ -93,86 +93,86 @@ Project rules for every task:
     - **Validates: Requirements 6.3, 6.4, 6.5, 6.7**
     - In `tests/tools/test_oscal_store.py`; generated catalogs validated through `MODEL_MAP`, scanned into an ephemeral store under `tmp_path`
 
-- [-] 4. Checkpoint: guardrails and store
+- [x] 4. Checkpoint: guardrails and store
   - Run `hatch check code --fix`, `hatch check fmt --fix`, then `hatch run tests`
   - Ensure all tests pass, ask the user if questions arise
   - Commit only the files from tasks 2 and 3, for example: `#39 Add tool budget checks, ParamDoc, store childTypeCounts (tested: hatch run tests passes)`
 
-- [ ] 5. Rewrite tool signatures and descriptions per group
+- [x] 5. Rewrite tool signatures and descriptions per group
   - Every rewrite: Description_Shape docstring (summary sentence starting with a `SUMMARY_VERBS` word, optional "Use when" sentence, optional paging sentence; no `Args:`/`Returns:`; no `ctx`), `Annotated[..., ParamDoc(...)]` or a shared alias for each user-facing parameter, required identifying parameters first, `ctx: Context | None = None` last, tool names referenced only if they exist. Follow the design's size-plan targets per group
-  - [~] 5.1 Schema and models tools: `get_schema.py`, `list_models.py`
+  - [x] 5.1 Schema and models tools: `get_schema.py`, `list_models.py`
     - `get_oscal_schema`: `model_name` required (accepts `"complete"`), `schema_type: Literal["json", "xsd"] = "json"`, `ctx` last; keep runtime checks for direct calls
     - Update `tests/tools/test_get_schema.py`: keyword calls in place of positional `ctx`-first calls, no default `model_name`, new docstring text
     - _Requirements: 2.1-2.4, 3.1, 4.1, 5.1, 5.2, 5.3, 5.7, 5.8_
 
-  - [~] 5.2 Validation tools: `validate_oscal_content.py`
+  - [x] 5.2 Validation tools: `validate_oscal_content.py`
     - `validate_oscal_content` and `validate_oscal_file` rewritten; no `config.allow_remote_uris` in any text
     - `file_uri` description: remote URIs are rejected unless the server operator enables remote URIs
     - Update the matching tests under `tests/tools/` that assert docstring text or positional calls
     - _Requirements: 2.1-2.4, 3.1, 4.4, 4.5_
 
-  - [~] 5.3 Component Definition tools: `query_component_definition.py`
+  - [x] 5.3 Component Definition tools: `query_component_definition.py`
     - `query_component_definition`, `list_component_definitions`, `list_components`, `list_capabilities`, `get_capability`
     - No capability-first workflow; main route is `list_components` and `query_component_definition`; `list_capabilities`/`get_capability` described as for Component Definitions that contain capabilities
     - `get_capability.uuid` required, `ctx` last; `query_component_definition` keeps its own `by_type`
     - Update `tests/tools/test_query_component_definition.py` (and related) for signature and text changes
     - _Requirements: 2.1-2.4, 3.1, 4.2, 4.3, 5.5, 5.7_
 
-  - [~] 5.4 Per-model and search tools: `query_oscal_models.py`
+  - [x] 5.4 Per-model and search tools: `query_oscal_models.py`
     - 7 Per_Model_Query_Tools: `query_type: PerModelQueryType = "all"`, `query_value: QueryValue`, `offset: Offset`, `limit: Limit`, `ctx` last; descriptions mention `childTypeCounts` and direct to the matching `list_*` child tools and `get_child_element`
     - Document `list_*` tools, child `list_*` tools, `get_child_element` (`element_id` required), `text_search_oscal` (`query_text` required, `oscal_model_type: OptionalModelName`)
     - Update `tests/tools/test_query_oscal_models*.py` for signatures, `by_type` removal, and text
     - _Requirements: 2.1-2.4, 3.1, 5.6, 5.7, 6.1, 6.6_
 
-  - [~] 5.5 Metaschema tools: `get_definition.py`, `get_allowed_values.py`, `get_constraints.py`, `find_references_to.py`, `get_metaschema_source.py`
+  - [x] 5.5 Metaschema tools: `get_definition.py`, `get_allowed_values.py`, `get_constraints.py`, `find_references_to.py`, `get_metaschema_source.py`
     - Shared `ModelName`/`OptionalModelName`, `TargetSelector`, `Offset`, `BudgetedLimit`; `get_definition.kind: Literal["assembly", "field", "flag"] | None = None` (keep `_check_kind`)
     - Move the Target_Selector grammar into `TARGET_SELECTOR_DOC`; cross-tool advice (generic `property`/`link`) is moved to the Routing_Guide in task 7
     - Update `tests/tools/test_get_allowed_values.py` docstring tests to assert `TARGET_SELECTOR_DOC` in the `target` parameter description; keep the `test_*_input_schema` property-order tests passing
     - _Requirements: 2.1-2.4, 3.1, 5.4, 5.8_
 
-  - [~] 5.6 Documentation tool: `query_documentation.py`
+  - [x] 5.6 Documentation tool: `query_documentation.py`
     - Rewrite `query_oscal_documentation` in the Description_Shape with `ParamDoc` parameters; update its tests for text changes
     - _Requirements: 2.1-2.4, 3.1_
 
-- [ ] 6. Paging for `list_oscal_resources`
-  - [~] 6.1 Update `src/mcp_server_for_oscal/tools/list_oscal_resources.py`
+- [x] 6. Paging for `list_oscal_resources`
+  - [x] 6.1 Update `src/mcp_server_for_oscal/tools/list_oscal_resources.py`
     - Add `parse_resource_entries(markdown)` per the design (headings level 2-6 set `category`, default "General"; top-level `-`/`*`/`+` items; continuations joined with single spaces; blank line ends an entry)
     - `list_oscal_resources(offset: Offset = 0, limit: Limit = 10, ctx=None) -> dict` returns `utils.paginate(entries, offset, limit)`; errors go through `try_notify_client_error` and are raised
     - Description_Shape docstring
     - Update `tests/tools/test_list_oscal_resources.py` for the `dict` page return; check the bundled file yields 82 entries in 5 categories
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 2.1-2.4, 3.1_
 
-  - [~] 6.2 Write property test for resource markdown parsing
+  - [x] 6.2 Write property test for resource markdown parsing
     - **Property 6: Resource markdown parsing round trip**
     - **Validates: Requirements 7.2**
     - In `tests/tools/test_list_oscal_resources.py`
 
-  - [~] 6.3 Write property test for resource pages
+  - [x] 6.3 Write property test for resource pages
     - **Property 7: Resource pages match a slice of the entries**
     - **Validates: Requirements 7.2, 7.3, 7.4**
     - Patch `read_resources_file` to return rendered markdown
 
-  - [~] 6.4 Write property test for invalid paging arguments
+  - [x] 6.4 Write property test for invalid paging arguments
     - **Property 8: Invalid paging arguments are rejected**
     - **Validates: Requirements 7.5**
 
-- [ ] 7. Routing_Guide, `main.build_server`, and Agent tool specs without `ctx`
-  - [~] 7.1 Add `ROUTING_GUIDE` and `SERVER_INSTRUCTIONS` to `tools/descriptions.py`
+- [x] 7. Routing_Guide, `main.build_server`, and Agent tool specs without `ctx`
+  - [x] 7.1 Add `ROUTING_GUIDE` and `SERVER_INSTRUCTIONS` to `tools/descriptions.py`
     - Intro keeps the strings `tests/test_integration.py` asserts ("OSCAL MCP server", "Open Security Controls Assessment Language", "NIST", "security", "controls")
     - Guide names a tool per task in Req 8.2, including `query_oscal_documentation`, plus the generic `property`/`link` Metaschema tip; ≤ `ROUTING_GUIDE_CAP`
     - _Requirements: 8.1, 8.2, 8.3, 8.5_
 
-  - [~] 7.2 Add `build_server()` and parameterize `_setup_tools` in `src/mcp_server_for_oscal/main.py`
+  - [x] 7.2 Add `build_server()` and parameterize `_setup_tools` in `src/mcp_server_for_oscal/main.py`
     - `build_server()` returns `MCPServer(..., instructions=SERVER_INSTRUCTIONS)`; `mcp = build_server()`
     - `_setup_tools(server: MCPServer | None = None)`; `about` uses `ABOUT_DESCRIPTION`
     - Existing patches of `main._setup_tools` and `main.mcp` keep working; update `tests/test_main.py` / `tests/test_integration.py` only if they assert the old instructions text
     - _Requirements: 8.1_
 
-  - [~] 7.3 Update `tests/tools/test_get_allowed_values.py` to assert the property/link advice in `ROUTING_GUIDE`
+  - [x] 7.3 Update `tests/tools/test_get_allowed_values.py` to assert the property/link advice in `ROUTING_GUIDE`
     - Replaces the old first-paragraph docstring assertion (supersedes metaschema-constraints Req 7.4)
     - _Requirements: 10.4_
 
-  - [~] 7.4 Add an `instructions` assertion to `tests/test_integration_stdio_smoke.py`
+  - [x] 7.4 Add an `instructions` assertion to `tests/test_integration_stdio_smoke.py`
     - The initialize result's `instructions` contains `list_oscal_models`
     - _Requirements: 8.1_
 
@@ -186,7 +186,7 @@ Project rules for every task:
     - Existing mock-based tests in `tests/test_oscal_agent.py` must still pass
     - _Requirements: 3.4, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7_
 
-  - [~] 7.6 Add Agent tool spec tests to `tests/test_oscal_agent.py`
+  - [x] 7.6 Add Agent tool spec tests to `tests/test_oscal_agent.py`
     - Per-tool specs: for each tool in `agent_tools(get_tool_list())`, the input schema has no `ctx` property, no `ctx` in `required`, no `$defs.Context`, no empty `$defs`, and no `"#/$defs/Context"` reference anywhere in the serialized spec
     - Real Agent registry: `create_oscal_agent()` with `boto3.Session` patched to `boto3.Session(region_name="us-east-1")` (real `BedrockModel` and `Agent`; construction makes no network call); `agent.tool_registry.get_all_tools_config()` has no `ctx` or `Context` in any input schema
     - Invocation: on that Agent, `agent.tool.get_oscal_schema(model_name="catalog", record_direct_tool_call=False)` returns `status == "success"`; a second test runs `agent_tool(fn).stream(...)` with input that has no `ctx` on a tool whose function is wrapped by a spy, and asserts the function received `ctx=None`
@@ -201,7 +201,7 @@ Project rules for every task:
     - Generators per the design: property names from `st.from_regex(r"[a-z][a-z_]{0,10}")` plus optional `ctx`, `required` subsets with optional `"ctx"`, optional `$defs` with optional `Context` and zero or more other entries, extra top-level keys
     - Assert removals, preserved order of `required`, unchanged other keys, unmutated input, and idempotence
 
-- [~] 8. Checkpoint: rewrites, paging, routing
+- [-] 8. Checkpoint: rewrites, paging, routing
   - Run `hatch check code --fix`, `hatch check fmt --fix`, then `hatch run tests`
   - Ensure all tests pass, ask the user if questions arise
   - Commit only the files from tasks 5-7, for example: `#39 Rewrite tool descriptions, page list_oscal_resources, add routing guide, strip ctx from Agent specs (tested: hatch run tests passes)`

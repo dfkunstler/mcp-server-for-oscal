@@ -12,6 +12,7 @@ import re
 import tempfile
 from functools import cache
 from pathlib import Path
+from typing import Literal, get_args
 from unittest.mock import patch
 
 import pytest
@@ -38,7 +39,7 @@ from mcp_server_for_oscal.tools.utils import (
     OSCALModelType,
 )
 
-from .test_get_allowed_values import _GONE_ENT, _PROFILE_BODY
+from .test_get_allowed_values import _GONE_ENT, _PROFILE_BODY, _signature_rows
 from .test_metaschema_index import (
     CAT,
     PROF,
@@ -54,7 +55,10 @@ REQUIRED_KEYS = {"kind", "name", "scope", "source-file", "line"}
 _MODEL_VALUES = [m.value for m in OSCALModelType]
 
 
-def _all_matches(name: str, model: str | None = None, kind: str | None = None) -> list[dict]:
+Kind = Literal["assembly", "field", "flag"]
+
+
+def _all_matches(name: str, model: str | None = None, kind: Kind | None = None) -> list[dict]:
     """Walk every page of a result and return the matches in order."""
     items: list[dict] = []
     offset = 0
@@ -209,16 +213,16 @@ class TestRequiredExamples:
 
     def test_signature_and_defaults(self):
         """Req 10.1: parameters, types, and defaults in order."""
-        params = inspect.signature(get_definition).parameters
         expected = [
             ("name", str, inspect.Parameter.empty),
             ("model", str | None, None),
-            ("kind", str | None, None),
+            ("kind", Kind | None, None),
             ("offset", int, 0),
             ("limit", int, 10),
             ("ctx", Context | None, None),
         ]
-        assert [(p.name, p.annotation, p.default) for p in params.values()] == expected
+        assert _signature_rows(get_definition) == expected
+        assert get_args(get_args(expected[2][1])[0]) == gd_module.KINDS
 
     def test_mcp_input_schema_hides_ctx(self):
         """The MCP server injects ``ctx``; callers see only the five documented arguments."""
@@ -408,7 +412,7 @@ def _scope_of(index: MetaschemaIndex, model: str | None) -> ModelScope:
     return index.all_modules() if model is None else index.scope(OSCALModelType(model))
 
 
-def _walk_pages(name: str, model: str | None, kind: str | None, limits: list[int]) -> list[dict]:
+def _walk_pages(name: str, model: str | None, kind: Kind | None, limits: list[int]) -> list[dict]:
     """Walk every page with the given limits (cycled); check each page's envelope and budget."""
     items: list[dict] = []
     offset = 0
@@ -558,7 +562,7 @@ def _check_match(
 
 
 def _check_against_oracle(
-    scope: ModelScope, name: str, model: str | None, kind: str | None, limits: list[int]
+    scope: ModelScope, name: str, model: str | None, kind: Kind | None, limits: list[int]
 ) -> list[dict]:
     items = _walk_pages(name, model, kind, limits)
     oracle = _oracle(scope, name, kind)
@@ -656,7 +660,7 @@ def _syn_bundles(draw: st.DrawFn) -> dict[str, str | bytes]:
 
 
 def _check_synthetic(
-    files: dict[str, str | bytes], model: str | None, kind: str | None, limits: list[int]
+    files: dict[str, str | bytes], model: str | None, kind: Kind | None, limits: list[int]
 ) -> list[dict]:
     with tempfile.TemporaryDirectory() as tmp:
         _write_bundle(Path(tmp), files)

@@ -14,10 +14,12 @@ from ``metaschema_index`` (Requirement 7.1); shared checks come from ``metaschem
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import Annotated
 
 from mcp.server.mcpserver import Context
 from strands import tool
 
+from mcp_server_for_oscal.tools.descriptions import BudgetedLimit, Offset, ParamDoc
 from mcp_server_for_oscal.tools.metaschema_common import (
     add_namespace_and_conditions,
     check_model,
@@ -37,47 +39,30 @@ logger = logging.getLogger(__name__)
 
 @tool()
 def find_references_to(
-    assembly: str,
-    model: str | None = None,
-    offset: int = 0,
-    limit: int = 25,
+    assembly: Annotated[
+        str,
+        ParamDoc(
+            "Instance or definition name of the referenced assembly, matched exactly, "
+            'e.g. "component", "party", "resource", or "system-component".'
+        ),
+    ],
+    model: Annotated[
+        str | None,
+        ParamDoc(
+            'OSCAL model name from list_oscal_models, e.g. "system-security-plan", to keep '
+            "only references declared in that model. Indexes always resolve across all "
+            "models. Omit for all models."
+        ),
+    ] = None,
+    offset: Offset = 0,
+    limit: BudgetedLimit = 25,
     ctx: Context | None = None,
 ) -> dict:
-    """Find every field, flag, prop, or link that OSCAL Metaschema requires to reference a given assembly by key (UUID or ID), e.g. "What in an SSP refers to a system-component by UUID?", "Which props must name a location?", or "What may point to a back-matter resource?".
-
-    Answers come from the Metaschema `index` / `index-has-key` constraint pairs bundled with the
-    server. The generated JSON and XML schemas do not express these references, and many of
-    them are props or links (e.g. `prop[@name='physical-location']/@value`) that a search for
-    a `*-uuid` field misses.
-
-    `assembly` is matched exactly (case-sensitive) against the last step of each `index`
-    constraint's target, e.g. "component", "party", "location", "resource", "by-component".
-    A Metaschema definition name also works when the definition is used under another name,
-    e.g. "system-component" (used as "component") or "property" (used as "prop"). No match
-    returns an empty page.
-
-    Args:
-        assembly: Instance name or definition name of the referenced assembly, as above.
-        model: Optional OSCAL model name, e.g. "system-security-plan". When given, only
-            references declared in that model's Metaschema modules are returned; the indexes
-            they point to are always resolved across all modules. Use list_oscal_models for
-            valid names. Omit to search every bundled module.
-        offset: Zero-based index of the first item to return (default 0).
-        limit: Maximum number of items to return, 1-100 (default 25). A page may hold fewer
-            items to stay within the response size budget; `limit` then reports the reduced
-            size.
-        ctx: MCP server context (injected automatically by the MCP server).
-
-    Returns:
-        dict: Page_Response with `items`, `total`, `offset`, `limit`, and `hasMore`, ordered by
-        where each reference is declared. Each item describes one reference: `index-name`;
-        the referencing `index-has-key` constraint's `definition`, `target`, `key-fields`
-        (the fields or flags holding the key), `source-file`, and `line`, plus `namespace`
-        and `conditions` when its target has predicates; the referenced index's
-        `index-definition`, `index-target`, `index-source-file`, and `index-line`; and
-        `cross-document` (true when the index also collects keys from another document, such
-        as a leveraged SSP).
-    """
+    """Find the fields, flags, props, and links that OSCAL Metaschema `index-has-key`
+    constraints require to reference an assembly by key (UUID or ID), with the matching
+    `index`, source file and line for both, and `cross-document`. Use when you need what must
+    point to a component, party, location, or resource, including prop and link references a
+    search for UUID fields misses. Results are paged within a response budget."""
     logger.debug(
         "find_references_to(assembly: %s, model: %s, offset: %s, limit: %s)",
         assembly,
