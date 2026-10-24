@@ -564,10 +564,10 @@ def query_component_definition(
     ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Return OSCAL Components from loaded Component Definitions as OSCAL JSON, or one
-    Capability when a by_uuid or by_title query matches a Capability. Use when you need full
-    component details; find UUIDs and titles with list_component_definitions and
-    list_components, and use list_capabilities or get_capability only for Component
-    Definitions that contain capabilities. Results are paged.
+    Capability when a by_uuid or by_title query matches a Capability. Use when you need
+    component details: call it directly with by_title or by_type when you know the name or
+    type, else find UUIDs and titles first with list_components; use list_capabilities or
+    get_capability only for Component Definitions that contain capabilities. Results are paged.
     """
     store = _require_store()
     # return_format has a single supported value ("raw"); it is kept in the

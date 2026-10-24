@@ -81,9 +81,9 @@ query_profile, query_ssp, query_assessment_plan, query_assessment_results, query
 query_mapping_collection; its child elements: the matching list_* child tools, then \
 get_child_element
 - Full-text search across loaded documents: text_search_oscal
-- Component Definitions: list_component_definitions, list_components, then \
-query_component_definition; list_capabilities and get_capability only for definitions that \
-contain capabilities
+- Component Definitions: query_component_definition, directly with by_title or by_type when \
+you know the name or type, else after list_component_definitions or list_components; \
+list_capabilities and get_capability only for definitions that contain capabilities
 - Validate OSCAL JSON: validate_oscal_content (text) or validate_oscal_file (file)
 - OSCAL documentation questions: query_oscal_documentation
 - OSCAL community tools and resources: list_oscal_resources
