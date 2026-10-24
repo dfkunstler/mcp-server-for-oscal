@@ -14,16 +14,16 @@ Project rules for every task:
 
 ## Tasks
 
-- [ ] 1. Commit the spec files to the feature branch
-  - [-] 1.1 Commit requirements.md, design.md, tasks.md, and .config.kiro
+- [x] 1. Commit the spec files to the feature branch
+  - [x] 1.1 Commit requirements.md, design.md, tasks.md, and .config.kiro
     - Confirm the current branch is `39-tighten-tool-descriptions` (`git branch --show-current`); stop if it is `main`
     - Wait for user approval of the spec before committing
     - Stage only `.kiro/specs/tool-context-optimization/{requirements.md,design.md,tasks.md,.config.kiro}` by name
     - Message, for example: `#39 Add tool-context-optimization spec (docs only, no code to test)`
     - _Requirements: 10.5_
 
-- [ ] 2. Guardrails: shared descriptions module and Budget_Module with checker tests
-  - [~] 2.1 Create `src/mcp_server_for_oscal/tools/descriptions.py`
+- [x] 2. Guardrails: shared descriptions module and Budget_Module with checker tests
+  - [x] 2.1 Create `src/mcp_server_for_oscal/tools/descriptions.py`
     - `ParamDoc(str)` with `__slots__ = ()` and `__get_pydantic_json_schema__` that sets `description`
     - Shared text constants (`OFFSET_DOC`, `LIMIT_DOC`, `BUDGETED_LIMIT_DOC`, `PARENT_DOC_UUID_DOC`, `MODEL_NAME_DOC`, `OPTIONAL_MODEL_DOC`, `TARGET_SELECTOR_DOC`, `QUERY_TYPE_DOC`, `QUERY_VALUE_DOC`), each ≤ 250 characters
     - `Annotated` aliases as plain assignments, not PEP 695 `type` statements (`Offset`, `Limit`, `BudgetedLimit`, `ParentDocUuid`, `ModelName`, `OptionalModelName`, `TargetSelector`, `PerModelQueryType`, `QueryValue`)
@@ -32,21 +32,21 @@ Project rules for every task:
     - No import of `main`; no import-time side effects
     - _Requirements: 3.1, 3.2_
 
-  - [~] 2.2 Write unit tests for `ParamDoc` in `tests/tools/test_descriptions.py`
+  - [x] 2.2 Write unit tests for `ParamDoc` in `tests/tools/test_descriptions.py`
     - A sample Strands `@tool` function with `ParamDoc` parameters: `MCPServer.add_tool` schema and `fn.tool_spec` both carry the same description per parameter
     - A `Literal` alias produces an `enum` in both registries
     - Direct Python calls with defaults still work (defaults are plain values, not `FieldInfo`)
     - Every shared `*_DOC` constant is ≤ `PARAMETER_DESCRIPTION_CAP`
     - _Requirements: 3.1, 3.4, 1.5_
 
-  - [~] 2.3 Create `src/mcp_server_for_oscal/tools/tool_budget.py` (the Budget_Module)
+  - [x] 2.3 Create `src/mcp_server_for_oscal/tools/tool_budget.py` (the Budget_Module)
     - Constants: `BASELINE_SIZE = 55_685`, `TOTAL_BUDGET = BASELINE_SIZE * 70 // 100`, `TOOL_DESCRIPTION_CAP = 1_200`, `PARAMETER_DESCRIPTION_CAP = 250`, `ROUTING_GUIDE_CAP = 3_000`, `MAX_DESCRIPTION_SENTENCES = 3`, `SUMMARY_VERBS`, `EXTRA_IDENTIFIERS`
     - `tools_list_size` (compact JSON, `ensure_ascii=False`), frozen dataclass `Violation` with `message()`
     - `check_limits`, `check_total`, `split_sentences`, `summary_sentence`, `description_shape_problems`, `known_identifiers`, `unknown_tool_refs` as specified in the design
     - Standard library imports only
     - _Requirements: 1.1, 1.2, 1.7, 2.1, 2.2, 2.3, 2.4, 2.6_
 
-  - [~] 2.4 Write unit tests for the Budget_Module constants and helpers in `tests/test_tool_budget.py`
+  - [x] 2.4 Write unit tests for the Budget_Module constants and helpers in `tests/test_tool_budget.py`
     - `TOTAL_BUDGET <= BASELINE_SIZE * 0.7`; the constants are the documented values
     - `split_sentences` keeps `e.g.`, `i.e.`, and `etc.` inside one sentence
     - `\b(list_models|get_schema)\b` does not match `list_oscal_models` or `get_oscal_schema`
@@ -54,46 +54,46 @@ Project rules for every task:
     - These tests use synthetic input only, so they pass now; the live-registry tests are added in task 9
     - _Requirements: 1.1, 1.2, 1.7, 1.8, 4.1_
 
-  - [~] 2.5 Write property test for the limit checker
+  - [x] 2.5 Write property test for the limit checker
     - **Property 1: Limit checker reports exactly the over-limit descriptions**
     - **Validates: Requirements 1.4, 1.5, 1.7, 3.2**
     - In `tests/test_tool_budget.py`; Hypothesis, tagged `Feature: tool-context-optimization, Property 1`
 
-  - [~] 2.6 Write property test for the shape checker
+  - [x] 2.6 Write property test for the shape checker
     - **Property 2: Shape checker rejects forbidden structure**
     - **Validates: Requirements 2.1, 2.2, 2.3, 2.4**
     - In `tests/test_tool_budget.py`; tagged `Feature: tool-context-optimization, Property 2`
 
-  - [~] 2.7 Write property test for unknown tool reference detection
+  - [x] 2.7 Write property test for unknown tool reference detection
     - **Property 3: Unknown tool references are detected exactly**
     - **Validates: Requirements 2.5, 2.6, 8.3, 8.4**
     - In `tests/test_tool_budget.py`; tagged `Feature: tool-context-optimization, Property 3`
 
-- [ ] 3. Store: Child_Type_Counts and the query_type guard
-  - [~] 3.1 Update `src/mcp_server_for_oscal/tools/oscal_store.py`
+- [x] 3. Store: Child_Type_Counts and the query_type guard
+  - [x] 3.1 Update `src/mcp_server_for_oscal/tools/oscal_store.py`
     - Add `VALID_QUERY_TYPES = ("all", "by_uuid", "by_title")`; `query()` raises `ValueError` naming all three for any other value
     - Add `_child_type_counts(doc_id)` (static SQL, bound value, `GROUP BY element_type`)
     - `_build_query_items` returns `uuid`, `title`, `model_type`, `file_path`, `sizeInBytes`, `childTypeCounts`; remove `children`
     - Delete `_query_by_type`; confirm `query_component_definition` still only uses `by_uuid`/`by_title` on the store
     - _Requirements: 6.2, 6.3, 6.4, 6.5, 6.7_
 
-  - [~] 3.2 Update existing tests that assert the old store behavior
+  - [x] 3.2 Update existing tests that assert the old store behavior
     - `tests/tools/test_oscal_store.py`: `children` → `childTypeCounts`; `by_type` → `ValueError`
     - `tests/test_properties.py`: replace the `by_type` tests
     - Search the rest of `tests/` for `children` and `by_type` on the 7 per-model tools and update them
     - _Requirements: 10.4_
 
-  - [~] 3.3 Write property test for the query_type guard
+  - [x] 3.3 Write property test for the query_type guard
     - **Property 4: Only the three per-model query types are accepted**
     - **Validates: Requirements 5.9, 6.1, 6.2**
     - In `tests/tools/test_oscal_store.py`; include `"by_type"` as an explicit `@example`
 
-  - [~] 3.4 Write property test for child type counts
+  - [x] 3.4 Write property test for child type counts
     - **Property 5: Query items carry exact child type counts**
     - **Validates: Requirements 6.3, 6.4, 6.5, 6.7**
     - In `tests/tools/test_oscal_store.py`; generated catalogs validated through `MODEL_MAP`, scanned into an ephemeral store under `tmp_path`
 
-- [~] 4. Checkpoint: guardrails and store
+- [-] 4. Checkpoint: guardrails and store
   - Run `hatch check code --fix`, `hatch check fmt --fix`, then `hatch run tests`
   - Ensure all tests pass, ask the user if questions arise
   - Commit only the files from tasks 2 and 3, for example: `#39 Add tool budget checks, ParamDoc, store childTypeCounts (tested: hatch run tests passes)`
@@ -176,7 +176,7 @@ Project rules for every task:
     - The initialize result's `instructions` contains `list_oscal_models`
     - _Requirements: 8.1_
 
-  - [~] 7.5 Add `strip_mcp_context`, `agent_tool`, and `agent_tools` to `src/mcp_server_for_oscal/oscal_agent.py`
+  - [x] 7.5 Add `strip_mcp_context`, `agent_tool`, and `agent_tools` to `src/mcp_server_for_oscal/oscal_agent.py`
     - Constants `MCP_CONTEXT_PARAM = "ctx"` and `MCP_CONTEXT_DEF = "Context"`
     - `strip_mcp_context(spec)`: deep copy; remove `ctx` from `properties` and `required`; remove `$defs.Context`; remove `$defs` when it is then empty; leave every other key unchanged; never mutate the input
     - `agent_tool(tool)`: for a `DecoratedFunctionTool`, `copy.copy` the tool and set `clone.tool_spec = strip_mcp_context(tool.tool_spec)` through the public setter; return any other object (plain callables, mocks) unchanged
@@ -194,7 +194,7 @@ Project rules for every task:
     - Server unchanged: the live `tools/list` from `main.build_server()` and `main._setup_tools(server)` is equal before and after `create_oscal_agent()` runs in the same process
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8_
 
-  - [~] 7.7 Write property test for `strip_mcp_context`
+  - [x] 7.7 Write property test for `strip_mcp_context`
     - **Property 9: Stripping the MCP context removes exactly ctx and its definition**
     - **Validates: Requirements 11.1, 11.2, 11.3, 11.4**
     - In `tests/test_oscal_agent.py`; Hypothesis, tagged `Feature: tool-context-optimization, Property 9`
