@@ -260,7 +260,7 @@ Project rules for every task:
     - `AGENTS.md` section body ≤ 5 non-blank lines and links to the steering file
     - _Requirements: 1.9, 9.1, 9.4, 9.5_
 
-- [-] 11. Final checkpoint: measure and run the full suite
+- [x] 11. Final checkpoint: measure and run the full suite
   - Measure the live `tools/list` size with `hatch run python -c "..."` using `main.build_server()`, `_setup_tools`, and `tool_budget.tools_list_size`; report it against `TOTAL_BUDGET` (38,979) and `BASELINE_SIZE` (55,685), and report the `instructions` length against `ROUTING_GUIDE_CAP`
   - Run `hatch check code`, `hatch check fmt`, then `hatch run tests` (typing, 3.13 + 3.14 with coverage, bandit)
   - Ensure all tests pass, ask the user if questions arise
