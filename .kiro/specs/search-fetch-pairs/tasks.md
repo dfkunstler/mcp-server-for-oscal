@@ -231,54 +231,54 @@ Rules for every task:
     - File `tests/tools/test_get_oscal_documentation.py`.
     - _Requirements: 12.3, 12.5, 12.6_
 
-- [-] 13. Checkpoint: search and fetch pairs
+- [x] 13. Checkpoint: search and fetch pairs
   - Run `hatch run tests`. Ensure all tests pass, ask the user if questions arise.
   - Commit the files changed in tasks 8-12 (and this file) by name, for example `feat(tools): resolvable text search, documentation search paging, get_oscal_documentation (#45); hatch run tests passed`.
 
-- [ ] 14. Client-facing message hygiene
-  - [~] 14.1 Add the redactor to `try_notify_client_error`
+- [x] 14. Client-facing message hygiene
+  - [x] 14.1 Add the redactor to `try_notify_client_error`
     - `utils.redact_storage_locations(text)` (D8): `s3://` URIs, `arn:aws…` ARNs, home, temp, and package directories (native, POSIX, realpath) → `<redacted>`. `try_notify_client_error` calls `safe_log_mcp(redact_storage_locations(msg), ctx, "error")`.
     - _Requirements: 4.1, 4.6_
-  - [~] 14.2 Remove paths from `validate_oscal_content` messages
+  - [x] 14.2 Remove paths from `validate_oscal_content` messages
     - `OSCAL_CLI_INPUT_PLACEHOLDER = "<input.json>"` and `scrub_cli_output(text, tmp_path, cli_path)` applied to every oscal-cli error and warning line and to the execution-error text. `validate_oscal_file`: catch `OSError` on local reads (`ValueError("Cannot read the OSCAL file named by file_uri.")`, detail logged); drop the echoed URI from remote-disabled and timeout messages; `RequestException` → fixed text plus status code. Schema and model load failures → `f"Failed to load the bundled schema for {model_type}"`, detail logged.
     - Update existing assertions on old message text in `tests/tools/test_validate_oscal_content.py`.
     - _Requirements: 4.1, 4.2, 4.4, 4.6_
-  - [ ]* 14.3 Write property test for oscal-cli output scrubbing
+  - [x]* 14.3 Write property test for oscal-cli output scrubbing
     - **Property 17: oscal-cli output never shows the temporary file path**
     - File `tests/tools/test_validate_oscal_content.py`; `shutil.which` and `subprocess.run` patched.
     - **Validates: Requirements 4.4**
-  - [~] 14.4 Fix `load_external_component_definition` provenance and messages
+  - [x] 14.4 Fix `load_external_component_definition` provenance and messages
     - Local zips scanned with `origin=ORIGIN_USER` and `root=zip_path.parent`; remote documents get `origin=ORIGIN_USER` and the URL path's last segment as Relative_Name; client-facing messages use fixed text without `source` or the exception string.
     - _Requirements: 1.1, 4.1, 4.2_
-  - [~] 14.5 Look up the awesome-oscal list by Origin and Relative_Name
+  - [x] 14.5 Look up the awesome-oscal list by Origin and Relative_Name
     - `list_oscal_resources._read_from_store` selects `origin = 'bundled' AND relative_name = 'awesome-oscal.md'`; the error message becomes `"Failed to list OSCAL resources"` with detail logged.
     - _Requirements: 1.6, 4.1_
-  - [~] 14.6 Write unit tests for message hygiene
+  - [x] 14.6 Write unit tests for message hygiene
     - `redact_storage_locations` examples (home, temp, package dir, `s3://`, ARN) in `tests/test_utils.py`; `validate_oscal_file` missing local file, remote disabled, and timeout messages contain no path or URI in `tests/tools/test_validate_oscal_content.py`; a `user` `awesome-oscal.md` does not shadow the bundled list in `tests/tools/test_list_oscal_resources.py`.
     - _Requirements: 4.1, 4.2, 4.4, 1.6_
 
-- [ ] 15. Server startup wiring
-  - [~] 15.1 Update `main.py`
+- [x] 15. Server startup wiring
+  - [x] 15.1 Update `main.py`
     - Add `_install_store(store)` (calls `init_store` on `list_oscal_resources`, `query_component_definition`, `query_documentation`, `query_oscal_models`) and use it in `_init_oscal_store`. Scan `OSCAL_DOCUMENTS_DIR` with `origin=ORIGIN_USER`; `_user_documents_loaded = store.count_documents(origin=ORIGIN_USER)`. Remove `OscalStore.count_documents_under` and its tests (`tests/tools/test_oscal_store.py::TestCountDocumentsUnder`); keep `tests/tools/test_local_doc_search.py::TestAboutUserDocumentsLoaded` passing.
     - _Requirements: 1.4, 1.6, 1.7, 14.4_
-  - [~] 15.2 Write unit tests for startup wiring
+  - [x] 15.2 Write unit tests for startup wiring
     - `_init_oscal_store` with a temp `OSCAL_DOCUMENTS_DIR` records `user` rows and the `about` count; a persistent pre-feature DB with `OSCAL_DOCUMENTS_DIR` set gets `user` Origins and Requirement 2 Doc_IDs; `_install_store` sets every module singleton. Patch `mcp_server_for_oscal.main.config`, not env vars.
     - File `tests/test_main.py`.
     - _Requirements: 1.4, 1.7, 14.4_
 
-- [ ] 16. Bundled DB build
-  - [~] 16.1 Record Origin `bundled` in `bin/build_oscal_db.py`
+- [x] 16. Bundled DB build
+  - [x] 16.1 Record Origin `bundled` in `bin/build_oscal_db.py`
     - Both scans pass `origin=ORIGIN_BUNDLED`; `build_db` stats add `origins` and `prose_controls`.
     - _Requirements: 1.3, 9.5, 14.1_
-  - [~] 16.2 Extend `tests/test_build_oscal_db.py`
+  - [x] 16.2 Extend `tests/test_build_oscal_db.py`
     - A build from fixture directories (catalog with prose, cdefs, two markdown files) has only `bundled` Origins, Requirement 2 Doc_IDs, Control_Prose, and `user_version` 1.
     - _Requirements: 1.3, 9.5, 14.1, 14.5_
-  - [~] 16.3 Rebuild the bundled DB and refresh manifests
+  - [x] 16.3 Rebuild the bundled DB and refresh manifests
     - Run `hatch run build-db`. Check with `git status` whether any tracked `hashes.json` changed; if so run `hatch run rehash` (it stages manifests with `git add`; unstage anything unrelated to this feature). The bundled `oscal_store.db` and its `hashes.json` are gitignored and are not committed.
     - Re-run `hatch test tests/tools/test_text_search.py` so the bundled-DB test for Requirement 8.7 runs against the new DB.
     - _Requirements: 9.5, 14.1_
 
-- [~] 17. Checkpoint: hygiene and wiring
+- [-] 17. Checkpoint: hygiene and wiring
   - Run `hatch run tests`. Ensure all tests pass, ask the user if questions arise.
   - Commit the files changed in tasks 14-16 (and this file) by name, for example `fix(tools): path-free messages, origin-aware startup and build (#45); hatch run tests passed`.
 

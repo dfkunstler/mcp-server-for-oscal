@@ -3,10 +3,13 @@ Shared utilities for OSCAL MCP tools.
 """
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
+import os
 import re
+import tempfile
 import warnings
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
@@ -136,8 +139,58 @@ def get_bundled_oscal_version() -> str:
     return oscal_version_from_schema(load_oscal_json_schema(OSCALModelType.CATALOG))
 
 
+REDACTED: Final = "<redacted>"
+
+# s3:// URIs and AWS ARNs (any partition: aws, aws-cn, aws-us-gov, ...), up to whitespace
+# or a quoting/bracketing character.
+_S3_URI_RE = re.compile(r"""s3://[^\s'"<>`]+""", re.IGNORECASE)
+_ARN_RE = re.compile(r"""\barn:aws[\w-]*:[^\s'"<>`]*""")
+
+# Directories whose stripped form is shorter than this ("/", "C:\", "C:") are never
+# redacted, so a degenerate home or temp dir cannot blank out every message.
+_MIN_REDACT_DIR_LEN: Final = 4
+
+
+def _storage_dirs() -> list[str]:
+    """Return the home, temp, and package directories in every textual form a message
+    may carry them (native, POSIX, and realpath), longest first."""
+    roots: list[str] = [tempfile.gettempdir(), str(Path(__file__).resolve().parent.parent)]
+    with contextlib.suppress(RuntimeError, KeyError):  # no resolvable home directory
+        roots.append(str(Path.home()))
+    forms: set[str] = set()
+    for root in roots:
+        for variant in (root, os.path.realpath(root)):
+            native = variant.rstrip("\\/")
+            for form in (native, native.replace("\\", "/")):
+                if len(form) >= _MIN_REDACT_DIR_LEN:
+                    forms.add(form)
+    return sorted(forms, key=len, reverse=True)
+
+
+def redact_storage_locations(text: str) -> str:
+    """Replace s3:// URIs, AWS ARNs, and the home, temp, and package directories with
+    ``<redacted>`` (D8, defense in depth for Client_Facing_Messages).
+
+    Directories match their native, POSIX, and realpath forms, longest first so a package
+    dir inside the home dir is replaced whole. A directory only matches at a path-segment
+    boundary (``/home/al`` does not match ``/home/alice``), and the rest of the path is
+    kept, so ``<home>/x.json`` becomes ``<redacted>/x.json``. Relative names such as
+    Metaschema ``source-file`` values pass through unchanged.
+    """
+    if not text:
+        return text
+    text = _S3_URI_RE.sub(REDACTED, text)
+    text = _ARN_RE.sub(REDACTED, text)
+    dirs = _storage_dirs()
+    if not dirs:
+        return text
+    flags = re.IGNORECASE if os.name == "nt" else 0
+    pattern = "|".join(re.escape(d) for d in dirs)
+    return re.sub(rf"(?:{pattern})(?![\w.-])", REDACTED, text, flags=flags)
+
+
 def try_notify_client_error(msg: str, ctx: Context | None) -> None:
-    safe_log_mcp(msg, ctx, "error")
+    safe_log_mcp(redact_storage_locations(msg), ctx, "error")
 
 
 def safe_log_mcp(

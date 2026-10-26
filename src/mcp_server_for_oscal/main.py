@@ -10,6 +10,7 @@ import logging
 import os
 from importlib.metadata import metadata
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mcp.server.mcpserver import MCPServer
 
@@ -20,6 +21,9 @@ from mcp_server_for_oscal.tools.utils import (
     get_bundled_oscal_version,
     verify_bundled_content,
 )
+
+if TYPE_CHECKING:
+    from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
 # Package directory holding the bundled content; module constant so tests can patch it
 PACKAGE_DIR = Path(__file__).parent
@@ -72,13 +76,30 @@ def _warn_deprecated_settings() -> None:
         )
 
 
+def _install_store(store: "OscalStore") -> None:
+    """Set ``store`` as the singleton on every tool module that reads the store.
+
+    Shared by ``_init_oscal_store`` and tests, so the set of modules cannot drift.
+    """
+    from mcp_server_for_oscal.tools import (
+        list_oscal_resources,
+        query_component_definition,
+        query_documentation,
+        query_oscal_models,
+    )
+
+    list_oscal_resources.init_store(store)
+    query_component_definition.init_store(store)
+    query_documentation.init_store(store)
+    query_oscal_models.init_store(store)
+
+
 def _init_oscal_store() -> None:
     """Initialize the OscalStore singleton from the bundled DB.
 
     Creates an OscalStore with config values, optionally scans the
-    user-configured oscal_documents_dir (if set), then sets the store
-    singleton on query_component_definition, query_oscal_models, and
-    query_documentation modules.
+    user-configured oscal_documents_dir (if set) with Origin ``user``, then
+    installs the store on every tool module via ``_install_store``.
 
     If initialization fails, logs a warning and the server still starts,
     but the Component Definition tools raise ``RuntimeError`` until a
@@ -87,7 +108,7 @@ def _init_oscal_store() -> None:
     global _user_documents_loaded  # noqa: PLW0603 - startup state read by `about`
     _user_documents_loaded = 0
     try:
-        from mcp_server_for_oscal.tools.oscal_store import OscalStore
+        from mcp_server_for_oscal.tools.oscal_store import ORIGIN_USER, OscalStore
 
         store = OscalStore(
             db_path=config.oscal_store_db_path or None,
@@ -101,8 +122,9 @@ def _init_oscal_store() -> None:
             if not oscal_docs_dir.is_absolute():
                 oscal_docs_dir = my_dir / config.oscal_documents_dir
             if oscal_docs_dir.exists():
-                store.scan_directory(oscal_docs_dir)
-                _user_documents_loaded = store.count_documents_under(oscal_docs_dir)
+                store.scan_directory(oscal_docs_dir, origin=ORIGIN_USER)
+                # Counts by recorded Origin, so unchanged rows from earlier scans count too
+                _user_documents_loaded = store.count_documents(origin=ORIGIN_USER)
                 logger.info("%d document(s) loaded from %s", _user_documents_loaded, oscal_docs_dir)
             else:
                 logger.warning(
@@ -110,18 +132,7 @@ def _init_oscal_store() -> None:
                     oscal_docs_dir,
                 )
 
-        # Set the store singleton on all modules
-        from mcp_server_for_oscal.tools import (
-            list_oscal_resources,
-            query_component_definition,
-            query_documentation,
-            query_oscal_models,
-        )
-
-        list_oscal_resources.init_store(store)
-        query_component_definition.init_store(store)
-        query_documentation.init_store(store)
-        query_oscal_models.init_store(store)
+        _install_store(store)
 
         logger.info("OscalStore initialized successfully")
     except Exception:

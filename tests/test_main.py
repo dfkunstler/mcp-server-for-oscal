@@ -2,15 +2,23 @@
 Tests for the main module.
 """
 
+import hashlib
+import importlib
+import json
 import logging
 import shutil
+import sqlite3
 from pathlib import Path
 from unittest.mock import Mock, patch
+from uuid import NAMESPACE_URL, uuid5
 
 import pytest
 
+from mcp_server_for_oscal import main as main_module
 from mcp_server_for_oscal.config import config as real_config
 from mcp_server_for_oscal.main import _warm_metaschema_index, main
+from mcp_server_for_oscal.tools.oscal_store import ORIGIN_USER, OscalStore, doc_id
+from tests.tools.test_oscal_store_migration import LegacyDb, LegacyDoc, build_legacy_db
 
 
 class TestMain:
@@ -653,3 +661,155 @@ class TestBuildServer:
         assert set(tools) == {fn.__name__ for fn in get_tool_list()} | {"about"}
         assert tools["about"].description == ABOUT_DESCRIPTION
         assert {t.name for t in asyncio.run(main_module.mcp.list_tools())} == before
+
+
+# Module singletons that `_install_store` sets: (module path, attribute name)
+_STORE_SINGLETONS: tuple[tuple[str, str], ...] = (
+    ("mcp_server_for_oscal.tools.list_oscal_resources", "_store"),
+    ("mcp_server_for_oscal.tools.query_component_definition", "_oscal_store"),
+    ("mcp_server_for_oscal.tools.query_documentation", "_store"),
+    ("mcp_server_for_oscal.tools.query_oscal_models", "_store"),
+)
+
+
+def _singletons() -> list:
+    """Return the current value of every store singleton, in `_STORE_SINGLETONS` order."""
+    return [getattr(importlib.import_module(m), attr) for m, attr in _STORE_SINGLETONS]
+
+
+class TestStartupStoreWiring:
+    """`_install_store` and `_init_oscal_store` (search-fetch-pairs Req 1.4, 1.7, 14.4)."""
+
+    @pytest.fixture(autouse=True)
+    def restore_singletons(self):
+        """Restore every store singleton and `_user_documents_loaded`; close new stores."""
+        modules = [(importlib.import_module(m), attr) for m, attr in _STORE_SINGLETONS]
+        saved = [getattr(mod, attr) for mod, attr in modules]
+        saved_count = main_module._user_documents_loaded
+        yield
+        installed = [getattr(mod, attr) for mod, attr in modules]
+        for (mod, attr), value in zip(modules, saved, strict=True):
+            setattr(mod, attr, value)
+        main_module._user_documents_loaded = saved_count
+        closed: set[int] = set()
+        for store in installed:
+            if store is not None and all(store is not s for s in saved) and id(store) not in closed:
+                closed.add(id(store))
+                store.close()
+
+    @staticmethod
+    def _about() -> dict:
+        server = main_module.build_server()  # fresh instance, never main.mcp
+        main_module._setup_tools(server)
+        tool = server._tool_manager.get_tool("about")
+        assert tool is not None
+        return tool.fn()
+
+    @staticmethod
+    def _init(documents_dir: Path, db_path: Path) -> None:
+        with patch("mcp_server_for_oscal.main.config") as mock_config:
+            mock_config.oscal_store_db_path = str(db_path)
+            mock_config.oscal_store_cache_size = 10
+            mock_config.oscal_documents_dir = str(documents_dir)
+            main_module._init_oscal_store()
+
+    @staticmethod
+    def _doc_rows(db_path: Path) -> dict[str, tuple[str, str, str]]:
+        """Map documentation `file_path` to `(uuid, origin, relative_name)`."""
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT file_path, uuid, origin, relative_name FROM documents "
+                "WHERE model_type = 'documentation'"
+            ).fetchall()
+        finally:
+            conn.close()
+        return {fp: (uuid, origin, rel) for fp, uuid, origin, rel in rows}
+
+    @staticmethod
+    def _assert_about_path_free(about: dict, *paths: Path) -> None:
+        text = json.dumps(about)
+        for p in paths:
+            assert str(p) not in text
+            assert p.as_posix() not in text
+
+    def test_install_store_sets_every_module_singleton(self, tmp_path):
+        store = OscalStore(db_path=str(tmp_path / "store.db"), seed_from_bundled=False)
+        main_module._install_store(store)
+
+        assert all(s is store for s in _singletons())
+
+    def test_init_records_user_rows_and_about_count(self, tmp_path):
+        doc_dir = tmp_path / "docs"
+        (doc_dir / "guide").mkdir(parents=True)
+        (doc_dir / "one.md").write_text("# One\n\nText.", encoding="utf-8")
+        (doc_dir / "guide" / "two.md").write_text("# Two\n\nText.", encoding="utf-8")
+        db_path = tmp_path / "store.db"
+        sqlite3.connect(db_path).close()  # existing file: no bundled seeding
+
+        self._init(doc_dir, db_path)
+
+        store = _singletons()[0]
+        assert isinstance(store, OscalStore)
+        assert all(s is store for s in _singletons())
+        rows = self._doc_rows(db_path)
+        assert sorted(rows.values()) == sorted(
+            (doc_id(ORIGIN_USER, rel), ORIGIN_USER, rel) for rel in ("one.md", "guide/two.md")
+        )
+        assert main_module._user_documents_loaded == 2
+        about = self._about()
+        assert about["user-documents-loaded"] == 2
+        self._assert_about_path_free(about, doc_dir, db_path, tmp_path)
+
+    def test_pre_feature_persistent_db_gets_user_origin_and_doc_ids(self, tmp_path):
+        doc_dir = tmp_path / "docs"
+        (doc_dir / "guide").mkdir(parents=True)
+        (doc_dir / "nested" / "deep").mkdir(parents=True)
+        unchanged = doc_dir / "guide" / "intro.md"
+        changed = doc_dir / "nested" / "deep" / "notes.md"
+        unchanged.write_text("# Intro\n\nUnchanged body.", encoding="utf-8")
+        changed.write_text("# Notes\n\nEdited since the old scan.", encoding="utf-8")
+
+        # Pre-feature (user_version 0) rows: absolute-path uuid5 Doc_IDs, no Origin column
+        spec = LegacyDb(
+            docs=[
+                LegacyDoc(
+                    model_type="documentation",
+                    file_path=str(p),
+                    uuid=str(uuid5(NAMESPACE_URL, str(p))),
+                    indexed=1,
+                    has_fts=True,
+                )
+                for p in (unchanged, changed)
+            ],
+            orphans=[],
+        )
+        db_path = tmp_path / "persistent.db"
+        build_legacy_db(db_path, spec)
+        # The unchanged file gets its real hash, so the scan takes the unchanged-row path;
+        # the other row keeps the stale hash and is re-ingested
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute(
+                "UPDATE documents SET content_hash = ? WHERE file_path = ?",
+                (hashlib.sha256(unchanged.read_bytes()).hexdigest(), str(unchanged)),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        self._init(doc_dir, db_path)
+
+        # Relative_Names are relative to the documents dir, not the basename the
+        # pre-feature upgrade infers
+        expected = {str(unchanged): "guide/intro.md", str(changed): "nested/deep/notes.md"}
+        rows = self._doc_rows(db_path)
+        assert set(rows) == set(expected)
+        for file_path, rel in expected.items():
+            assert rows[file_path] == (doc_id(ORIGIN_USER, rel), ORIGIN_USER, rel)
+        store = _singletons()[2]  # query_documentation
+        assert store.get_documentation(doc_id(ORIGIN_USER, "guide/intro.md")) is not None
+        assert main_module._user_documents_loaded == 2
+        about = self._about()
+        assert about["user-documents-loaded"] == 2
+        self._assert_about_path_free(about, doc_dir, db_path, tmp_path)

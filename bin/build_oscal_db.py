@@ -89,12 +89,13 @@ def build_db(
             Defaults to the package ``oscal_docs/``.
 
     Returns:
-        A stats dict with keys: ``docs_indexed``, ``children``,
-        ``db_size_bytes``, ``db_hash``.
+        A stats dict with keys: ``docs_indexed``, ``children``, ``origins``
+        (document count per Origin), ``prose_controls`` (catalog controls with a
+        non-empty description), ``db_size_bytes``, ``db_hash``.
     """
     # Lazy import so the module can be imported without triggering
     # OscalStore side-effects (important for testing).
-    from mcp_server_for_oscal.tools.oscal_store import OscalStore
+    from mcp_server_for_oscal.tools.oscal_store import ORIGIN_BUNDLED, OscalStore
 
     db_path = db_path or DB_PATH
     component_defs_dir = component_defs_dir or COMPONENT_DEFS_DIR
@@ -113,14 +114,14 @@ def build_db(
         # --- Scan directories ---
         total_scanned = 0
         if component_defs_dir.exists():
-            n = store.scan_directory(component_defs_dir)
+            n = store.scan_directory(component_defs_dir, origin=ORIGIN_BUNDLED)
             logger.info("Scanned component_definitions/: %d document(s)", n)
             total_scanned += n
         else:
             logger.info("component_definitions/ not found, skipping")
 
         if oscal_docs_dir.exists():
-            n = store.scan_directory(oscal_docs_dir)
+            n = store.scan_directory(oscal_docs_dir, origin=ORIGIN_BUNDLED)
             logger.info("Scanned oscal_docs/: %d document(s)", n)
             total_scanned += n
         else:
@@ -136,6 +137,17 @@ def build_db(
         child_count = store._conn.execute("SELECT COUNT(*) AS cnt FROM child_elements").fetchone()[
             "cnt"
         ]
+        origins = {
+            r["origin"]: r["cnt"]
+            for r in store._conn.execute(
+                "SELECT origin, COUNT(*) AS cnt FROM documents GROUP BY origin ORDER BY origin"
+            )
+        }
+        # Catalog controls carry Control_Prose as their description (Requirement 9.5).
+        prose_controls = store._conn.execute(
+            "SELECT COUNT(*) AS cnt FROM child_elements "
+            "WHERE element_type = 'control' AND description IS NOT NULL AND description != ''"
+        ).fetchone()["cnt"]
     finally:
         store.close()
 
@@ -144,14 +156,19 @@ def build_db(
     stats = {
         "docs_indexed": doc_count,
         "children": child_count,
+        "origins": origins,
+        "prose_controls": prose_controls,
         "db_size_bytes": db_size,
         "db_hash": "",
     }
 
     logger.info(
-        "Build complete — %d document(s), %d child element(s), DB size %s",
+        "Build complete — %d document(s) %s, %d child element(s), %d control(s) with prose, "
+        "DB size %s",
         doc_count,
+        origins,
         child_count,
+        prose_controls,
         _human_size(db_size),
     )
 

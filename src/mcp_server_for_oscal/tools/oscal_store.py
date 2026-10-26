@@ -13,7 +13,6 @@ import functools
 import hashlib
 import json
 import logging
-import os
 import re
 import shutil
 import sqlite3
@@ -56,6 +55,29 @@ Origin = Literal["bundled", "user"]
 ORIGIN_BUNDLED: Final = "bundled"
 ORIGIN_USER: Final = "user"
 ORIGINS: Final[tuple[Origin, ...]] = (ORIGIN_BUNDLED, ORIGIN_USER)
+
+# Fixed client-facing messages for load_external_component_definition (Requirement 4):
+# none of them carries the source URI or exception text, which are logged instead.
+_MSG_REMOTE_DISABLED: Final = (
+    "Remote URI loading is not enabled. Set OSCAL_ALLOW_REMOTE_URIS=true to enable."
+)
+_MSG_REMOTE_TIMEOUT: Final = "Request timed out while fetching the remote Component Definition"
+_MSG_REMOTE_FETCH_FAILED: Final = "Failed to fetch the remote Component Definition"
+_MSG_REMOTE_BAD_JSON: Final = "Failed to parse the remote Component Definition JSON"
+_MSG_REMOTE_NOT_CDEF: Final = "Remote document is not a Component Definition"
+_MSG_REMOTE_INVALID: Final = "Remote Component Definition failed validation"
+_MSG_REMOTE_LOAD_FAILED: Final = "Failed to load the remote Component Definition"
+_REMOTE_MESSAGES: Final = frozenset(
+    {
+        _MSG_REMOTE_DISABLED,
+        _MSG_REMOTE_TIMEOUT,
+        _MSG_REMOTE_FETCH_FAILED,
+        _MSG_REMOTE_BAD_JSON,
+        _MSG_REMOTE_NOT_CDEF,
+        _MSG_REMOTE_INVALID,
+        _MSG_REMOTE_LOAD_FAILED,
+    }
+)
 
 # Column definition shared by the fresh CREATE TABLE and ALTER TABLE for ``origin`` and
 # ``relative_name``. No CHECK: SQLite verifies an added CHECK against existing rows, and
@@ -1677,25 +1699,6 @@ class OscalStore:
 
         return count
 
-    def count_documents_under(self, directory: Path) -> int:
-        """Return the number of stored documents whose source file lies under ``directory``.
-
-        Unlike the return value of :meth:`scan_directory`, this includes documents
-        left unchanged since an earlier scan (persistent DB mode). Matches both the
-        native path form (``.json``/``.md`` files) and the POSIX form (zip members).
-        """
-        # Trailing separator so "/a/docs" doesn't match "/a/docs2/..."
-        prefixes = sorted({f"{directory}{os.sep}", f"{directory.as_posix()}/"})
-        clauses = " OR ".join("substr(file_path, 1, ?) = ?" for _ in prefixes)
-        params: list[object] = []
-        for prefix in prefixes:
-            params.extend((len(prefix), prefix))
-        row = self._conn.execute(
-            f"SELECT COUNT(*) AS cnt FROM documents WHERE {clauses}",  # nosec B608
-            params,
-        ).fetchone()
-        return int(row["cnt"])
-
     def count_documents(self, *, origin: Origin) -> int:
         """Return the number of stored documents whose recorded Origin is ``origin``.
 
@@ -2946,12 +2949,11 @@ class OscalStore:
     ) -> None:
         """Load an OSCAL Component Definition from a local zip or remote URI.
 
-        Backward-compatible method that mirrors the legacy
-        ``ComponentDefinitionStore.load_external_component_definition``
-        behavior.
-
-        For local zip files, extracts and ingests all JSON entries.
-        For remote URIs, fetches the JSON, validates, and ingests.
+        For local zip files, extracts and ingests all JSON entries with Origin ``user``
+        and Relative_Names relative to the zip's parent directory. For remote URIs,
+        fetches the JSON, validates, and ingests it with Origin ``user`` and the URL
+        path's last segment as Relative_Name. Client-facing error messages are fixed
+        text; the source URI and exception detail are logged only.
 
         Args:
             source: URI to the Component Definition JSON file or zip archive.
@@ -2965,8 +2967,15 @@ class OscalStore:
 
         from mcp_server_for_oscal.tools.utils import try_notify_client_error
 
-        def _notify(msg: str) -> None:
+        def _fail(msg: str, err: BaseException | None = None) -> ValueError:
+            # Client-facing text is fixed (Requirement 4.1, 4.2): the source URI and
+            # exception detail go to the server log only.
+            if err is None:
+                logger.error("%s (source=%s)", msg, source)
+            else:
+                logger.error("%s (source=%s): %s", msg, source, err, exc_info=err)
             try_notify_client_error(msg, ctx)  # type: ignore[arg-type]
+            return ValueError(msg)
 
         uri = urlparse(source)
 
@@ -2981,34 +2990,37 @@ class OscalStore:
             return
 
         if not config.allow_remote_uris:
-            msg = (
-                f"Remote URI loading is not enabled. "
-                f"Set OSCAL_ALLOW_REMOTE_URIS=true to enable. Source: {source}"
-            )
-            logger.error(msg)
-            _notify(msg)
-            raise ValueError(msg)
+            raise _fail(_MSG_REMOTE_DISABLED)
 
         logger.debug("Fetching remote Component Definition from: %s", source)
 
         try:
             response = _requests.get(source, timeout=config.request_timeout)
             response.raise_for_status()
-
             data = response.json()
-            if "component-definition" not in data:
+        except _requests.Timeout as e:
+            raise _fail(_MSG_REMOTE_TIMEOUT, e) from e
+        except (json.JSONDecodeError, _requests.JSONDecodeError) as e:
+            raise _fail(_MSG_REMOTE_BAD_JSON, e) from e
+        except _requests.RequestException as e:
+            raise _fail(_MSG_REMOTE_FETCH_FAILED, e) from e
+
+        try:
+            if isinstance(data, dict) and "component-definition" not in data:
                 data = {"component-definition": data}
+            if not isinstance(data, dict):
+                raise _fail(_MSG_REMOTE_NOT_CDEF)
 
             model_type = self._detect_model_type_from_data(data)
             if model_type != OSCALModelType.COMPONENT_DEFINITION:
-                raise ValueError("Remote document is not a Component Definition")
+                raise _fail(_MSG_REMOTE_NOT_CDEF)
 
             if not self._validate_with_model(data, model_type):
-                raise ValueError("Remote Component Definition failed validation")
+                raise _fail(_MSG_REMOTE_INVALID)
 
             meta = self._extract_metadata(data, model_type)
             if meta is None:
-                raise ValueError("Cannot extract UUID/title from remote document")
+                raise _fail(_MSG_REMOTE_INVALID)
 
             uuid_val, title = meta
             raw_json = json.dumps(data)
@@ -3025,37 +3037,11 @@ class OscalStore:
                 origin=ORIGIN_USER,
                 relative_name=uri.path.rsplit("/", 1)[-1],
             )
-            logger.info(
-                "Successfully loaded remote component definition from: %s",
-                source,
-            )
-
-        except _requests.Timeout as e:
-            msg = (
-                f"Request timeout while fetching remote URI "
-                f"(timeout={config.request_timeout}s): {source}"
-            )
-            logger.exception(msg)
-            _notify(msg)
-            raise ValueError(msg) from e
-
-        except _requests.RequestException as e:
-            msg = f"Failed to fetch remote Component Definition: {e}"
-            logger.exception(msg)
-            _notify(msg)
-            raise ValueError(msg) from e
-
-        except json.JSONDecodeError as e:
-            msg = f"Failed to parse remote Component Definition JSON: {e}"
-            logger.exception(msg)
-            _notify(msg)
-            raise ValueError(msg) from e
-
-        except ValueError:
-            raise
-
+        except ValueError as e:
+            if str(e) in _REMOTE_MESSAGES:
+                raise  # already logged and notified by _fail
+            raise _fail(_MSG_REMOTE_LOAD_FAILED, e) from e
         except Exception as e:
-            msg = f"Failed to load or validate remote Component Definition: {e}"
-            logger.exception(msg)
-            _notify(msg)
-            raise ValueError(msg) from e
+            raise _fail(_MSG_REMOTE_LOAD_FAILED, e) from e
+
+        logger.info("Successfully loaded remote component definition from: %s", source)

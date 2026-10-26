@@ -3,22 +3,32 @@ Tests for the validate_oscal_content tool.
 """
 
 import json
+import os
+import tempfile
 import uuid as uuid_mod
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import requests
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+import mcp_server_for_oscal.tools.validate_oscal_content as vmod
 from mcp_server_for_oscal.tools.utils import MODEL_MAP, OSCALModelType
 from mcp_server_for_oscal.tools.validate_oscal_content import (
     MAX_ERRORS_PER_LEVEL,
+    OSCAL_CLI_BINARY_PLACEHOLDER,
+    OSCAL_CLI_DIR_PLACEHOLDER,
+    OSCAL_CLI_INPUT_PLACEHOLDER,
     _detect_model_type,
     _validate_json_schema,
     _validate_model,
     _validate_oscal_cli,
     _validate_well_formedness,
+    scrub_cli_output,
     validate_oscal_content,
+    validate_oscal_file,
 )
 
 from .test_oscal_store import _VALID_DOC_BUILDERS
@@ -194,7 +204,7 @@ class TestValidateJsonSchema:
         mock_load_schema.side_effect = FileNotFoundError("not found")
         result = _validate_json_schema({"catalog": {}}, OSCALModelType.CATALOG)
         assert result["valid"] is False
-        assert "Failed to load schema" in result["errors"][0]
+        assert result["errors"] == ["Failed to load the bundled schema for catalog"]
 
 
 class TestValidateModel:
@@ -233,7 +243,7 @@ class TestValidateModel:
             result = _validate_model({"catalog": {}}, OSCALModelType.CATALOG)
         assert result["valid"] is False
         assert result["level"] == "model"
-        assert result["errors"][0].startswith("Failed to load OSCAL model class")
+        assert result["errors"] == ["Failed to load the bundled schema for catalog"]
 
 
 class TestValidateOscalCli:
@@ -267,6 +277,25 @@ class TestValidateOscalCli:
         result = _validate_oscal_cli('{"catalog": {}}', OSCALModelType.CATALOG)
         assert result["valid"] is False
         assert "missing required field" in result["errors"][0]
+
+    @patch("mcp_server_for_oscal.tools.validate_oscal_content.shutil.which")
+    @patch("mcp_server_for_oscal.tools.validate_oscal_content.subprocess.run")
+    def test_failure_output_scrubs_paths(self, mock_run, mock_which):
+        """The temp file and oscal-cli paths in oscal-cli output become placeholders."""
+        cli = "/usr/local/bin/oscal-cli"
+        mock_which.return_value = cli
+
+        def run(argv, **_kwargs):
+            tmp = argv[2]
+            stderr = f"{cli}: [ERROR] {Path(tmp).as_uri()} [1:2] bad\nmissing field in {tmp}"
+            return MagicMock(returncode=1, stdout="", stderr=stderr)
+
+        mock_run.side_effect = run
+        result = _validate_oscal_cli('{"catalog": {}}', OSCALModelType.CATALOG)
+        assert result["errors"] == [
+            f"oscal-cli: [ERROR] {OSCAL_CLI_INPUT_PLACEHOLDER} [1:2] bad",
+            f"missing field in {OSCAL_CLI_INPUT_PLACEHOLDER}",
+        ]
 
     @patch("mcp_server_for_oscal.tools.validate_oscal_content.shutil.which")
     @patch("mcp_server_for_oscal.tools.validate_oscal_content.subprocess.run")
@@ -547,3 +576,252 @@ class TestPropertyLevelNamesStable:
             result = validate_oscal_content(content, ctx=None)
 
         assert [lvl["level"] for lvl in result["levels"]] == _EXPECTED_LEVEL_NAMES
+
+
+# --- Property 17: oscal-cli output scrubbing --------------------------------------------------
+
+# Path segments: no separators, no leading/trailing space (oscal-cli output is stripped).
+_cli_segments = st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789-_ ", min_size=1, max_size=8)
+_cli_segments = _cli_segments.filter(lambda s: s == s.strip())
+_cli_names = st.sampled_from(["oscal-cli", "oscal-cli.bat", "oscal-cli.exe"])
+_posix_cli_paths = st.builds(
+    lambda segs, name: "/" + "/".join([*segs, name]),
+    st.lists(_cli_segments, max_size=4),
+    _cli_names,
+)
+_windows_cli_paths = st.builds(
+    lambda drive, segs, name: f"{drive}:\\" + "\\".join([*segs, name]),
+    st.sampled_from("CDZ"),
+    st.lists(_cli_segments, max_size=4),
+    _cli_names,
+)
+_cli_paths = _posix_cli_paths | _windows_cli_paths
+# Filler text has no path separators, colons, or uppercase, so it never forms or extends a path
+# and never collides with the per-line markers.
+_filler = st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789 .,;-=()[]'\"", max_size=20)
+
+_TMP_FORM_KEYS = ("tmp-native", "tmp-posix", "tmp-real", "tmp-uri", "tmp-real-uri", "tmp-java")
+_CLI_FORM_KEYS = ("cli", "cli-posix", "cli-real")
+_DIR_FORM_KEYS = ("cli-dir", "cli-dir-posix")
+_FORM_KEYS = _TMP_FORM_KEYS + _CLI_FORM_KEYS + _DIR_FORM_KEYS
+
+
+def _java_uri(path: str) -> str:
+    """Return the ``file:/x`` form Java's ``File.toURI`` prints."""
+    posix = Path(path).as_posix()
+    return "file:" + (posix if posix.startswith("/") else f"/{posix}")
+
+
+def _cli_output_forms(tmp: str, cli: str) -> dict[str, tuple[str, str]]:
+    """Map each form key to (rendered path, expected placeholder) for ``tmp`` and ``cli``."""
+    real_tmp = os.path.realpath(tmp)
+    forms = {
+        "tmp-native": tmp,
+        "tmp-posix": Path(tmp).as_posix(),
+        "tmp-real": real_tmp,
+        "tmp-uri": Path(tmp).as_uri(),
+        "tmp-real-uri": Path(real_tmp).as_uri(),
+        "tmp-java": _java_uri(real_tmp),
+    }
+    out = {key: (value, OSCAL_CLI_INPUT_PLACEHOLDER) for key, value in forms.items()}
+    for key, value in (
+        ("cli", cli),
+        ("cli-posix", Path(cli).as_posix()),
+        ("cli-real", os.path.realpath(cli)),
+    ):
+        out[key] = (value, OSCAL_CLI_BINARY_PLACEHOLDER)
+    directory = Path(cli).parent
+    # A filesystem-root directory is deliberately not replaced, so it is never embedded.
+    if directory != Path(directory.anchor):
+        out["cli-dir"] = (str(directory), OSCAL_CLI_DIR_PLACEHOLDER)
+        out["cli-dir-posix"] = (directory.as_posix(), OSCAL_CLI_DIR_PLACEHOLDER)
+    return out
+
+
+# One output line: parts that are either ("text", filler) or ("form", key).
+_line_parts = st.lists(
+    st.one_of(
+        st.tuples(st.just("text"), _filler),
+        st.tuples(st.just("form"), st.sampled_from(_FORM_KEYS)),
+    ),
+    max_size=5,
+)
+
+
+def _render_line(parts, marker: str, forms: dict[str, tuple[str, str]], *, scrubbed: bool) -> str:
+    """Join ``parts`` with spaces and end with ``marker``; ``scrubbed`` renders placeholders."""
+    rendered = []
+    for kind, value in parts:
+        if kind == "text":
+            rendered.append(value)
+        elif value in forms:  # dir forms are absent when the dir is a filesystem root
+            rendered.append(forms[value][1 if scrubbed else 0])
+    rendered.append(marker)
+    return " ".join(rendered)
+
+
+def _leaked_forms(line: str, forms: dict[str, tuple[str, str]]) -> list[str]:
+    """Return the path forms still present in ``line``."""
+    return [path for path, _ in forms.values() if path in line]
+
+
+class TestPropertyOscalCliOutputScrubbed:
+    """Property 17: oscal-cli output never shows the temporary file path.
+
+    Feature: search-fetch-pairs, Property 17
+    **Validates: Requirements 4.4**
+    """
+
+    @settings(max_examples=100, deadline=None)
+    @given(
+        cli=_cli_paths,
+        tmp_name=st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789_", min_size=1),
+        lines=st.lists(_line_parts, min_size=1, max_size=5),
+    )
+    def test_scrub_cli_output_replaces_every_form(self, cli, tmp_name, lines):
+        """Every embedded path form becomes its placeholder and the other text is unchanged."""
+        tmp = os.path.join(tempfile.gettempdir(), f"tmp{tmp_name}.json")
+        forms = _cli_output_forms(tmp, cli)
+        for i, parts in enumerate(lines):
+            marker = f"MARK{i}X"
+            raw = _render_line(parts, marker, forms, scrubbed=False)
+            scrubbed = scrub_cli_output(raw, tmp, cli)
+            assert scrubbed == _render_line(parts, marker, forms, scrubbed=True)
+            assert _leaked_forms(scrubbed, forms) == []
+
+    @settings(max_examples=50, deadline=None)
+    @given(
+        cli=_cli_paths,
+        lines=st.lists(_line_parts, min_size=1, max_size=MAX_ERRORS_PER_LEVEL * 2),
+        channel=st.sampled_from(["stdout", "stderr"]),
+    )
+    def test_validate_oscal_cli_lines_never_show_paths(self, cli, lines, channel):
+        """No error or warning line names the temp file or oscal-cli; text and limits hold."""
+        seen_tmp: list[str] = []
+
+        def run(argv, **_kwargs):
+            tmp = argv[2]
+            seen_tmp.append(tmp)
+            forms = _cli_output_forms(tmp, cli)
+            output = "\n".join(
+                _render_line(parts, f"MARK{i}X", forms, scrubbed=False)
+                for i, parts in enumerate(lines)
+            )
+            streams = {"stdout": "", "stderr": ""}
+            streams[channel] = output
+            return MagicMock(returncode=1, **streams)
+
+        with (
+            patch(
+                "mcp_server_for_oscal.tools.validate_oscal_content.shutil.which", return_value=cli
+            ),
+            patch(
+                "mcp_server_for_oscal.tools.validate_oscal_content.subprocess.run",
+                side_effect=run,
+            ),
+        ):
+            result = _validate_oscal_cli('{"catalog": {}}', OSCALModelType.CATALOG)
+
+        assert len(seen_tmp) == 1
+        forms = _cli_output_forms(seen_tmp[0], cli)
+        assert result["valid"] is False
+        for line in result["errors"] + result["warnings"]:
+            assert _leaked_forms(line, forms) == [], line
+
+        shown = min(len(lines), MAX_ERRORS_PER_LEVEL)
+        assert len(result["errors"]) == shown
+        for i, error in enumerate(result["errors"]):
+            assert f"MARK{i}X" in error
+            expected = _render_line(lines[i], f"MARK{i}X", forms, scrubbed=True)
+            # The whole output is stripped once, so only the first line loses leading space.
+            assert error == (expected.lstrip() if i == 0 else expected)
+        if len(lines) > MAX_ERRORS_PER_LEVEL:
+            assert result["warnings"] == [
+                f"Showing {MAX_ERRORS_PER_LEVEL} of {len(lines)} error lines"
+            ]
+        else:
+            assert result["warnings"] == []
+
+
+class TestValidateOscalFileMessages:
+    """search-fetch-pairs Requirements 4.1, 4.6: ``validate_oscal_file`` failures name no
+    path or URI in the raised message or the client notification. No network is used."""
+
+    CANNOT_READ = "Cannot read the OSCAL file named by file_uri."
+    URI = "https://internal.example/secret/bucket-name/ssp.json"
+
+    @staticmethod
+    def _sent(ctx) -> list[str]:
+        return [c.args[0] for c in ctx.error.call_args_list]
+
+    @pytest.mark.parametrize(
+        "as_uri",
+        [
+            pytest.param(
+                False,
+                marks=pytest.mark.skipif(os.name == "nt", reason="drive letter parses as scheme"),
+            ),
+            True,
+        ],
+    )
+    def test_missing_local_file(self, tmp_path, mock_context, as_uri):
+        missing = tmp_path / "nope" / "missing.json"
+        file_uri = missing.as_uri() if as_uri else str(missing)
+        with pytest.raises(ValueError) as exc_info:
+            validate_oscal_file(file_uri, ctx=mock_context)
+        assert str(exc_info.value) == self.CANNOT_READ
+        assert self._sent(mock_context) == [self.CANNOT_READ]
+        for text in (str(exc_info.value), *self._sent(mock_context)):
+            assert str(tmp_path) not in text
+            assert tmp_path.as_posix() not in text
+            assert "missing.json" not in text
+
+    def test_directory_path(self, tmp_path, mock_context):
+        with pytest.raises(ValueError) as exc_info:
+            validate_oscal_file(tmp_path.as_uri(), ctx=mock_context)
+        assert str(exc_info.value) == "URI must point to a file"
+        assert tmp_path.as_posix() not in str(exc_info.value)
+        assert all(tmp_path.as_posix() not in m for m in self._sent(mock_context))
+
+    def test_remote_disabled(self, mock_context):
+        with (
+            patch.object(vmod.config, "allow_remote_uris", False),
+            patch.object(vmod.requests, "get") as get,
+            pytest.raises(ValueError) as exc_info,
+        ):
+            validate_oscal_file(self.URI, ctx=mock_context)
+        get.assert_not_called()
+        assert "not enabled" in str(exc_info.value)
+        self._assert_no_uri(exc_info.value, mock_context)
+
+    def test_timeout(self, mock_context):
+        with (
+            patch.object(vmod.config, "allow_remote_uris", True),
+            patch.object(vmod.requests, "get", side_effect=requests.Timeout(self.URI)),
+            pytest.raises(ValueError) as exc_info,
+        ):
+            validate_oscal_file(self.URI, ctx=mock_context)
+        assert "timeout" in str(exc_info.value).lower()
+        self._assert_no_uri(exc_info.value, mock_context)
+
+    def test_http_error_includes_status(self, mock_context):
+        response = MagicMock(status_code=403, url=self.URI)
+        response.raise_for_status.side_effect = requests.HTTPError(
+            f"403 Client Error: Forbidden for url: {self.URI}", response=response
+        )
+        with (
+            patch.object(vmod.config, "allow_remote_uris", True),
+            patch.object(vmod.requests, "get", return_value=response),
+            pytest.raises(ValueError) as exc_info,
+        ):
+            validate_oscal_file(self.URI, ctx=mock_context)
+        assert str(exc_info.value) == "Failed to fetch remote OSCAL file (HTTP status 403)"
+        self._assert_no_uri(exc_info.value, mock_context)
+
+    def _assert_no_uri(self, exc: Exception, ctx) -> None:
+        sent = self._sent(ctx)
+        assert sent == [str(exc)]
+        for text in (str(exc), *sent):
+            assert "internal.example" not in text
+            assert "secret" not in text
+            assert "https://" not in text

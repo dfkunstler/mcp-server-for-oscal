@@ -10,7 +10,7 @@ from mcp.server.mcpserver import Context
 from strands import tool
 
 from mcp_server_for_oscal.tools.descriptions import Limit, Offset
-from mcp_server_for_oscal.tools.oscal_store import OscalStore
+from mcp_server_for_oscal.tools.oscal_store import ORIGIN_BUNDLED, OscalStore
 from mcp_server_for_oscal.tools.utils import paginate, try_notify_client_error
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,13 @@ def init_store(store: OscalStore) -> None:
 
 
 DEFAULT_CATEGORY = "General"
+
+# Client-facing error text; it names the failed operation and no path (Requirement 4.1).
+LIST_RESOURCES_ERROR = "Failed to list OSCAL resources"
+
+# Relative_Name of the awesome-oscal list under the bundled ``data/oscal_docs`` Scan_Root.
+# Legacy rows get the same value from ``legacy_provenance`` (suffix after ``/data/oscal_docs/``).
+AWESOME_OSCAL_RELATIVE_NAME = "awesome-oscal.md"
 
 _HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
 _TOP_LEVEL_ITEM = re.compile(r"^[-*+]\s+")
@@ -89,21 +96,32 @@ def list_oscal_resources(offset: Offset = 0, limit: Limit = 10, ctx: Context | N
     )
 
     try:
-        entries = parse_resource_entries(read_resources_file())
+        markdown = read_resources_file()
+    except Exception as err:
+        # Read errors (FileNotFoundError, OSError, UnicodeDecodeError) carry the file path in
+        # their text, so the caller gets fixed text and the detail stays in the log
+        # (Requirements 4.1, 4.6).
+        logger.exception("Failed to read the OSCAL resources list")
+        try_notify_client_error(LIST_RESOURCES_ERROR, ctx)
+        raise RuntimeError(LIST_RESOURCES_ERROR) from err
+
+    try:
+        entries = parse_resource_entries(markdown)
         logger.debug("Successfully read OSCAL resources file: %d entries", len(entries))
         return paginate(entries, offset, limit)
-    except Exception as err:
-        msg = f"Failed to list OSCAL resources: {err}"
-        logger.exception(msg)
-        try_notify_client_error(msg, ctx)
+    except Exception:
+        # paginate's ValueError names only the offending argument, so it is re-raised as is.
+        logger.exception(LIST_RESOURCES_ERROR)
+        try_notify_client_error(LIST_RESOURCES_ERROR, ctx)
         raise
 
 
 def _read_from_store() -> str | None:
     """Try to read awesome-oscal content from the bundled OscalStore DB.
 
-    Returns the content string, or None if the store is not initialised
-    or the document is not found.
+    Selects by the recorded Origin and Relative_Name (Requirement 1.6), so a user file named
+    ``awesome-oscal.md`` never shadows the bundled list. Returns the content string, or None
+    if the store is not initialised or the document is not found.
     """
     if _store is None:
         return None
@@ -111,8 +129,8 @@ def _read_from_store() -> str | None:
     try:
         row = _store._conn.execute(  # noqa: SLF001 - OscalStore has no public raw-query API
             "SELECT raw_json FROM documents "
-            "WHERE model_type = 'documentation' "
-            "AND file_path LIKE '%awesome-oscal.md'",
+            "WHERE model_type = 'documentation' AND origin = ? AND relative_name = ?",
+            (ORIGIN_BUNDLED, AWESOME_OSCAL_RELATIVE_NAME),
         ).fetchone()
         if row and row["raw_json"]:
             return row["raw_json"]

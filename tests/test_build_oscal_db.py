@@ -200,6 +200,199 @@ class TestBuildOscalDb:
             db_path.unlink()
 
 
+_FIXTURES = Path(__file__).parent / "fixtures"
+_CATALOG_UUID = "c0ffee00-1111-4222-8333-444455556666"
+
+# Catalog with statement/guidance prose at the top level, in a group, and in a nested
+# group, plus one control without prose parts.
+_CATALOG = {
+    "catalog": {
+        "uuid": _CATALOG_UUID,
+        "metadata": {
+            "title": "Build Fixture Catalog",
+            "last-modified": "2024-01-01T00:00:00Z",
+            "version": "1.0.0",
+            "oscal-version": "1.1.2",
+        },
+        "groups": [
+            {
+                "id": "ac",
+                "title": "Access Control",
+                "controls": [
+                    {
+                        "id": "ac-1",
+                        "title": "Policy and Procedures",
+                        "parts": [
+                            {"id": "ac-1_smt", "name": "statement", "prose": "Develop a policy."},
+                            {"id": "ac-1_gdn", "name": "guidance", "prose": "Review it yearly."},
+                        ],
+                    },
+                    {"id": "ac-2", "title": "Account Management"},
+                ],
+            },
+            {
+                "id": "outer",
+                "title": "Outer Group",
+                "groups": [
+                    {
+                        "id": "inner",
+                        "title": "Inner Group",
+                        "controls": [
+                            {
+                                "id": "in-1",
+                                "title": "Nested Control",
+                                "parts": [
+                                    {
+                                        "id": "in-1_gdn",
+                                        "name": "guidance",
+                                        "prose": "Nested guidance prose.",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+        ],
+        "controls": [
+            {
+                "id": "top-1",
+                "title": "Top Control",
+                "parts": [{"id": "top-1_smt", "name": "statement", "prose": "Top statement."}],
+            }
+        ],
+    }
+}
+
+# Controls with Control_Prose and their expected descriptions.
+_EXPECTED_PROSE = {
+    "ac-1": "Develop a policy.\n\nReview it yearly.",
+    "in-1": "Nested guidance prose.",
+    "top-1": "Top statement.",
+}
+
+
+class TestBundledBuildProvenance:
+    """A fixture build has bundled Origins, Doc_IDs, Control_Prose, and FTS identifiers.
+
+    **Validates: Requirements 1.3, 9.5, 14.1, 14.5**
+    """
+
+    @pytest.fixture
+    def built(self, tmp_path: Path):
+        """Build a DB from fixture dirs and yield ``(stats, connection, docs_dir)``."""
+        import shutil
+        import sqlite3
+
+        from bin.build_oscal_db import build_db
+
+        cdefs = tmp_path / "component_definitions"
+        cdefs.mkdir()
+        for name in ("sample_component_definition.json", "multi_component_definition.json"):
+            shutil.copy(_FIXTURES / name, cdefs / name)
+        docs = tmp_path / "oscal_docs"
+        (docs / "guides").mkdir(parents=True)
+        (docs / "catalog.json").write_text(json.dumps(_CATALOG), encoding="utf-8")
+        (docs / "intro.md").write_text("# Intro\n\nAbout OSCAL.\n", encoding="utf-8")
+        (docs / "guides" / "ssp.md").write_text("# SSP Guide\n\nWrite an SSP.\n", "utf-8")
+        db_path = tmp_path / "build.db"
+
+        stats = build_db(db_path=db_path, component_defs_dir=cdefs, oscal_docs_dir=docs)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            yield stats, conn, docs
+        finally:
+            conn.close()
+
+    def test_every_document_is_bundled(self, built):
+        """Every documents row has Origin bundled, and the stats report it (Req 1.3)."""
+        stats, conn, _ = built
+        n_docs = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        origins = {r[0] for r in conn.execute("SELECT DISTINCT origin FROM documents")}
+
+        assert n_docs == 5  # 2 cdefs + 1 catalog + 2 markdown
+        assert origins == {"bundled"}
+        assert stats["origins"] == {"bundled": n_docs}
+        assert stats["docs_indexed"] == n_docs
+
+    def test_documentation_doc_ids(self, built):
+        """Markdown rows carry Requirement 2 Doc_IDs from their Relative_Names."""
+        from mcp_server_for_oscal.tools.oscal_store import ORIGIN_BUNDLED, doc_id
+
+        _, conn, _ = built
+        rows = conn.execute(
+            "SELECT uuid, relative_name FROM documents WHERE model_type = 'documentation'"
+        ).fetchall()
+
+        assert {r["relative_name"] for r in rows} == {"intro.md", "guides/ssp.md"}
+        for r in rows:
+            assert r["uuid"] == doc_id(ORIGIN_BUNDLED, r["relative_name"])
+
+    def test_catalog_controls_have_prose(self, built):
+        """Controls at every nesting level carry Control_Prose (Req 9.5)."""
+        stats, conn, _ = built
+        rows = conn.execute(
+            "SELECT ce.uuid, ce.description FROM child_elements ce "
+            "JOIN documents d ON d.id = ce.parent_doc_id "
+            "WHERE d.uuid = ? AND ce.element_type = 'control'",
+            (_CATALOG_UUID,),
+        ).fetchall()
+        descriptions = {r["uuid"]: r["description"] for r in rows}
+
+        assert descriptions == {**_EXPECTED_PROSE, "ac-2": ""}
+        assert stats["prose_controls"] == len(_EXPECTED_PROSE)
+
+        fts = dict(
+            conn.execute(
+                "SELECT f.element_id, f.description FROM fts_index f "
+                "WHERE f.entity_type = 'child_element' AND f.element_id IN (?, ?, ?)",
+                tuple(_EXPECTED_PROSE),
+            ).fetchall()
+        )
+        assert fts == _EXPECTED_PROSE
+
+    def test_schema_version_and_all_indexed(self, built):
+        """The DB is at SCHEMA_VERSION and no document is left pending."""
+        from mcp_server_for_oscal.tools.oscal_store import SCHEMA_VERSION
+
+        _, conn, _ = built
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        assert conn.execute("SELECT COUNT(*) FROM documents WHERE indexed = 0").fetchone()[0] == 0
+
+    def test_fts_element_ids_match_joins(self, built):
+        """Every FTS row's element_id equals its Element_ID or Document_UUID (Req 14.1)."""
+        _, conn, _ = built
+        columns = [r["name"] for r in conn.execute("PRAGMA table_info(fts_index)")]
+        assert "element_id" in columns
+
+        rows = conn.execute(
+            """
+            SELECT f.entity_type, f.element_id,
+                   CASE f.entity_type
+                       WHEN 'child_element' THEN ce.uuid
+                       WHEN 'document' THEN d.uuid
+                       WHEN 'documentation' THEN ''
+                   END AS expected
+            FROM fts_index f
+            LEFT JOIN child_elements ce
+                   ON f.entity_type = 'child_element' AND ce.id = CAST(f.entity_id AS INTEGER)
+            LEFT JOIN documents d
+                   ON f.entity_type = 'document' AND d.id = CAST(f.entity_id AS INTEGER)
+            """
+        ).fetchall()
+
+        types = {r["entity_type"] for r in rows}
+        assert types == {"child_element", "document", "documentation"}
+        mismatches = [
+            dict(r) for r in rows if r["expected"] is None or r["element_id"] != r["expected"]
+        ]
+        assert mismatches == []
+        # One FTS document row per OSCAL document (2 cdefs + 1 catalog).
+        assert sum(r["entity_type"] == "document" for r in rows) == 3
+
+
 class TestComputeSha256:
     """Tests for the SHA-256 computation helper."""
 

@@ -4272,42 +4272,22 @@ class TestPropertyChildTypeCounts:
             assert sum(item["childTypeCounts"].values()) == doc_summary["childCount"]
 
 
-class TestCountDocumentsUnder:
-    """OscalStore.count_documents_under() counts stored docs by source directory."""
+class TestCountDocumentsAfterRescan:
+    """count_documents(origin=user) keeps unchanged rows from an earlier scan."""
 
-    def _write_docs(self, doc_dir: Path, md_name: str = "guide.md") -> None:
-        doc_dir.mkdir(parents=True)
+    def test_persistent_rescan_keeps_user_count(self, tmp_path):
+        """Persistent DB: a rescan ingests 0 files but the user count stays the same."""
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
         (doc_dir / "a.json").write_text(
             json.dumps(_make_component_definition(str(uuid_mod.uuid4()), "A"))
         )
-        (doc_dir / md_name).write_text("# Guide\n\nSome text.", encoding="utf-8")
+        (doc_dir / "guide.md").write_text("# Guide\n\nSome text.", encoding="utf-8")
         with zipfile.ZipFile(doc_dir / "bundle.zip", "w") as zf:
             zf.writestr(
                 "inner/b.json",
                 json.dumps(_make_component_definition(str(uuid_mod.uuid4()), "B")),
             )
-
-    def test_counts_json_md_and_zip_members(self, store, tmp_path):
-        doc_dir = tmp_path / "docs"
-        self._write_docs(doc_dir)
-        store.scan_directory(doc_dir)
-        assert store.count_documents_under(doc_dir) == 3
-
-    def test_excludes_sibling_with_shared_prefix(self, store, tmp_path):
-        doc_dir = tmp_path / "docs"
-        other_dir = tmp_path / "docs2"
-        self._write_docs(doc_dir)
-        # A different markdown name: the same Origin and Relative_Name share one Doc_ID,
-        # so a second "guide.md" would re-point the first row instead of adding one.
-        self._write_docs(other_dir, md_name="other-guide.md")
-        store.scan_directory(doc_dir)
-        store.scan_directory(other_dir)
-        assert store.count_documents_under(doc_dir) == 3
-
-    def test_includes_unchanged_documents_after_rescan(self, tmp_path):
-        """Persistent DB: a rescan ingests 0 files but the count stays the same."""
-        doc_dir = tmp_path / "docs"
-        self._write_docs(doc_dir)
         db_path = str(tmp_path / "persist.db")
         s1 = OscalStore(db_path=db_path, cache_size=10, seed_from_bundled=False)
         try:
@@ -4317,9 +4297,6 @@ class TestCountDocumentsUnder:
         s2 = OscalStore(db_path=db_path, cache_size=10, seed_from_bundled=False)
         try:
             assert s2.scan_directory(doc_dir) == 0
-            assert s2.count_documents_under(doc_dir) == 3
+            assert s2.count_documents(origin="user") == 3
         finally:
             s2.close()
-
-    def test_empty_store_returns_zero(self, store, tmp_path):
-        assert store.count_documents_under(tmp_path / "nowhere") == 0

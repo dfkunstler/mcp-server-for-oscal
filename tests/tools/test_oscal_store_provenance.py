@@ -490,3 +490,147 @@ class TestReindexFtsCleanup:
             _assert_fts_clean(store)
         finally:
             store.close()
+
+
+# ---------------------------------------------------------------------------
+# load_external_component_definition: provenance and fixed messages
+# ---------------------------------------------------------------------------
+
+_REMOTE_URL = "https://example.invalid/secret-dir/cdefs/remote-cdef.json"
+_PRIVATE_PATH = "/Users/someone/private/data-abc"
+
+
+class _FakeResponse:
+    """Minimal stand-in for ``requests.Response`` returning ``payload`` from ``json()``."""
+
+    def __init__(self, payload: object = None, json_error: Exception | None = None) -> None:
+        self._payload = payload
+        self._json_error = json_error
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> object:
+        if self._json_error is not None:
+            raise self._json_error
+        return self._payload
+
+
+class TestLoadExternalComponentDefinition:
+    """``load_external_component_definition`` records Origin ``user`` and never echoes
+    the source URI or exception text to the client.
+
+    Requirements: 1.1, 4.1, 4.2
+    """
+
+    @pytest.fixture
+    def notified(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        sent: list[str] = []
+        monkeypatch.setattr(
+            "mcp_server_for_oscal.tools.utils.try_notify_client_error",
+            lambda msg, _ctx=None: sent.append(msg),
+        )
+        return sent
+
+    @staticmethod
+    def _assert_fixed(message: str) -> None:
+        assert "example.invalid" not in message
+        assert "secret-dir" not in message
+        assert _PRIVATE_PATH not in message
+
+    def test_local_zip_is_user_origin_relative_to_zip_parent(self, tmp_path: Path) -> None:
+        src = tmp_path / "deep" / "inbox"
+        _write_tree(src, [_FileSpec("zip", (), "pack")])
+        store = _open_store(tmp_path)
+        try:
+            store.load_external_component_definition(str(src / "pack.zip"))
+            rows = _rows(tmp_path / "db" / "store.db")
+            assert sorted((r["origin"], r["relative_name"]) for r in rows) == [
+                (ORIGIN_USER, f"pack.zip/{m}") for m in sorted(_ZIP_MEMBERS)
+            ]
+        finally:
+            store.close()
+
+    def test_remote_document_uses_last_url_segment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import requests
+
+        from mcp_server_for_oscal.config import config
+
+        monkeypatch.setattr(config, "allow_remote_uris", True)
+        payload = json.loads(_cdef_json("remote"))
+        monkeypatch.setattr(requests, "get", lambda *_a, **_k: _FakeResponse(payload))
+        store = _open_store(tmp_path)
+        try:
+            store.load_external_component_definition(_REMOTE_URL)
+            rows = _rows(tmp_path / "db" / "store.db")
+            assert [(r["origin"], r["relative_name"]) for r in rows] == [
+                (ORIGIN_USER, "remote-cdef.json")
+            ]
+        finally:
+            store.close()
+
+    def test_remote_disabled_message_is_fixed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, notified: list[str]
+    ) -> None:
+        from mcp_server_for_oscal.config import config
+
+        monkeypatch.setattr(config, "allow_remote_uris", False)
+        store = _open_store(tmp_path)
+        try:
+            with pytest.raises(ValueError, match="Remote URI loading is not enabled") as exc:
+                store.load_external_component_definition(_REMOTE_URL)
+            self._assert_fixed(str(exc.value))
+            assert notified == [str(exc.value)]
+        finally:
+            store.close()
+
+    @pytest.mark.parametrize(
+        "failure",
+        ["timeout", "request", "bad_json", "not_cdef", "invalid", "upsert"],
+    )
+    def test_remote_failure_messages_are_fixed(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        notified: list[str],
+        failure: str,
+    ) -> None:
+        import requests
+
+        from mcp_server_for_oscal.config import config
+
+        monkeypatch.setattr(config, "allow_remote_uris", True)
+        valid = json.loads(_cdef_json("remote-fail"))
+        invalid = json.loads(_cdef_json("remote-invalid"))
+        invalid["component-definition"]["unexpected-field"] = _PRIVATE_PATH
+
+        def fake_get(*_a: object, **_k: object) -> _FakeResponse:
+            if failure == "timeout":
+                raise requests.Timeout(f"timed out: {_REMOTE_URL} {_PRIVATE_PATH}")
+            if failure == "request":
+                raise requests.ConnectionError(f"refused: {_REMOTE_URL} {_PRIVATE_PATH}")
+            if failure == "bad_json":
+                return _FakeResponse(json_error=json.JSONDecodeError(_PRIVATE_PATH, "x", 0))
+            if failure == "not_cdef":
+                return _FakeResponse({"catalog": {"uuid": _PRIVATE_PATH}})
+            if failure == "invalid":
+                return _FakeResponse(invalid)
+            return _FakeResponse(valid)
+
+        monkeypatch.setattr(requests, "get", fake_get)
+        store = _open_store(tmp_path)
+        if failure == "upsert":
+
+            def boom(*_a: object, **_k: object) -> None:
+                raise sqlite3.OperationalError(f"disk I/O error at {_PRIVATE_PATH}")
+
+            monkeypatch.setattr(store, "_upsert_document", boom)
+        try:
+            with pytest.raises(ValueError) as exc:
+                store.load_external_component_definition(_REMOTE_URL)
+            self._assert_fixed(str(exc.value))
+            assert notified == [str(exc.value)]
+        finally:
+            store.close()

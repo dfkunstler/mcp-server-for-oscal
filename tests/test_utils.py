@@ -3,14 +3,18 @@ Tests for the utils module.
 """
 
 import json
+import os
 import re
+import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from hypothesis import HealthCheck, event, given, settings
 from hypothesis import strategies as st
 from oscal_bindings import models
 
+from mcp_server_for_oscal.tools import utils as utils_module
 from mcp_server_for_oscal.tools.utils import (
     MAX_LINE_COUNT,
     MAX_PAGE_LIMIT,
@@ -26,8 +30,10 @@ from mcp_server_for_oscal.tools.utils import (
     load_oscal_json_schema,
     oscal_version_from_schema,
     paginate_within_budget,
+    redact_storage_locations,
     schema_names,
     shown,
+    try_notify_client_error,
 )
 
 
@@ -547,3 +553,89 @@ class TestLinesWithinBudget:
         assert response["truncated"] is True
         assert response["text"].endswith(TRUNCATION_MARK)
         assert _lines_size(response) <= 300
+
+
+class TestRedactStorageLocations:
+    """search-fetch-pairs Requirements 4.1, 4.6 (D8): defense-in-depth redactor."""
+
+    def test_home_and_package_dirs_redacted(self):
+        pkg = Path(utils_module.__file__).resolve().parent.parent
+        msg = f"failed at {Path.home() / 'x.json'} and {pkg / 'oscal_store.db'}"
+        sep = os.sep
+        assert redact_storage_locations(msg) == (
+            f"failed at <redacted>{sep}x.json and <redacted>{sep}oscal_store.db"
+        )
+
+    def test_temp_dir_realpath_redacted(self, tmp_path):
+        out = redact_storage_locations(f"bad {tmp_path} and {tmp_path.resolve()}")
+        assert str(tmp_path) not in out
+        assert str(tmp_path.resolve()) not in out
+
+    def test_s3_and_arn_redacted(self):
+        out = redact_storage_locations(
+            "see s3://bucket/key/doc.md for arn:aws:bedrock:us-east-1:123456789012:kb/ABC."
+        )
+        assert out == "see <redacted> for <redacted>"
+
+    def test_segment_boundary(self):
+        home = str(Path.home())
+        assert redact_storage_locations(f"{home}xyz") == f"{home}xyz"
+
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            "shared-constraints/oscal_ssp_constraints.ent",
+            "oscal_component_metaschema.xml",
+            "Unknown docId",
+            "Invalid limit: must be an integer from 1 to 100",
+            "",
+        ],
+    )
+    def test_legitimate_messages_unchanged(self, msg):
+        assert redact_storage_locations(msg) == msg
+
+    def test_package_dir_inside_home_replaced_whole(self, monkeypatch):
+        """The longer package dir wins over its ancestor home dir, so no package-relative
+        segments (which still name the deployment layout) survive."""
+        pkg = Path(utils_module.__file__).resolve().parent.parent
+        monkeypatch.setattr(Path, "home", classmethod(lambda _cls: pkg.parent.parent))
+        out = redact_storage_locations(f"bad {pkg.as_posix()}/oscal_store.db")
+        assert out == "bad <redacted>/oscal_store.db"
+
+    def test_windows_style_temp_dir_forms(self, monkeypatch):
+        """A Windows temp dir is redacted in its native and forward-slash forms."""
+        win_tmp = "C:\\Users\\alice\\AppData\\Local\\Temp"
+        monkeypatch.setattr(utils_module.tempfile, "gettempdir", lambda: win_tmp)
+        out = redact_storage_locations(
+            f"a {win_tmp}\\tmpab12\\x.json b C:/Users/alice/AppData/Local/Temp/y.json"
+        )
+        assert out == "a <redacted>\\tmpab12\\x.json b <redacted>/y.json"
+        assert "alice" not in out
+
+    def test_realpath_temp_form_redacted(self):
+        real = os.path.realpath(tempfile.gettempdir())
+        assert redact_storage_locations(f"{real}{os.sep}x.json") == f"<redacted>{os.sep}x.json"
+
+    def test_file_uri_home_path_redacted(self):
+        home = Path.home().as_posix()
+        assert redact_storage_locations(f"file://{home}/x.json") == "file://<redacted>/x.json"
+
+    @pytest.mark.parametrize(
+        "arn",
+        [
+            "arn:aws-cn:bedrock:cn-north-1:123456789012:knowledge-base/ABC",
+            "arn:aws-us-gov:s3:::my-bucket/key",
+            "arn:aws-iso-b:bedrock:us-isob-east-1:123456789012:knowledge-base/XYZ",
+        ],
+    )
+    def test_arn_in_other_partitions_redacted(self, arn):
+        assert redact_storage_locations(f"KB {arn} failed") == "KB <redacted> failed"
+
+    def test_try_notify_client_error_sends_redacted_text(self):
+        ctx = AsyncMock()
+        msg = f"cannot open {Path.home() / 'secret.json'} from s3://bucket/key"
+        try_notify_client_error(msg, ctx)
+        ctx.error.assert_awaited_once()
+        sent = ctx.error.call_args[0][0]
+        assert sent == f"cannot open <redacted>{os.sep}secret.json from <redacted>"
+        assert str(Path.home()) not in sent
