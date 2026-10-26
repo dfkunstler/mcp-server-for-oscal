@@ -87,7 +87,7 @@ class TestContentHashSchemaMigration:
             store.close()
 
     def test_null_content_hash_forces_reindex(self, tmp_path):
-        """_file_unchanged() returns False when content_hash is NULL."""
+        """_unchanged_row() returns None when content_hash is NULL."""
         db_path = str(tmp_path / "test.db")
         store = OscalStore(db_path=db_path, seed_from_bundled=False)
         try:
@@ -101,8 +101,8 @@ class TestContentHashSchemaMigration:
             )
             store._conn.commit()
 
-            # Even with a valid hash, should return False when stored hash is NULL
-            assert store._file_unchanged(FAKE_DOC_PATH, "abc123") is False
+            # Even with a valid hash, the row counts as changed when stored hash is NULL
+            assert store._unchanged_row(FAKE_DOC_PATH, "abc123") is None
         finally:
             store.close()
 

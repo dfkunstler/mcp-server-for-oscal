@@ -19,8 +19,10 @@ import shutil
 import sqlite3
 import tempfile
 import threading
+import unicodedata
 import zipfile
 from pathlib import Path
+from typing import Final, Literal
 from urllib.parse import urlparse
 from uuid import NAMESPACE_URL, uuid5
 
@@ -34,6 +36,88 @@ BUNDLED_DB_PATH = Path(__file__).parent.parent / "oscal_store.db"
 
 # Path to the package-level hashes.json manifest (written by build_oscal_db.py)
 BUNDLED_HASHES_PATH = Path(__file__).parent.parent / "hashes.json"
+
+# Origin: the provenance recorded on every documents row at ingestion. ``bundled`` is
+# content scanned into the bundled DB by bin/build_oscal_db.py; ``user`` is content
+# scanned from OSCAL_DOCUMENTS_DIR (or any other caller of scan_directory).
+Origin = Literal["bundled", "user"]
+ORIGIN_BUNDLED: Final = "bundled"
+ORIGIN_USER: Final = "user"
+ORIGINS: Final[tuple[Origin, ...]] = (ORIGIN_BUNDLED, ORIGIN_USER)
+
+# Column definition shared by the fresh CREATE TABLE and ALTER TABLE for ``origin`` and
+# ``relative_name``. No CHECK: SQLite verifies an added CHECK against existing rows, and
+# '' would fail it; scan_directory validates Origin in Python instead.
+_PROVENANCE_COLUMN: Final = "TEXT NOT NULL DEFAULT ''"
+
+# Namespace of Doc_IDs (UUID v5 of "<origin>:<relative name>"), fixed so IDs are stable
+# across machines and releases.
+DOC_ID_NAMESPACE: Final = uuid5(
+    NAMESPACE_URL, "https://github.com/dfkunstler/mcp-server-for-oscal/doc-id"
+)
+
+
+def relative_name(path: Path, root: Path) -> str:
+    """Return the '/'-joined parts of ``path`` relative to ``root``, NFC-normalized.
+
+    NFC normalization makes the name independent of how the filesystem encodes
+    Unicode file names (macOS HFS+ stores NFD), and joining the parts with '/'
+    makes it independent of the OS path separator.
+    """
+    return unicodedata.normalize("NFC", "/".join(path.relative_to(root).parts))
+
+
+def zip_member_name(zip_relative_name: str, member: str) -> str:
+    """Return the Relative_Name of a zip member: the zip's Relative_Name, '/', the member."""
+    return unicodedata.normalize("NFC", f"{zip_relative_name}/{member.replace(chr(92), '/')}")
+
+
+def doc_id(origin: Origin, rel: str) -> str:
+    """Return the Doc_ID for a documentation file: UUID v5 of ``"<origin>:<rel>"``.
+
+    ``origin`` never contains ':', so the name is unambiguous, and the same
+    Relative_Name under different Origins gives different Doc_IDs.
+    """
+    return str(uuid5(DOC_ID_NAMESPACE, f"{origin}:{rel}"))
+
+
+# Schema version recorded in ``PRAGMA user_version``. Version 1 adds the ``origin`` and
+# ``relative_name`` columns, Doc_IDs per Origin and Relative_Name, and catalog Control_Prose.
+SCHEMA_VERSION: Final = 1
+
+# Path markers of the bundled build inputs (D4). Only the pre-feature migration uses them;
+# runtime selection reads the ``origin`` column.
+_BUNDLED_MARKERS: Final = (
+    "/data/component_definitions/",
+    "/data/oscal_docs/",
+    "mcp_server_for_oscal/component_definitions/",
+    "mcp_server_for_oscal/oscal_docs/",
+)
+
+
+def legacy_provenance(file_path: str) -> tuple[Origin, str]:
+    """Return the inferred ``(origin, relative_name)`` of a pre-feature ``file_path``.
+
+    A path containing a bundled build marker is ``bundled`` with the suffix after the
+    last marker as its Relative_Name. Any other path is ``user`` with its basename, or
+    ``<zip basename>/<member>`` for a zip member. The next scan of the file replaces
+    these best-effort values with exact ones.
+    """
+    norm = "/" + file_path.replace("\\", "/")
+    best_end = -1
+    for marker in _BUNDLED_MARKERS:
+        pos = norm.rfind(marker)
+        if pos >= 0:
+            best_end = max(best_end, pos + len(marker))
+    if best_end >= 0 and best_end < len(norm):
+        return ORIGIN_BUNDLED, unicodedata.normalize("NFC", norm[best_end:])
+    zip_pos = norm.find(".zip/")
+    if zip_pos >= 0:
+        zip_base = norm[:zip_pos].rsplit("/", 1)[-1] + ".zip"
+        member = norm[zip_pos + len(".zip/") :]
+        return ORIGIN_USER, unicodedata.normalize("NFC", f"{zip_base}/{member}")
+    return ORIGIN_USER, unicodedata.normalize("NFC", norm.rsplit("/", 1)[-1])
+
 
 # Query types accepted by OscalStore.query (the per-model query tools expose the same set).
 VALID_QUERY_TYPES: tuple[str, ...] = ("all", "by_uuid", "by_title")
@@ -52,6 +136,47 @@ CHILD_ELEMENT_TYPES: dict[OSCALModelType, tuple[str, ...]] = {
     OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES: ("poam-item",),
     OSCALModelType.MAPPING: ("mapping",),
 }
+
+# Names of the catalog control parts whose prose (and nested parts' prose) forms the
+# Control_Prose stored as the control's description (Requirement 9).
+PROSE_PART_NAMES: Final = frozenset({"statement", "guidance"})
+
+
+def control_prose(control: object) -> str:
+    """Return the Control_Prose of a catalog control.
+
+    Works on the oscal-bindings ``Control`` model (from
+    ``MODEL_MAP[OSCALModelType.CATALOG]``): the prose of its ``statement`` and
+    ``guidance`` parts and of their nested parts, in document order, joined by blank
+    lines. Returns ``""`` when the control has no such part or none has prose.
+    Parameter insertions (``{{ insert: param, ... }}``) are kept as written.
+    """
+    out: list[str] = []
+    for part in _as_list(getattr(control, "parts", None)):
+        if _token(getattr(part, "name", None)) in PROSE_PART_NAMES:
+            _collect_prose(part, out)
+    return "\n\n".join(out)
+
+
+def _collect_prose(part: object, out: list[str]) -> None:
+    """Append the stripped prose of ``part`` and then of its nested parts, depth first."""
+    prose = getattr(part, "prose", None)
+    text = str(getattr(prose, "root", prose)).strip() if prose is not None else ""
+    if text:
+        out.append(text)
+    for child in _as_list(getattr(part, "parts", None)):
+        _collect_prose(child, out)
+
+
+def _as_list(value: object) -> list:
+    """Return ``value`` as a list, unwrapping a ``RootModel`` wrapper; ``None`` → ``[]``."""
+    value = getattr(value, "root", value)
+    return list(value) if value else []  # type: ignore[call-overload]
+
+
+def _token(value: object) -> object:
+    """Return the OSCAL value of a closed-enum ``Enum`` member, or ``value`` unchanged."""
+    return getattr(value, "value", value)
 
 
 class OscalStore:
@@ -308,7 +433,7 @@ class OscalStore:
         cur = self._conn.cursor()
         try:
             # -- documents table --
-            cur.execute("""
+            cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS documents (
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,
                     uuid         TEXT    NOT NULL UNIQUE,
@@ -321,9 +446,11 @@ class OscalStore:
                     raw_json     TEXT    NOT NULL,
                     indexed      INTEGER NOT NULL DEFAULT 0,
                     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-                    updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+                    updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+                    origin        {_PROVENANCE_COLUMN},
+                    relative_name {_PROVENANCE_COLUMN}
                 )
-            """)
+            """)  # nosec B608 - constant column definition, no caller input
 
             # -- migration: add content_hash for existing DBs --
             with contextlib.suppress(sqlite3.OperationalError):  # column already exists
@@ -376,6 +503,158 @@ class OscalStore:
         except sqlite3.Error as exc:
             self._conn.rollback()
             raise RuntimeError(f"Failed to initialize database schema: {exc}") from exc
+
+        # Pre-feature DBs lack the provenance columns, so the index on them is created
+        # only after the upgrade. On an upgraded DB both steps perform no writes.
+        self._migrate()
+        try:
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_documents_origin ON documents(origin, model_type)"
+            )
+            self._conn.commit()
+        except sqlite3.Error as exc:
+            self._conn.rollback()
+            raise RuntimeError(f"Failed to initialize database schema: {exc}") from exc
+
+    # ------------------------------------------------------------------
+    # Schema upgrade (pre-feature DB -> SCHEMA_VERSION)
+    # ------------------------------------------------------------------
+
+    def _migrate(self) -> None:
+        """Upgrade a DB older than ``SCHEMA_VERSION`` in place, in one transaction.
+
+        Adds the provenance columns, infers Origin and Relative_Name for rows that
+        lack them (D4), re-keys documentation rows to Doc_IDs, marks catalogs for
+        re-extraction (Control_Prose), removes orphan and duplicate FTS rows, and sets
+        ``user_version``. ``BEGIN IMMEDIATE`` and the re-check serialize two
+        processes upgrading one persistent DB. A DB already at ``SCHEMA_VERSION``
+        is not written to.
+
+        Raises:
+            RuntimeError: If the upgrade fails; the DB is left unchanged.
+        """
+        conn = self._conn
+        if conn.execute("PRAGMA user_version").fetchone()[0] >= SCHEMA_VERSION:
+            return
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute("PRAGMA user_version").fetchone()[0] >= SCHEMA_VERSION:
+                conn.rollback()  # another process upgraded the DB meanwhile
+                return
+            self._add_column_if_missing("origin", _PROVENANCE_COLUMN)
+            self._add_column_if_missing("relative_name", _PROVENANCE_COLUMN)
+            self._backfill_provenance()
+            self._rekey_documentation()
+            conn.execute("UPDATE documents SET indexed = 0 WHERE model_type = 'catalog'")
+            self._delete_orphan_fts_rows()
+            self._delete_duplicate_fts_rows()
+            conn.execute(
+                f"PRAGMA user_version = {int(SCHEMA_VERSION)}"  # nosec B608 - constant int
+            )
+            conn.commit()
+        except sqlite3.Error as exc:
+            conn.rollback()
+            logger.exception("Schema upgrade failed for %s", self._db_path)
+            raise RuntimeError("Failed to upgrade the OSCAL store schema") from exc
+        logger.info("Upgraded OSCAL store schema to version %d", SCHEMA_VERSION)
+
+    def _add_column_if_missing(self, column: str, definition: str) -> None:
+        """Add ``column`` to ``documents`` unless ``PRAGMA table_info`` already lists it.
+
+        ``column`` and ``definition`` are module constants, never caller input.
+        """
+        existing = {r["name"] for r in self._conn.execute("PRAGMA table_info(documents)")}
+        if column not in existing:
+            self._conn.execute(
+                f"ALTER TABLE documents ADD COLUMN {column} {definition}"  # nosec B608 - constants
+            )
+
+    def _backfill_provenance(self) -> None:
+        """Set Origin and Relative_Name of rows with no Origin from ``legacy_provenance``."""
+        rows = self._conn.execute("SELECT id, file_path FROM documents WHERE origin = ''")
+        updates = [(*legacy_provenance(r["file_path"]), r["id"]) for r in rows.fetchall()]
+        self._conn.executemany(
+            "UPDATE documents SET origin = ?, relative_name = ? WHERE id = ?", updates
+        )
+
+    def _rekey_documentation(self) -> None:
+        """Set each documentation row's ``uuid`` to ``doc_id(origin, relative_name)``.
+
+        When several rows map to one Doc_ID, the row with the lowest ``id`` keeps it
+        and the others are deleted with their FTS rows. Changed rows first get a
+        unique placeholder, so no intermediate state collides with a target Doc_ID.
+        """
+        rows = self._conn.execute(
+            "SELECT id, uuid, origin, relative_name FROM documents "
+            "WHERE model_type = 'documentation' ORDER BY id"
+        ).fetchall()
+        keepers: dict[str, int] = {}
+        duplicates: list[int] = []
+        changes: list[tuple[str, int]] = []
+        for r in rows:
+            target = doc_id(r["origin"], r["relative_name"])
+            if target in keepers:
+                duplicates.append(r["id"])
+                continue
+            keepers[target] = r["id"]
+            if r["uuid"] != target:
+                changes.append((target, r["id"]))
+        for row_id in duplicates:
+            self._delete_document_row(row_id)
+        self._conn.executemany(
+            "UPDATE documents SET uuid = 'rekey:' || id WHERE id = ?",
+            [(row_id,) for _, row_id in changes],
+        )
+        self._conn.executemany("UPDATE documents SET uuid = ? WHERE id = ?", changes)
+
+    def _delete_orphan_fts_rows(self) -> None:
+        """Delete FTS rows whose ``entity_id`` matches no child element or document row."""
+        self._conn.execute(
+            "DELETE FROM fts_index WHERE "
+            "(entity_type = 'child_element' "
+            " AND CAST(entity_id AS INTEGER) NOT IN (SELECT id FROM child_elements)) "
+            "OR (entity_type IN ('document', 'documentation') "
+            " AND CAST(entity_id AS INTEGER) NOT IN (SELECT id FROM documents))"
+        )
+
+    def _delete_duplicate_fts_rows(self) -> None:
+        """Delete all but the lowest-rowid FTS row of each ``(entity_type, entity_id)``.
+
+        Old re-indexes inserted a new row for an entity without deleting the old one (D3).
+        """
+        self._conn.execute(
+            "DELETE FROM fts_index WHERE rowid NOT IN "
+            "(SELECT MIN(rowid) FROM fts_index GROUP BY entity_type, entity_id)"
+        )
+
+    def _delete_document_row(self, row_id: int) -> None:
+        """Delete a documents row, its child elements, and all their FTS rows.
+
+        FTS rows have no foreign key, so they are deleted explicitly; child elements
+        go by ``ON DELETE CASCADE``. Runs in the caller's transaction (no commit).
+        """
+        self._delete_index_rows(row_id, ("document", "documentation"))
+        self._conn.execute("DELETE FROM child_elements WHERE parent_doc_id = ?", (row_id,))
+        self._conn.execute("DELETE FROM documents WHERE id = ?", (row_id,))
+
+    def _delete_index_rows(self, doc_id: int, doc_entity_types: tuple[str, ...]) -> None:
+        """Delete the FTS rows of a document's child elements and its own FTS rows.
+
+        *doc_entity_types* names the document-level FTS entity types to delete
+        (``entity_id`` is the documents row id). Runs in the caller's transaction
+        (no commit); child element rows themselves are left to the caller.
+        """
+        self._conn.execute(
+            "DELETE FROM fts_index WHERE entity_type = 'child_element' AND entity_id IN "
+            "(SELECT CAST(id AS TEXT) FROM child_elements WHERE parent_doc_id = ?)",
+            (doc_id,),
+        )
+        placeholders = ", ".join("?" * len(doc_entity_types))
+        self._conn.execute(
+            f"DELETE FROM fts_index WHERE entity_type IN ({placeholders}) "  # nosec B608 - fixed "?" placeholders only; values are bound
+            "AND entity_id = ?",
+            (*doc_entity_types, str(doc_id)),
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle helpers
@@ -576,7 +855,9 @@ class OscalStore:
         try:
             cur = self._conn.cursor()
 
-            # Remove any stale child elements for this doc
+            # Remove stale FTS rows (children and the document itself, D3), then the
+            # stale child elements, so re-indexing leaves no orphan or duplicate rows
+            self._delete_index_rows(doc_id, ("document",))
             cur.execute(
                 "DELETE FROM child_elements WHERE parent_doc_id = ?",
                 (doc_id,),
@@ -612,7 +893,7 @@ class OscalStore:
                         "child_element",
                         str(child_id),
                         child["title"],
-                        child.get("description", ""),
+                        child.get("description") or "",
                         model_type_str,
                     ),
                 )
@@ -701,7 +982,7 @@ class OscalStore:
                         uuid=str(ctrl.id),
                         title=str(ctrl.title),
                         element_type="control",
-                        description=None,
+                        description=control_prose(ctrl),
                         obj=ctrl,
                     )
                 )
@@ -873,8 +1154,10 @@ class OscalStore:
         """Recursively extract controls nested inside catalog groups.
 
         Walks the group hierarchy and appends a child dict for every
-        control found at any nesting depth.  Groups themselves are NOT
-        added here — they are already extracted at the top level.
+        control found at any nesting depth, with its Control_Prose as the
+        description. Handles both ``CatalogGroupWithControls`` and
+        ``CatalogGroupWithGroups``. Groups themselves are NOT added here —
+        they are already extracted at the top level.
 
         Args:
             groups: A list of parsed group objects to traverse.
@@ -887,7 +1170,7 @@ class OscalStore:
                         uuid=str(ctrl.id),
                         title=str(ctrl.title),
                         element_type="control",
-                        description=None,
+                        description=control_prose(ctrl),
                         obj=ctrl,
                     )
                 )
@@ -1239,6 +1522,8 @@ class OscalStore:
         self,
         directory: Path,
         model_type_filter: OSCALModelType | None = None,
+        *,
+        origin: Origin = ORIGIN_USER,
     ) -> int:
         """Scan a directory for OSCAL JSON files and markdown documentation.
 
@@ -1246,18 +1531,28 @@ class OscalStore:
         For each JSON/ZIP file, extracts metadata (UUID, title, model_type,
         file_path, file_size, file_mtime, raw_json) and UPSERTs into the
         ``documents`` table with ``indexed=0``.  For each markdown file,
-        indexes the content as documentation into the FTS index.
+        indexes the content as documentation into the FTS index. Every row
+        the call ingests records ``origin`` and its Relative_Name under
+        ``directory``.
 
-        Change detection: files whose mtime **and** size match the stored
-        values are skipped.
+        Change detection: files whose SHA-256 content hash matches the stored
+        value are not re-ingested, but their Origin and Relative_Name (and, for
+        documentation, Doc_ID) are refreshed to this call's values.
 
         Args:
-            directory: Root directory to scan.
+            directory: Root directory to scan (the Scan_Root).
             model_type_filter: When set, only ingest documents of this type.
+            origin: Origin recorded on every row this call ingests.
 
         Returns:
             Number of new or updated files ingested.
+
+        Raises:
+            ValueError: If ``origin`` is not one of ``ORIGINS``.
         """
+        if origin not in ORIGINS:
+            raise ValueError(f"Unknown origin {origin!r}; expected one of {ORIGINS}")
+
         if not directory.exists():
             logger.info("Directory does not exist, skipping: %s", directory)
             return 0
@@ -1273,19 +1568,19 @@ class OscalStore:
         for json_file in json_files:
             if json_file.name == "hashes.json":
                 continue
-            result = self._process_json_file(json_file, model_type_filter)
+            result = self._process_json_file(json_file, model_type_filter, directory, origin)
             if result:
                 count += 1
 
         # Process .zip files
         zip_files = list(directory.rglob("**/*.zip"))
         for zip_file in zip_files:
-            count += self._process_zip_file(zip_file, model_type_filter)
+            count += self._process_zip_file(zip_file, model_type_filter, directory, origin)
 
         # Process .md files
         md_files = list(directory.rglob("**/*.md"))
         for md_file in md_files:
-            if self._process_markdown_file(md_file):
+            if self._process_markdown_file(md_file, directory, origin):
                 count += 1
 
         if count == 0:
@@ -1318,22 +1613,78 @@ class OscalStore:
         ).fetchone()
         return int(row["cnt"])
 
-    def _file_unchanged(self, file_path: str, content_hash: str) -> bool:
-        """Check if a file's SHA-256 content hash matches the stored value.
+    def count_documents(self, *, origin: Origin) -> int:
+        """Return the number of stored documents whose recorded Origin is ``origin``.
 
-        When ``content_hash`` is NULL (pre-migration rows), always returns
-        ``False`` so the file is re-indexed and the hash gets populated.
+        Selects by the ``origin`` column, so the count does not depend on where the
+        source files are now (or whether they still exist).
         """
         row = self._conn.execute(
-            "SELECT content_hash FROM documents WHERE file_path = ?",
+            "SELECT COUNT(*) AS cnt FROM documents WHERE origin = ?",
+            (origin,),
+        ).fetchone()
+        return int(row["cnt"])
+
+    def _unchanged_row(self, file_path: str, content_hash: str) -> sqlite3.Row | None:
+        """Return the stored row for ``file_path`` when its content hash is unchanged.
+
+        The row holds ``id``, ``uuid``, ``model_type``, ``origin``, and
+        ``relative_name``. Returns ``None`` when no row exists, the hash differs,
+        or the stored ``content_hash`` is NULL (pre-migration rows), so the file
+        is re-ingested and the hash gets populated.
+        """
+        row: sqlite3.Row | None = self._conn.execute(
+            "SELECT id, uuid, model_type, origin, relative_name, content_hash "
+            "FROM documents WHERE file_path = ?",
             (file_path,),
         ).fetchone()
-        if row is None:
-            return False
-        # Force re-indexing for rows that lack a content_hash
-        if row["content_hash"] is None:
-            return False
-        return row["content_hash"] == content_hash
+        if row is None or row["content_hash"] is None or row["content_hash"] != content_hash:
+            return None
+        return row
+
+    def _refresh_provenance(self, row: sqlite3.Row, origin: Origin, rel: str) -> None:
+        """Set an unchanged row's Origin and Relative_Name (and Doc_ID) to this scan's values.
+
+        Documentation rows are re-keyed to ``doc_id(origin, rel)``; OSCAL documents
+        keep their content UUID. If another row already holds the new Doc_ID, log a
+        warning and update only Origin and Relative_Name. The FTS ``documentation``
+        row is keyed by ``documents.id``, so a Doc_ID change needs no FTS update.
+        """
+        new_uuid = doc_id(origin, rel) if row["model_type"] == "documentation" else row["uuid"]
+        if (row["origin"], row["relative_name"], row["uuid"]) == (origin, rel, new_uuid):
+            return
+        try:
+            self._conn.execute(
+                "UPDATE documents SET origin = ?, relative_name = ?, uuid = ?, "
+                "updated_at = datetime('now') WHERE id = ?",
+                (origin, rel, new_uuid, row["id"]),
+            )
+        except sqlite3.IntegrityError:
+            self._conn.rollback()
+            logger.warning(
+                "Doc_ID %s for %s:%s is held by another document; keeping Doc_ID %s",
+                new_uuid,
+                origin,
+                rel,
+                row["uuid"],
+            )
+        except sqlite3.Error as exc:
+            self._conn.rollback()
+            logger.error("Failed to refresh provenance of document %s: %s", row["uuid"], exc)
+            return
+        else:
+            self._conn.commit()
+            return
+        try:
+            self._conn.execute(
+                "UPDATE documents SET origin = ?, relative_name = ?, "
+                "updated_at = datetime('now') WHERE id = ?",
+                (origin, rel, row["id"]),
+            )
+            self._conn.commit()
+        except sqlite3.Error as exc:
+            self._conn.rollback()
+            logger.error("Failed to refresh provenance of document %s: %s", row["uuid"], exc)
 
     def _extract_metadata(self, data: dict, model_type: OSCALModelType) -> tuple[str, str] | None:
         """Extract UUID and title from parsed OSCAL JSON data.
@@ -1366,18 +1717,32 @@ class OscalStore:
         file_mtime: float,
         raw_json: str,
         content_hash: str = "",
+        *,
+        origin: Origin,
+        relative_name: str,
     ) -> bool:
         """UPSERT a document row into the documents table.
 
+        Writes ``origin`` and ``relative_name`` on insert and on ``uuid`` conflict.
+        A row for the same ``file_path`` under a different ``uuid`` (the content UUID
+        or Doc_ID changed) is deleted first, with its child elements and FTS rows, so
+        the ``file_path`` uniqueness constraint cannot reject the new row.
         Returns True on success, False on failure.
         """
         try:
+            stale = self._conn.execute(
+                "SELECT id FROM documents WHERE file_path = ? AND uuid != ?",
+                (file_path, uuid),
+            ).fetchone()
+            if stale is not None:
+                self._delete_document_row(stale["id"])
             self._conn.execute(
                 """
                 INSERT INTO documents
                     (uuid, title, model_type, file_path, file_size,
-                     file_mtime, raw_json, content_hash, indexed, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
+                     file_mtime, raw_json, content_hash, origin, relative_name,
+                     indexed, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
                 ON CONFLICT(uuid) DO UPDATE SET
                     title = excluded.title,
                     model_type = excluded.model_type,
@@ -1386,6 +1751,8 @@ class OscalStore:
                     file_mtime = excluded.file_mtime,
                     raw_json = excluded.raw_json,
                     content_hash = excluded.content_hash,
+                    origin = excluded.origin,
+                    relative_name = excluded.relative_name,
                     indexed = 0,
                     updated_at = datetime('now')
                 """,
@@ -1398,6 +1765,8 @@ class OscalStore:
                     file_mtime,
                     raw_json,
                     content_hash,
+                    origin,
+                    relative_name,
                 ),
             )
             self._conn.commit()
@@ -1411,12 +1780,18 @@ class OscalStore:
         self,
         json_file: Path,
         model_type_filter: OSCALModelType | None,
+        root: Path,
+        origin: Origin,
     ) -> bool:
         """Process a single JSON file for ingestion.
+
+        ``root`` is the Scan_Root; ``origin`` and the file's Relative_Name under
+        ``root`` are recorded on the row.
 
         Returns True if the file was ingested (new or updated).
         """
         file_path_str = str(json_file)
+        rel = relative_name(json_file, root)
         try:
             stat = json_file.stat()
         except OSError as exc:
@@ -1436,8 +1811,10 @@ class OscalStore:
 
         content_hash = hashlib.sha256(raw_bytes).hexdigest()
 
-        # Change detection using content hash
-        if self._file_unchanged(file_path_str, content_hash):
+        # Change detection using content hash; unchanged rows still get this scan's provenance
+        unchanged = self._unchanged_row(file_path_str, content_hash)
+        if unchanged is not None:
+            self._refresh_provenance(unchanged, origin, rel)
             return False
 
         # Detect model type
@@ -1479,18 +1856,26 @@ class OscalStore:
             file_mtime,
             raw_json,
             content_hash=content_hash,
+            origin=origin,
+            relative_name=rel,
         )
 
     def _process_zip_file(
         self,
         zip_path: Path,
         model_type_filter: OSCALModelType | None,
+        root: Path,
+        origin: Origin,
     ) -> int:
         """Process a zip file containing OSCAL JSON documents.
+
+        ``root`` is the Scan_Root; each member's Relative_Name is the zip's
+        Relative_Name under ``root``, '/', and the member name.
 
         Returns the number of documents ingested from the zip.
         """
         count = 0
+        zip_rel = relative_name(zip_path, root)
         try:
             with zipfile.ZipFile(zip_path, "r") as zf:
                 for inner_name in zf.namelist():
@@ -1524,8 +1909,13 @@ class OscalStore:
                     # Compute SHA-256 hash of inner file content
                     content_hash = hashlib.sha256(raw_bytes).hexdigest()
 
-                    # Change detection using content hash
-                    if self._file_unchanged(file_path_str, content_hash):
+                    rel = zip_member_name(zip_rel, inner_name)
+
+                    # Change detection using content hash; unchanged rows still get
+                    # this scan's provenance
+                    unchanged = self._unchanged_row(file_path_str, content_hash)
+                    if unchanged is not None:
+                        self._refresh_provenance(unchanged, origin, rel)
                         continue
 
                     try:
@@ -1569,6 +1959,8 @@ class OscalStore:
                         file_mtime,
                         raw_json,
                         content_hash=content_hash,
+                        origin=origin,
+                        relative_name=rel,
                     ):
                         count += 1
 
@@ -1579,16 +1971,18 @@ class OscalStore:
 
         return count
 
-    def _process_markdown_file(self, md_file: Path) -> bool:
+    def _process_markdown_file(self, md_file: Path, root: Path, origin: Origin) -> bool:
         """Process a single markdown file for documentation indexing.
 
         Reads the file as UTF-8, derives a title from the first markdown
-        heading (or falls back to the filename), generates a deterministic
-        UUID, and inserts the document and FTS index rows.
+        heading (or falls back to the filename), sets the Doc_ID to
+        ``doc_id(origin, <Relative_Name under root>)``, and inserts the
+        document and FTS index rows.
 
         Returns True if the file was ingested (new or updated).
         """
         file_path_str = str(md_file)
+        rel = relative_name(md_file, root)
 
         # Read file content
         try:
@@ -1609,8 +2003,8 @@ class OscalStore:
         else:
             title = md_file.stem.replace("-", " ").replace("_", " ")
 
-        # Generate deterministic UUID from file path
-        doc_uuid = str(uuid5(NAMESPACE_URL, file_path_str))
+        # Doc_ID: path-free and machine-independent (Origin + Relative_Name)
+        doc_uuid = doc_id(origin, rel)
 
         # Compute SHA-256 content hash (binary read, matching utils.py approach)
         try:
@@ -1631,8 +2025,11 @@ class OscalStore:
         file_size = stat.st_size
         file_mtime = stat.st_mtime
 
-        # Change detection using content hash
-        if self._file_unchanged(file_path_str, content_hash):
+        # Change detection using content hash; unchanged rows still get this scan's
+        # provenance and Doc_ID
+        unchanged = self._unchanged_row(file_path_str, content_hash)
+        if unchanged is not None:
+            self._refresh_provenance(unchanged, origin, rel)
             return False
 
         # Upsert document row
@@ -1645,6 +2042,8 @@ class OscalStore:
             file_mtime,
             content,
             content_hash=content_hash,
+            origin=origin,
+            relative_name=rel,
         ):
             return False
 
@@ -1656,14 +2055,14 @@ class OscalStore:
         if row is None:
             return False
 
-        doc_id = row["id"]
+        row_id = row["id"]
 
         # Insert into FTS index with entity_type="documentation"
         try:
             # Remove any stale FTS entries for this document
             self._conn.execute(
                 "DELETE FROM fts_index WHERE entity_type = 'documentation' AND entity_id = ?",
-                (str(doc_id),),
+                (str(row_id),),
             )
             self._conn.execute(
                 """
@@ -1673,7 +2072,7 @@ class OscalStore:
                 """,
                 (
                     "documentation",
-                    str(doc_id),
+                    str(row_id),
                     title,
                     content,
                     "documentation",
@@ -1682,7 +2081,7 @@ class OscalStore:
             # Mark as indexed since documentation has no child elements
             self._conn.execute(
                 "UPDATE documents SET indexed = 1 WHERE id = ?",
-                (doc_id,),
+                (row_id,),
             )
             self._conn.commit()
         except sqlite3.Error as exc:
@@ -2436,7 +2835,9 @@ class OscalStore:
             if lf.is_dir():
                 raise ValueError("URI must point to a zip file or JSON component definition")
             if lf.is_file() and lf.name.endswith("zip"):
-                self._process_zip_file(lf, OSCALModelType.COMPONENT_DEFINITION)
+                self._process_zip_file(
+                    lf, OSCALModelType.COMPONENT_DEFINITION, lf.parent, ORIGIN_USER
+                )
             return
 
         if not config.allow_remote_uris:
@@ -2481,6 +2882,8 @@ class OscalStore:
                 0.0,
                 raw_json,
                 content_hash=content_hash,
+                origin=ORIGIN_USER,
+                relative_name=uri.path.rsplit("/", 1)[-1],
             )
             logger.info(
                 "Successfully loaded remote component definition from: %s",

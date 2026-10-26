@@ -17,7 +17,7 @@ from hypothesis import strategies as st
 from oscal_bindings.models import ComponentDefinition
 
 from mcp_server_for_oscal.config import config
-from mcp_server_for_oscal.tools.oscal_store import VALID_QUERY_TYPES, OscalStore
+from mcp_server_for_oscal.tools.oscal_store import VALID_QUERY_TYPES, OscalStore, control_prose
 from mcp_server_for_oscal.tools.utils import MODEL_MAP, ROOT_KEY_TO_MODEL_TYPE, OSCALModelType
 
 
@@ -730,6 +730,41 @@ class TestEnsureIndexed:
         ).fetchone()
         assert total["cnt"] == 4
 
+    def test_reindex_leaves_one_fts_row_per_child_and_document(self, store, tmp_path):
+        """Re-indexing deletes the old FTS rows first: no orphans or duplicates (D3, 7.2)."""
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
+        store.scan_directory(doc_dir)
+        doc_id = store._conn.execute("SELECT id FROM documents").fetchone()["id"]
+
+        for _ in range(2):
+            store._conn.execute("UPDATE documents SET indexed = 0 WHERE id = ?", (doc_id,))
+            store._conn.commit()
+            store._ensure_indexed(doc_id)
+
+        child_ids = sorted(
+            str(r["id"])
+            for r in store._conn.execute(
+                "SELECT id FROM child_elements WHERE parent_doc_id = ?", (doc_id,)
+            )
+        )
+        child_fts_ids = sorted(
+            r["entity_id"]
+            for r in store._conn.execute(
+                "SELECT entity_id FROM fts_index WHERE entity_type = 'child_element'"
+            )
+        )
+        doc_fts_ids = [
+            r["entity_id"]
+            for r in store._conn.execute(
+                "SELECT entity_id FROM fts_index WHERE entity_type = 'document'"
+            )
+        ]
+        assert len(child_ids) == 3
+        assert child_fts_ids == child_ids
+        assert doc_fts_ids == [str(doc_id)]
+
     def test_child_elements_have_raw_json(self, store, tmp_path):
         """Child elements store serialized JSON."""
         doc_dir = tmp_path / "docs"
@@ -748,6 +783,129 @@ class TestEnsureIndexed:
             assert child["raw_json"] is not None
             parsed = json.loads(child["raw_json"])
             assert isinstance(parsed, dict)
+
+
+def _prose_catalog() -> dict:
+    """Catalog with Control_Prose at the top level and inside nested groups.
+
+    ``ac-1`` has statement + guidance with nested parts and a non-prose part between
+    them; ``ac-2`` has only a non-prose part; ``ac-3`` sits in a group nested in a
+    group (``CatalogGroupWithGroups`` → ``CatalogGroupWithControls``).
+    """
+    return {
+        "catalog": {
+            "uuid": "c1d2e3f4-5678-4abc-8def-aabbccddeeff",
+            "metadata": {**_COMMON_METADATA, "title": "Prose Catalog"},
+            "controls": [
+                {
+                    "id": "ac-1",
+                    "title": "Policy and Procedures",
+                    "parts": [
+                        {
+                            "id": "ac-1_smt",
+                            "name": "statement",
+                            "prose": "  Develop a policy.  ",
+                            "parts": [
+                                {
+                                    "id": "ac-1_smt.a",
+                                    "name": "item",
+                                    "prose": "Item {{ insert: param, ac-1_prm_1 }}.",
+                                    "parts": [
+                                        {"id": "ac-1_smt.a.1", "name": "item", "prose": "Deep."}
+                                    ],
+                                },
+                                {"id": "ac-1_smt.b", "name": "item", "prose": "   "},
+                            ],
+                        },
+                        {"id": "ac-1_obj", "name": "assessment-objective", "prose": "Skip."},
+                        {"id": "ac-1_gdn", "name": "guidance", "prose": "Guidance text."},
+                    ],
+                },
+                {
+                    "id": "ac-2",
+                    "title": "Account Management",
+                    "parts": [{"id": "ac-2_obj", "name": "assessment-objective", "prose": "No."}],
+                },
+            ],
+            "groups": [
+                {
+                    "id": "outer",
+                    "title": "Outer",
+                    "groups": [
+                        {
+                            "id": "inner",
+                            "title": "Inner",
+                            "controls": [
+                                {
+                                    "id": "ac-3",
+                                    "title": "Access Enforcement",
+                                    "parts": [
+                                        {"id": "ac-3_gdn", "name": "guidance", "prose": "Nested."}
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+
+
+class TestControlProse:
+    """Example tests for control_prose() and catalog control descriptions (Requirement 9)."""
+
+    @staticmethod
+    def _controls(catalog: dict) -> dict:
+        model = MODEL_MAP[OSCALModelType.CATALOG].model_validate(catalog["catalog"])
+        found: dict = {c.id: c for c in getattr(model, "controls", None) or []}
+        stack = list(getattr(model, "groups", None) or [])
+        while stack:
+            grp = stack.pop()
+            found.update({c.id: c for c in getattr(grp, "controls", None) or []})
+            stack.extend(getattr(grp, "groups", None) or [])
+        return found
+
+    def test_statement_and_guidance_in_document_order(self):
+        ctrl = self._controls(_prose_catalog())["ac-1"]
+        assert control_prose(ctrl) == (
+            "Develop a policy.\n\nItem {{ insert: param, ac-1_prm_1 }}.\n\nDeep.\n\nGuidance text."
+        )
+
+    def test_no_prose_parts_returns_empty_string(self):
+        controls = self._controls(_prose_catalog())
+        assert control_prose(controls["ac-2"]) == ""
+        no_parts = self._controls(_make_catalog_with_controls())["ac-1"]
+        assert control_prose(no_parts) == ""
+
+    def test_control_in_nested_groups(self):
+        assert control_prose(self._controls(_prose_catalog())["ac-3"]) == "Nested."
+
+    def test_indexed_descriptions_hold_control_prose(self, store, tmp_path):
+        """child_elements and FTS descriptions hold Control_Prose at every extracted level."""
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        (doc_dir / "catalog.json").write_text(json.dumps(_prose_catalog()))
+        store.scan_directory(doc_dir)
+        doc = store._conn.execute("SELECT id FROM documents").fetchone()["id"]
+        store._ensure_indexed(doc)
+
+        rows = store._conn.execute(
+            "SELECT id, uuid, description FROM child_elements "
+            "WHERE parent_doc_id = ? AND element_type = 'control'",
+            (doc,),
+        ).fetchall()
+        descriptions = {r["uuid"]: r["description"] for r in rows}
+        assert descriptions["ac-1"].startswith("Develop a policy.")
+        assert descriptions["ac-2"] == ""
+        assert descriptions["ac-3"] == "Nested."
+        for r in rows:
+            fts = store._conn.execute(
+                "SELECT description FROM fts_index "
+                "WHERE entity_type = 'child_element' AND entity_id = ?",
+                (str(r["id"]),),
+            ).fetchone()
+            assert fts["description"] == r["description"]
 
 
 class TestExtractChildElements:
@@ -4041,12 +4199,12 @@ class TestPropertyChildTypeCounts:
 class TestCountDocumentsUnder:
     """OscalStore.count_documents_under() counts stored docs by source directory."""
 
-    def _write_docs(self, doc_dir: Path) -> None:
+    def _write_docs(self, doc_dir: Path, md_name: str = "guide.md") -> None:
         doc_dir.mkdir(parents=True)
         (doc_dir / "a.json").write_text(
             json.dumps(_make_component_definition(str(uuid_mod.uuid4()), "A"))
         )
-        (doc_dir / "guide.md").write_text("# Guide\n\nSome text.", encoding="utf-8")
+        (doc_dir / md_name).write_text("# Guide\n\nSome text.", encoding="utf-8")
         with zipfile.ZipFile(doc_dir / "bundle.zip", "w") as zf:
             zf.writestr(
                 "inner/b.json",
@@ -4063,7 +4221,9 @@ class TestCountDocumentsUnder:
         doc_dir = tmp_path / "docs"
         other_dir = tmp_path / "docs2"
         self._write_docs(doc_dir)
-        self._write_docs(other_dir)
+        # A different markdown name: the same Origin and Relative_Name share one Doc_ID,
+        # so a second "guide.md" would re-point the first row instead of adding one.
+        self._write_docs(other_dir, md_name="other-guide.md")
         store.scan_directory(doc_dir)
         store.scan_directory(other_dir)
         assert store.count_documents_under(doc_dir) == 3
