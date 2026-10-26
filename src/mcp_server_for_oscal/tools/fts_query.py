@@ -17,7 +17,11 @@ STOP_WORDS: Final[frozenset[str]] = frozenset({
     "why", "will", "with", "would", "you", "your",
 })  # fmt: skip
 MAX_SEARCH_TERMS: Final = 16
-SEARCH_COLUMNS: Final = "{title description}"
+# Text search also matches the Element_ID or Document_UUID column (D10); documentation
+# search stays on title and description.
+SEARCH_COLUMNS: Final = "{title description element_id}"
+DOC_SEARCH_COLUMNS: Final = "{title description}"
+TITLE_COLUMNS: Final = "{title}"
 
 # A Search_Term: word characters, optionally joined by - . / : ' or U+2019 (right single
 # quotation mark) to more word characters.
@@ -58,13 +62,16 @@ def phrase(term: str) -> str:
     return '"' + term.replace('"', '""') + '"'
 
 
-def match_expressions(terms: Sequence[str]) -> tuple[str, str]:
+def match_expressions(terms: Sequence[str], columns: str = SEARCH_COLUMNS) -> tuple[str, str]:
     """Return the ``(match_any, match_all)`` FTS5 expressions for ``terms``.
 
-    Each term becomes ``{title description} : "<term>"``; match-any joins them with
-    ``OR`` and match-all with ``AND``. Both are empty strings when ``terms`` is empty.
+    Each term becomes ``<columns> : "<term>"`` (``SEARCH_COLUMNS`` by default,
+    ``DOC_SEARCH_COLUMNS`` for documentation search, ``TITLE_COLUMNS`` for title-only
+    matching); match-any joins them with ``OR`` and
+    match-all with ``AND``. Both are empty strings when ``terms`` is empty.
+    ``columns`` must be a fixed FTS5 column filter, never caller text.
     """
-    scoped = [f"{SEARCH_COLUMNS} : {phrase(t)}" for t in terms]
+    scoped = [f"{columns} : {phrase(t)}" for t in terms]
     return " OR ".join(scoped), " AND ".join(scoped)
 
 

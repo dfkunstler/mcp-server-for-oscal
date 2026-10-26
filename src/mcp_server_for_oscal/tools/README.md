@@ -303,7 +303,7 @@ Child element tools (`list_<model>_<element>`) list elements within a specific p
 | `offset` | int | `0` | Zero-based pagination offset |
 | `limit` | int | `10` | Maximum items to return, 1–100 |
 
-Each `query_*` item contains `uuid`, `title`, `model_type`, `file_path`, `sizeInBytes`, and `childTypeCounts`: a map from child element type to its count in that document (for example `{"control": 1007, "group": 20}`). Types with no elements are omitted, so a document without child elements has `{}`. Child elements are not returned inline.
+Each `query_*` item contains `uuid`, `title`, `model_type`, `sizeInBytes`, and `childTypeCounts`: a map from child element type to its count in that document (for example `{"control": 1007, "group": 20}`). Types with no elements are omitted, so a document without child elements has `{}`. Child elements are not returned inline.
 
 ### Common Parameters for `list_*` Tools
 

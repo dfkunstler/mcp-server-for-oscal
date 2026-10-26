@@ -10,8 +10,9 @@ import os
 import re
 import sqlite3
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,7 +21,10 @@ from hypothesis import strategies as st
 
 from mcp_server_for_oscal.config import Config
 from mcp_server_for_oscal.tools import query_documentation
-from mcp_server_for_oscal.tools.oscal_store import OscalStore
+from mcp_server_for_oscal.tools.fts_query import normalize_query
+from mcp_server_for_oscal.tools.oscal_store import ORIGINS, Origin, OscalStore
+
+from .test_fts_query_properties import _QUERIES
 
 # Stored as a file_path value in test rows; never opened or created.
 FAKE_DOC_PATH = "/tmp/x.json"  # nosec B108 # never touched on disk
@@ -518,18 +522,17 @@ class TestSearchDocumentation:
         assert len(result["items"]) > 0
 
     def test_result_item_structure(self, store_with_docs):
-        """Each result item has title, snippet, and source keys.
+        """Each result item is exactly docId, title, and snippet (no ``source``).
 
-        Validates: Requirement 2.3
+        Validates: search-fetch-pairs Requirements 3.3, 10.3
         """
         result = store_with_docs.search_documentation("OSCAL")
+        assert result["items"]
         for item in result["items"]:
-            assert "title" in item
-            assert "snippet" in item
-            assert "source" in item
+            assert list(item) == ["docId", "title", "snippet"]
+            assert isinstance(item["docId"], str)
             assert isinstance(item["title"], str)
             assert isinstance(item["snippet"], str)
-            assert isinstance(item["source"], str)
 
     def test_snippet_max_200_chars(self, store_with_docs):
         """Snippets are at most 200 characters.
@@ -574,13 +577,13 @@ class TestSearchDocumentation:
             assert len(result_offset["items"]) == 0
             assert result_offset["hasMore"] is False
 
-    def test_limit_capped_at_100(self, store_with_docs):
-        """Limit is capped at 100 even if a larger value is passed.
+    def test_limit_not_capped(self, store_with_docs):
+        """The store has no internal limit cap; the tool validates ``limit``.
 
-        Validates: Requirement 2.1
+        Validates: search-fetch-pairs design section 6
         """
         result = store_with_docs.search_documentation("OSCAL", limit=200)
-        assert result["limit"] == 100
+        assert result["limit"] == 200
 
     def test_fts5_fallback_to_like_on_bad_syntax(self, store_with_docs):
         """Invalid FTS5 syntax falls back to LIKE search.
@@ -593,14 +596,17 @@ class TestSearchDocumentation:
         assert "items" in result
         assert "total" in result
 
-    def test_source_is_file_path(self, store_with_docs):
-        """Source field contains the file path from the documents table.
+    def test_doc_id_resolves_to_documentation(self, store_with_docs):
+        """Each hit's docId is a stored Doc_ID that get_documentation resolves.
 
-        Validates: Requirement 2.3
+        Validates: search-fetch-pairs Requirements 10.3, 12.4
         """
         result = store_with_docs.search_documentation("OSCAL")
+        assert result["items"]
         for item in result["items"]:
-            assert item["source"].endswith(".md")
+            doc = store_with_docs.get_documentation(item["docId"])
+            assert doc is not None
+            assert doc.title == item["title"]
 
     def test_only_documentation_results(self, tmp_path):
         """search_documentation only returns documentation, not OSCAL models.
@@ -640,11 +646,106 @@ class TestSearchDocumentation:
 
             # Search should only return documentation entries
             result = store.search_documentation("security")
-            for item in result["items"]:
-                # All results should come from documentation files
-                assert item["source"].endswith(".md")
+            assert [i["title"] for i in result["items"]] == ["Security Controls"]
+            assert result["total"] == 1
         finally:
             store.close()
+
+
+class TestSearchDocumentationRankingAndFetch:
+    """search_documentation ranking, Origin scope, snippets, and get_documentation.
+
+    Validates: search-fetch-pairs Requirements 3.3, 8.1, 8.5, 8.6, 10.3, 11.2, 11.7,
+    12.4, 12.6
+    """
+
+    BUNDLED_TEXT = "# Profile Resolution\n\nHow profile resolution works.\nSecond line.\n"
+    USER_TEXT = "# Profile Guide\n\nWriting a profile by hand.\n"
+    TITLE_ONLY_TEXT = "# Back-Matter Notes\n\n" + "x " * 200
+
+    @pytest.fixture
+    def two_origin_store(self, tmp_path):
+        """A store with one bundled and two user documentation files."""
+        bundled_dir = tmp_path / "bundled"
+        user_dir = tmp_path / "user"
+        bundled_dir.mkdir()
+        user_dir.mkdir()
+        (bundled_dir / "resolution.md").write_text(self.BUNDLED_TEXT, encoding="utf-8")
+        (user_dir / "guide.md").write_text(self.USER_TEXT, encoding="utf-8")
+        (user_dir / "notes.md").write_text(self.TITLE_ONLY_TEXT, encoding="utf-8")
+        store = OscalStore(db_path=str(tmp_path / "t.db"), seed_from_bundled=False)
+        store.scan_directory(bundled_dir, origin="bundled")
+        store.scan_directory(user_dir, origin="user")
+        yield store
+        store.close()
+
+    def test_all_terms_first_then_any_term(self, two_origin_store):
+        result = two_origin_store.search_documentation("profile resolution")
+        assert [i["title"] for i in result["items"]] == ["Profile Resolution", "Profile Guide"]
+        assert result["total"] == 2
+
+    def test_stop_words_dropped(self, two_origin_store):
+        long_q = two_origin_store.search_documentation("how does profile resolution work")
+        short_q = two_origin_store.search_documentation("profile resolution")
+        short_ids = {i["docId"] for i in short_q["items"]}
+        assert short_ids <= {i["docId"] for i in long_q["items"]}
+
+    def test_origins_filter(self, two_origin_store):
+        user_only = two_origin_store.search_documentation("profile", origins=("user",))
+        assert [i["title"] for i in user_only["items"]] == ["Profile Guide"]
+        bundled_only = two_origin_store.search_documentation("profile", origins=("bundled",))
+        assert [i["title"] for i in bundled_only["items"]] == ["Profile Resolution"]
+        assert two_origin_store.search_documentation("profile", origins=())["total"] == 0
+
+    def test_hyphenated_title_only_match_snippet_is_description_start(self, two_origin_store):
+        result = two_origin_store.search_documentation("back-matter")
+        assert result["total"] == 1
+        snippet = result["items"][0]["snippet"]
+        assert 0 < len(snippet) <= 200
+        assert "x" in snippet
+
+    def test_fts_syntax_is_literal(self, two_origin_store):
+        result = two_origin_store.search_documentation('"profile* AND (resolution')
+        assert result["items"][0]["title"] == "Profile Resolution"
+
+    def test_like_fallback_has_same_shape(self, two_origin_store, caplog):
+        original = two_origin_store._doc_fts_search
+
+        def failing(*args, **kwargs):
+            raise sqlite3.OperationalError("simulated")
+
+        two_origin_store._doc_fts_search = failing
+        try:
+            with caplog.at_level(logging.WARNING):
+                result = two_origin_store.search_documentation("profile resolution")
+        finally:
+            two_origin_store._doc_fts_search = original
+        assert [i["title"] for i in result["items"]] == ["Profile Resolution", "Profile Guide"]
+        for item in result["items"]:
+            assert list(item) == ["docId", "title", "snippet"]
+            assert len(item["snippet"]) <= 200
+        assert "profile resolution" in result["items"][0]["snippet"].lower()
+        assert any("falling back to LIKE" in m for m in caplog.messages)
+
+    def test_get_documentation_returns_verbatim_lines(self, two_origin_store):
+        hit = two_origin_store.search_documentation("resolution")["items"][0]
+        doc = two_origin_store.get_documentation(hit["docId"])
+        assert doc is not None
+        assert doc.doc_id == hit["docId"]
+        assert doc.title == "Profile Resolution"
+        assert "".join(doc.lines) == self.BUNDLED_TEXT
+        assert doc.lines == tuple(self.BUNDLED_TEXT.splitlines(keepends=True))
+
+    def test_get_documentation_unknown_and_oscal_uuid(self, two_origin_store):
+        assert two_origin_store.get_documentation("not-a-doc-id") is None
+        store = two_origin_store
+        store._conn.execute(
+            "INSERT INTO documents (uuid, title, model_type, file_path, file_size, "
+            "file_mtime, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("11111111-1111-4111-8111-111111111111", "Cat", "catalog", FAKE_DOC_PATH, 1, 0, "{}"),
+        )
+        store._conn.commit()
+        assert store.get_documentation("11111111-1111-4111-8111-111111111111") is None
 
 
 # ---------------------------------------------------------------------------
@@ -738,9 +839,9 @@ class TestSearchResultStructureProperty:
     """Feature: local-documentation-search, Property 5: Search result structure.
 
     *For any* non-empty search query that produces results from
-    ``search_documentation()``, each result item SHALL contain a ``"title"``
-    string, a ``"snippet"`` string of at most 200 characters, and a
-    ``"source"`` string representing the file path.  The response dict SHALL
+    ``search_documentation()``, each result item SHALL contain exactly a ``"docId"``
+    string, a ``"title"`` string, and a ``"snippet"`` string of at most 200
+    characters (search-fetch-pairs: no ``"source"`` path).  The response dict SHALL
     contain keys ``"items"``, ``"total"``, ``"offset"``, ``"limit"``, and
     ``"hasMore"``.
 
@@ -800,13 +901,11 @@ class TestSearchResultStructureProperty:
 
             # --- Per-item structure ---
             for item in result["items"]:
-                assert "title" in item, "Result item missing 'title' key"
-                assert "snippet" in item, "Result item missing 'snippet' key"
-                assert "source" in item, "Result item missing 'source' key"
+                assert list(item) == ["docId", "title", "snippet"], item
 
+                assert isinstance(item["docId"], str)
                 assert isinstance(item["title"], str)
                 assert isinstance(item["snippet"], str)
-                assert isinstance(item["source"], str)
 
                 # Snippet must be ≤200 characters
                 assert len(item["snippet"]) <= 200, (
@@ -903,18 +1002,11 @@ class TestDocumentationSearchScopingProperty:
             # Search using the shared keyword
             result = store.search_documentation(keyword)
 
-            # Every returned item must be documentation-sourced (.md file)
-            for item in result["items"]:
-                assert item["source"].endswith(".md"), (
-                    f"Non-documentation result leaked through: source={item['source']!r}"
-                )
-
-            # If there are results, they should all come from our markdown file
-            if result["total"] > 0:
-                for item in result["items"]:
-                    assert not any(mt in item["source"] for mt in self._oscal_model_types), (
-                        f"OSCAL model content appeared in documentation search: {item!r}"
-                    )
+            # Only the markdown guide is returned; injected OSCAL rows never appear
+            guide = store.get_documentation(result["items"][0]["docId"])
+            assert guide is not None
+            assert result["total"] == 1
+            assert [i["docId"] for i in result["items"]] == [guide.doc_id]
         finally:
             store.close()
 
@@ -972,7 +1064,7 @@ class TestQueryLocalErrorHandling:
         old_store = query_documentation._store
         try:
             query_documentation._store = None
-            result = query_documentation.query_local("some query", ctx=None)
+            result = query_documentation.query_local("some query", 0, 10)
             assert result == {"error": "OscalStore has not been initialized"}
         finally:
             query_documentation._store = old_store
@@ -993,25 +1085,39 @@ class TestQueryLocalErrorHandling:
         old_store = query_documentation._store
         try:
             query_documentation.init_store(store)
-            result = query_documentation.query_local("OSCAL", ctx=None)
-            assert "items" in result
-            assert "total" in result
+            result = query_documentation.query_local("OSCAL", 0, 10)
+            assert result["total"] == 1
+            (item,) = result["items"]
+            assert set(item) == {"docId", "title", "snippet"}
+            assert item["title"] == "Test Doc"
         finally:
             query_documentation._store = old_store
             store.close()
 
     def test_query_local_delegates_with_mock(self):
-        """query_local() calls search_documentation on the store singleton."""
+        """query_local() searches both Origins on the store singleton and budgets the page."""
         mock_store = MagicMock()
-        expected = {"items": [{"title": "T", "snippet": "S", "source": "f.md"}], "total": 1}
-        mock_store.search_documentation.return_value = expected
+        items = [{"docId": "d-1", "title": "T", "snippet": "S"}]
+        mock_store.search_documentation.return_value = {
+            "items": items,
+            "total": 3,
+            "offset": 2,
+            "limit": 1,
+            "hasMore": False,
+        }
 
         old_store = query_documentation._store
         try:
             query_documentation._store = mock_store
-            result = query_documentation.query_local("test query", ctx=None)
-            mock_store.search_documentation.assert_called_once_with("test query")
-            assert result == expected
+            result = query_documentation.query_local("test query", 2, 1)
+            mock_store.search_documentation.assert_called_once_with("test query", 2, 1)
+            assert result == {
+                "items": items,
+                "total": 3,
+                "offset": 2,
+                "limit": 1,
+                "hasMore": False,
+            }
         finally:
             query_documentation._store = old_store
 
@@ -1030,17 +1136,17 @@ class TestQueryOscalDocumentationRouting:
         with (
             patch.object(query_documentation, "config") as mock_config,
             patch.object(query_documentation, "query_kb") as mock_kb,
+            patch.object(query_documentation, "_store", None),
         ):
             mock_config.knowledge_base_id = "my-kb-id"
-            mock_kb.return_value = {"results": []}
+            mock_kb.return_value = [{"title": "KB", "snippet": "passage"}]
 
-            # Call the underlying function directly (unwrap @tool decorator)
             fn = query_documentation.query_oscal_documentation
-            # strands @tool wraps the function; access it directly
             result = fn(query="test query", ctx=None)
 
-            mock_kb.assert_called_once_with("test query", None)
-            assert result == {"results": []}
+            mock_kb.assert_called_once_with("test query")
+            assert result["items"] == [{"title": "KB", "snippet": "passage"}]
+            assert result["total"] == 1
 
     def test_local_path_when_knowledge_base_id_not_set(self):
         """When knowledge_base_id is not set, query_local() is called.
@@ -1057,7 +1163,7 @@ class TestQueryOscalDocumentationRouting:
             fn = query_documentation.query_oscal_documentation
             result = fn(query="test query", ctx=None)
 
-            mock_local.assert_called_once_with("test query", None)
+            mock_local.assert_called_once_with("test query", 0, 10)
             assert result == {"items": [], "total": 0}
 
     def test_kb_failure_falls_back_to_local(self):
@@ -1076,7 +1182,7 @@ class TestQueryOscalDocumentationRouting:
             fn = query_documentation.query_oscal_documentation
             result = fn(query="test query", ctx=None)
 
-            mock_local.assert_called_once_with("test query", None)
+            mock_local.assert_called_once_with("test query", 0, 10)
             assert result["items"][0]["title"] == "Fallback"
 
     def test_local_path_when_kb_id_empty_string(self):
@@ -1116,7 +1222,7 @@ class TestSearchPathLogging:
             patch.object(query_documentation, "query_kb") as mock_kb,
         ):
             mock_config.knowledge_base_id = "kb-123"
-            mock_kb.return_value = {"results": []}
+            mock_kb.return_value = []
 
             with caplog.at_level(
                 logging.INFO, logger="mcp_server_for_oscal.tools.query_documentation"
@@ -1216,7 +1322,8 @@ class TestBlankKbIdRouting:
     """Property 1: Bug Condition - Blank KB ID routes to local search without AWS.
 
     *For any* KB ID that is ``""`` or whitespace-only, and any query and context,
-    ``query_oscal_documentation`` SHALL return ``query_local(query, ctx)``, SHALL NOT
+    ``query_oscal_documentation`` SHALL return ``query_local(query, offset, limit)``
+    (or an empty page without searching when the query is blank), SHALL NOT
     call ``query_kb``, construct a boto3 ``Session``, or call
     ``try_notify_client_error``, and SHALL log only the local-path message.
 
@@ -1239,7 +1346,7 @@ class TestBlankKbIdRouting:
             result = query_documentation.query_oscal_documentation(query="test query", ctx=None)
 
             mock_kb.assert_not_called()
-            mock_local.assert_called_once_with("test query", None)
+            mock_local.assert_called_once_with("test query", 0, 10)
             assert result == _LOCAL_RESULT
 
     @pytest.mark.parametrize(
@@ -1263,7 +1370,7 @@ class TestBlankKbIdRouting:
             result = query_documentation.query_oscal_documentation(query="test query", ctx=None)
 
             mock_kb.assert_not_called()
-            mock_local.assert_called_once_with("test query", None)
+            mock_local.assert_called_once_with("test query", 0, 10)
             assert result == _LOCAL_RESULT
 
     def test_empty_kb_id_makes_no_aws_call_and_no_client_notification(self):
@@ -1286,7 +1393,7 @@ class TestBlankKbIdRouting:
 
             mock_session.assert_not_called()
             mock_notify.assert_not_called()
-            mock_local.assert_called_once_with("test query", ctx)
+            mock_local.assert_called_once_with("test query", 0, 10)
             assert result == _LOCAL_RESULT
 
     def test_empty_kb_id_logs_only_local_path(self, caplog):
@@ -1340,7 +1447,7 @@ class TestBlankKbIdRouting:
 
             mock_session.assert_not_called()
             mock_notify.assert_not_called()
-            mock_local.assert_called_once_with("test query", None)
+            mock_local.assert_called_once_with("test query", 0, 10)
             assert result == _LOCAL_RESULT
 
     @given(kb_id=_blank_kb_id, query=st.text())
@@ -1363,8 +1470,14 @@ class TestBlankKbIdRouting:
 
             mock_kb.assert_not_called()
             mock_session.assert_not_called()
-            mock_local.assert_called_once_with(query, None)
-            assert result == _LOCAL_RESULT
+            if query.strip():
+                mock_local.assert_called_once_with(query, 0, 10)
+                assert result == _LOCAL_RESULT
+            else:
+                # Requirement 10.7: a blank query returns an empty page without searching.
+                mock_local.assert_not_called()
+                assert result["items"] == []
+                assert result["total"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1375,25 +1488,31 @@ class TestBlankKbIdRouting:
 # whitespace and arbitrary Unicode.
 _non_blank_kb_id = st.text(min_size=1).filter(lambda s: s.strip())
 
-# JSON-serializable stand-in for a Bedrock RetrieveResponse (query_kb json.dumps it).
+# Empty Bedrock RetrieveResponse and the page query_oscal_documentation builds from it.
 _KB_RESULT: dict[str, list[Any]] = {"retrievalResults": []}
+_EMPTY_KB_PAGE = {"items": [], "total": 0, "offset": 0, "limit": 0, "hasMore": False}
+
+# Bedrock retrieve kwargs besides knowledgeBaseId and retrievalQuery (design D5).
+_RETRIEVAL_CONFIGURATION = {
+    "vectorSearchConfiguration": {"numberOfResults": query_documentation.KB_MAX_RESULTS}
+}
 
 
 class TestNonBlankKbIdPreservation:
     """Property 2: Preservation - Non-blank KB ID keeps the Knowledge Base path.
 
-    *For any* KB ID with at least one non-whitespace character and any query,
+    *For any* KB ID with at least one non-whitespace character and any non-blank query,
     ``query_oscal_documentation`` SHALL call ``query_kb``, pass the configured ID to
     Bedrock ``retrieve`` unchanged, log the Knowledge Base path message with the ID,
-    and on a Bedrock error notify the client, warn, and return ``query_local`` results.
+    and on a Bedrock error warn and return ``query_local`` results.
 
     **Validates: Requirements 3.1, 3.2, 3.3**
     """
 
-    @given(kb_id=_non_blank_kb_id, query=st.text())
+    @given(kb_id=_non_blank_kb_id, query=st.text().filter(str.strip))
     @settings(deadline=None)
     def test_non_blank_kb_id_routes_to_kb_property(self, kb_id, query):
-        """For any non-blank KB ID, query_kb is called and its result returned.
+        """For any non-blank KB ID, query_kb is called and its items returned.
 
         **Validates: Requirements 3.1**
         """
@@ -1402,15 +1521,16 @@ class TestNonBlankKbIdPreservation:
             patch.object(query_documentation, "config") as mock_config,
             patch.object(query_documentation, "query_kb") as mock_kb,
             patch.object(query_documentation, "query_local") as mock_local,
+            patch.object(query_documentation, "_store", None),
         ):
             mock_config.knowledge_base_id = kb_id
-            mock_kb.return_value = _KB_RESULT
+            mock_kb.return_value = []
 
             result = query_documentation.query_oscal_documentation(query=query, ctx=ctx)
 
-            mock_kb.assert_called_once_with(query, ctx)
+            mock_kb.assert_called_once_with(query)
             mock_local.assert_not_called()
-            assert result == _KB_RESULT
+            assert result == _EMPTY_KB_PAGE
 
     @given(kb_id=_non_blank_kb_id)
     @settings(deadline=None)
@@ -1423,6 +1543,7 @@ class TestNonBlankKbIdPreservation:
             patch.object(query_documentation, "config") as mock_config,
             patch.object(query_documentation, "Session") as mock_session,
             patch.object(query_documentation, "query_local") as mock_local,
+            patch.object(query_documentation, "_store", None),
         ):
             mock_config.knowledge_base_id = kb_id
             mock_config.aws_profile = None
@@ -1433,9 +1554,13 @@ class TestNonBlankKbIdPreservation:
 
             mock_session.assert_called_once_with()
             mock_session.return_value.client.assert_called_once_with("bedrock-agent-runtime")
-            retrieve.assert_called_once_with(knowledgeBaseId=kb_id, retrievalQuery={"text": "test"})
+            retrieve.assert_called_once_with(
+                knowledgeBaseId=kb_id,
+                retrievalQuery={"text": "test"},
+                retrievalConfiguration=_RETRIEVAL_CONFIGURATION,
+            )
             mock_local.assert_not_called()
-            assert result == _KB_RESULT
+            assert result == _EMPTY_KB_PAGE
 
     def test_kb_id_with_surrounding_whitespace_is_not_trimmed(self):
         """A KB ID with surrounding whitespace reaches retrieve untrimmed.
@@ -1446,6 +1571,7 @@ class TestNonBlankKbIdPreservation:
             patch.object(query_documentation, "config") as mock_config,
             patch.object(query_documentation, "Session") as mock_session,
             patch.object(query_documentation, "query_local") as mock_local,
+            patch.object(query_documentation, "_store", None),
         ):
             mock_config.knowledge_base_id = " ABCD1234 "
             mock_config.aws_profile = None
@@ -1455,10 +1581,12 @@ class TestNonBlankKbIdPreservation:
             result = query_documentation.query_oscal_documentation(query="test", ctx=None)
 
             retrieve.assert_called_once_with(
-                knowledgeBaseId=" ABCD1234 ", retrievalQuery={"text": "test"}
+                knowledgeBaseId=" ABCD1234 ",
+                retrievalQuery={"text": "test"},
+                retrievalConfiguration=_RETRIEVAL_CONFIGURATION,
             )
             mock_local.assert_not_called()
-            assert result == _KB_RESULT
+            assert result == _EMPTY_KB_PAGE
 
     def test_non_blank_kb_id_logs_kb_path_with_id(self, caplog):
         """A non-blank KB ID logs the Knowledge Base path message including the ID.
@@ -1471,7 +1599,7 @@ class TestNonBlankKbIdPreservation:
             patch.object(query_documentation, "query_local"),
         ):
             mock_config.knowledge_base_id = "ABCD1234"
-            mock_kb.return_value = _KB_RESULT
+            mock_kb.return_value = []
 
             with caplog.at_level(
                 logging.INFO, logger="mcp_server_for_oscal.tools.query_documentation"
@@ -1485,9 +1613,10 @@ class TestNonBlankKbIdPreservation:
                 for r in caplog.records
             ), caplog.messages
 
-    def test_bedrock_failure_notifies_warns_and_falls_back(self, caplog):
-        """With the real query_kb, a Bedrock error notifies the client, warns, and
-        returns query_local results.
+    def test_bedrock_failure_warns_and_falls_back(self, caplog):
+        """With the real query_kb, a Bedrock error logs a warning with the details,
+        sends the client only KB_FAILED_MESSAGE as a warning, and returns query_local
+        results.
 
         **Validates: Requirements 3.2**
         """
@@ -1496,6 +1625,7 @@ class TestNonBlankKbIdPreservation:
             patch.object(query_documentation, "config") as mock_config,
             patch.object(query_documentation, "Session") as mock_session,
             patch.object(query_documentation, "try_notify_client_error") as mock_notify,
+            patch.object(query_documentation, "safe_log_mcp") as mock_log_mcp,
             patch.object(query_documentation, "query_local") as mock_local,
         ):
             mock_config.knowledge_base_id = "ABCD1234"
@@ -1510,15 +1640,15 @@ class TestNonBlankKbIdPreservation:
                 result = query_documentation.query_oscal_documentation(query="test", ctx=ctx)
 
             retrieve.assert_called_once()
-            mock_notify.assert_called_once()
-            assert "bedrock down" in mock_notify.call_args.args[0]
-            assert mock_notify.call_args.args[1] is ctx
-            assert any(r.levelno == logging.ERROR for r in caplog.records)
-            assert any(
-                r.levelno == logging.WARNING and "falling back" in r.getMessage()
-                for r in caplog.records
+            mock_notify.assert_not_called()
+            mock_log_mcp.assert_called_once_with(
+                query_documentation.KB_FAILED_MESSAGE, ctx, "warning"
             )
-            mock_local.assert_called_once_with("test", ctx)
+            (warning,) = [r for r in caplog.records if r.levelno == logging.WARNING]
+            assert warning.getMessage() == "Knowledge Base query failed"
+            assert warning.exc_info is not None
+            assert "bedrock down" in str(warning.exc_info[1])
+            mock_local.assert_called_once_with("test", 0, 10)
             assert result == _LOCAL_RESULT
 
 
@@ -1709,3 +1839,87 @@ class TestAboutUserDocumentsLoaded:
         self._run_init(main_module, str(tmp_path / "missing"), str(db_path))
 
         assert self._about_result(main_module)["user-documents-loaded"] == 0
+
+
+# ---------------------------------------------------------------------------
+# search-fetch-pairs Property 3 (store part, search_documentation) (Task 11.7)
+# ---------------------------------------------------------------------------
+
+# Markdown docs whose text shares tokens with the FTS5-hostile query fragments, so
+# many generated queries reach the MATCH with real hits.
+_P3_BUNDLED_DOCS = {
+    "resolution.md": "# Profile Resolution\n\nHow does profile resolution work?\n",
+    "back-matter.md": "# Back-Matter Notes\n\nThe back-matter holds resources: urn:x a/b.\n",
+}
+_P3_USER_DOCS = {
+    "operators.md": '# NOT AND OR NEAR\n\nquote " star * colon : caret ^ {title}\n',
+    "controls.md": "# AC-2 Account Management\n\nac-2.1 control-implementation it's here.\n",
+}
+
+_P3_ORIGIN_SUBSETS = st.lists(st.sampled_from(ORIGINS), unique=True).map(tuple)
+_P3_OFFSETS = st.integers(min_value=0, max_value=5)
+_P3_LIMITS = st.integers(min_value=1, max_value=100)
+
+
+def _doc_like_fallback_forbidden(*_args: object, **_kwargs: object) -> NoReturn:
+    """Stand-in for ``OscalStore._doc_like_search``: reaching it means MATCH raised."""
+    msg = (
+        "search_documentation fell back to LIKE: the normalized FTS5 MATCH raised OperationalError"
+    )
+    raise AssertionError(msg)
+
+
+@pytest.fixture(scope="module")
+def strict_doc_store(tmp_path_factory: pytest.TempPathFactory) -> Iterator[OscalStore]:
+    """A store with documentation of both Origins and the LIKE fallback stubbed out.
+
+    Module-scoped so Hypothesis examples share one store; the stub is an instance
+    attribute, so no other store is affected.
+    """
+    root = tmp_path_factory.mktemp("doc-search-property-3")
+    dirs: dict[Origin, dict[str, str]] = {"bundled": _P3_BUNDLED_DOCS, "user": _P3_USER_DOCS}
+    store = OscalStore(db_path=str(root / "store.db"), seed_from_bundled=False)
+    try:
+        for origin, docs in dirs.items():
+            doc_dir = root / origin
+            doc_dir.mkdir()
+            for name, text in docs.items():
+                (doc_dir / name).write_text(text, encoding="utf-8")
+            assert store.scan_directory(doc_dir, origin=origin) == len(docs)
+        store._doc_like_search = _doc_like_fallback_forbidden  # type: ignore[method-assign]
+        yield store
+    finally:
+        store.close()
+
+
+class TestNormalizedQueryRunsAgainstDocStore:
+    """Feature: search-fetch-pairs, Property 3 (store part, search_documentation):
+    Query normalization never yields FTS5 syntax.
+
+    **Validates: Requirements 8.1, 8.2, 8.3, 8.8**
+    """
+
+    @settings(max_examples=200, deadline=None)
+    @given(query_text=_QUERIES, origins=_P3_ORIGIN_SUBSETS, offset=_P3_OFFSETS, limit=_P3_LIMITS)
+    def test_search_documentation_never_raises_and_empty_terms_give_empty_page(
+        self,
+        strict_doc_store: OscalStore,
+        query_text: str,
+        origins: tuple[str, ...],
+        offset: int,
+        limit: int,
+    ) -> None:
+        # Raises AssertionError via the stub if the MATCH raised OperationalError (8.1-8.3).
+        page = strict_doc_store.search_documentation(
+            query_text,
+            offset,
+            limit,
+            origins=origins,  # type: ignore[arg-type]
+        )
+
+        assert isinstance(page["items"], list)
+        assert page["total"] >= 0
+        if not normalize_query(query_text):
+            # Requirement 8.8: no Search_Terms means an empty page with total 0.
+            assert page["items"] == []
+            assert page["total"] == 0

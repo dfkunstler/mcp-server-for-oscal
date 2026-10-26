@@ -8,7 +8,7 @@ import json
 import logging
 import re
 import warnings
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from functools import cache
 from pathlib import Path
@@ -398,7 +398,7 @@ def paginate(
 # Maximum serialized size, in characters, of a Metaschema tool response.
 RESPONSE_BUDGET: Final = 20_000
 
-# Suffix appended to a free-text value shortened by paginate_within_budget().
+# Suffix appended to a free-text value shortened by budget_page().
 TRUNCATION_MARK: Final = "…"
 
 _PAGE_KEYS: Final = frozenset({"items", "total", "offset", "limit", "hasMore"})
@@ -450,11 +450,49 @@ def paginate_within_budget(
     page = paginate(items, offset, limit)
     extras = {k: v for k, v in (extra or {}).items() if k not in _PAGE_KEYS}
     page.update(extras)
+    # A fitting page keeps the requested limit; budget_page() would report len(items).
     if _json_size(page) <= budget or not page["items"]:
         return page
+    return budget_page(
+        page["items"], page["total"], offset, budget=budget, truncatable=truncatable, extra=extra
+    )
 
-    total = page["total"]
-    window: list[dict] = page["items"]
+
+def budget_page(
+    items: list[dict],
+    total: int,
+    offset: int,
+    *,
+    budget: int = RESPONSE_BUDGET,
+    truncatable: tuple[str, ...] = ("description",),
+    extra: Mapping[str, object] | None = None,
+) -> dict:
+    """Shrink one already-sliced page so its serialized size stays within ``budget``.
+
+    This is the post-slice half of ``paginate_within_budget``, for callers that slice
+    in SQL or by merging. The page holds the longest fitting prefix of ``items``, with
+    ``limit`` set to the number of items returned and ``hasMore`` recomputed, so callers
+    continue from ``offset + len(items)``. If the first item alone is too large, its
+    ``truncatable`` string values are shortened (longest first, cut at a code-point
+    boundary, suffixed with ``…``) and the item gets ``truncated: true``.
+
+    Args:
+        items: The page's items, already sliced from ``offset``.
+        total: Total number of matching items across all pages.
+        offset: Zero-based index of ``items[0]`` in the full result.
+        budget: Maximum ``len(json.dumps(page))``.
+        truncatable: Keys of free-text values that may be shortened.
+        extra: Additional top-level keys merged into the page (envelope keys win).
+
+    Returns:
+        A Page_Response dict: items, total, offset, limit, hasMore, plus ``extra``.
+
+    Raises:
+        RuntimeError: If one item cannot fit even with every truncatable value
+            shortened to the truncation mark (an item shape the caller must avoid).
+    """
+    extras = {k: v for k, v in (extra or {}).items() if k not in _PAGE_KEYS}
+    window = items
 
     def build(page_items: list[dict]) -> dict:
         k = len(page_items)
@@ -466,6 +504,10 @@ def paginate_within_budget(
             "hasMore": offset + k < total,
             **extras,
         }
+
+    whole = build(window)
+    if not window or _json_size(whole) <= budget:
+        return whole
 
     # Largest k in [1, len(window)) whose page fits; size grows with k.
     lo, hi = 0, len(window) - 1
@@ -512,3 +554,113 @@ def paginate_within_budget(
         f"even with {', '.join(truncatable) or 'no fields'} shortened"
     )
     raise RuntimeError(msg)
+
+
+# --------------------------------------------------------------------------------------
+# Line-range reads (get_metaschema_source, get_oscal_documentation)
+# --------------------------------------------------------------------------------------
+
+# Largest line_count accepted by check_line_range().
+MAX_LINE_COUNT: Final = 500
+
+# A rejected argument is named in messages up to this many characters.
+MAX_SHOWN_CHARS: Final = 80
+
+
+def shown(text: str) -> str:
+    """``text`` cut to ``MAX_SHOWN_CHARS`` for a message, marked when cut."""
+    if len(text) <= MAX_SHOWN_CHARS:
+        return text
+    return text[:MAX_SHOWN_CHARS] + "..."
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def check_line_count(line_count: object) -> None:
+    """Raise ``ValueError`` unless ``line_count`` is an int from 1 to ``MAX_LINE_COUNT``.
+
+    Callers that must reject a bad count before reading any lines call this first.
+    """
+    if not _is_int(line_count) or not 1 <= line_count <= MAX_LINE_COUNT:  # type: ignore[operator]
+        msg = f"Invalid line_count: {shown(repr(line_count))}. Valid range: 1 to {MAX_LINE_COUNT}"
+        raise ValueError(msg)
+
+
+def check_line_range(
+    start_line: object, line_count: object, total: int, *, noun: str = "file"
+) -> None:
+    """Raise ``ValueError`` unless ``line_count`` is 1-500 and ``start_line`` is 1-``total``.
+
+    ``line_count`` is checked first. Messages name the parameter, its (shortened) value,
+    and the valid range, e.g. ``Valid range for this <noun>: 1 to <total>``.
+    """
+    check_line_count(line_count)
+    if not _is_int(start_line) or not 1 <= start_line <= total:  # type: ignore[operator]
+        msg = (
+            f"Invalid start_line: {shown(repr(start_line))}. Valid range for this {noun}: "
+            f"1 to {total}"
+        )
+        raise ValueError(msg)
+
+
+def _line_range(base: Mapping[str, object], lines: Sequence[str], start: int, count: int) -> dict:
+    end = start + count - 1
+    return {
+        **base,
+        "start-line": start,
+        "end-line": end,
+        "total-lines": len(lines),
+        "has-more": end < len(lines),
+        "text": "".join(lines[start - 1 : end]),
+    }
+
+
+def lines_within_budget(
+    base: Mapping[str, object],
+    lines: Sequence[str],
+    start: int,
+    line_count: int,
+    *,
+    budget: int = RESPONSE_BUDGET,
+) -> dict:
+    """Return the largest whole-line range from ``start`` whose serialized size fits ``budget``.
+
+    The response is ``base``'s keys followed by ``start-line``, ``end-line``,
+    ``total-lines``, ``has-more``, and ``text``. Arguments must already pass
+    ``check_line_range``. At least one line is always returned so that paging progresses.
+    If that one line alone is over budget, its text is shortened at a code-point boundary,
+    marked with ``TRUNCATION_MARK``, and the response gets ``truncated: true``.
+    """
+    count = min(line_count, len(lines) - start + 1)
+    response = _line_range(base, lines, start, count)
+    if _json_size(response) <= budget:
+        return response
+
+    # Binary search the largest k in [1, count) whose response fits.
+    lo, hi = 1, count - 1
+    best = 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if _json_size(_line_range(base, lines, start, mid)) <= budget:
+            best, lo = mid, mid + 1
+        else:
+            hi = mid - 1
+    if best:
+        return _line_range(base, lines, start, best)
+
+    response = _line_range(base, lines, start, 1)
+    response["truncated"] = True
+    full = response["text"]
+    lo, hi = 0, len(full) - 1
+    best_len = 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        response["text"] = full[:mid] + TRUNCATION_MARK
+        if _json_size(response) <= budget:
+            best_len, lo = mid, mid + 1
+        else:
+            hi = mid - 1
+    response["text"] = full[:best_len] + TRUNCATION_MARK
+    return response

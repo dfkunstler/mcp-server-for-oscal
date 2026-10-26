@@ -13,7 +13,7 @@ The work has five parts that share one store change (Origin and Relative_Name co
 
 1. **Provenance.** `documents` gets `origin` and `relative_name`. Doc_IDs become `uuid5(DOC_ID_NAMESPACE, "<origin>:<relative_name>")`. A schema version marker (`PRAGMA user_version`) drives an in-place upgrade of older persistent DBs.
 2. **Query normalization.** One pure module (`tools/fts_query.py`) turns caller text into quoted FTS5 phrases with stop words removed, matched with OR and ordered all-terms-first, then by FTS5 rank. It is used by text search, documentation search, and the `by_title` FTS fallback.
-3. **Text search.** Hits carry the Element_ID or Document_UUID and `parentDocumentUuid`, cover only OSCAL content, index pending documents first, include catalog Control_Prose, and fit `RESPONSE_BUDGET`.
+3. **Text search.** Hits carry the Element_ID or Document_UUID and `parentDocumentUuid`, cover only OSCAL content, index pending documents first, include catalog Control_Prose, find entities by their Element_ID or Document_UUID (a searchable FTS `element_id` column, D10), and fit `RESPONSE_BUDGET`.
 4. **Documentation search and fetch.** One paged Doc_Result_Item shape in both modes; user documentation is merged into KB results; the new `get_oscal_documentation` tool reads line ranges by Doc_ID through a line-range helper shared with `get_metaschema_source`.
 5. **Path hygiene.** `file_path` and `source` leave all results, KB responses are normalized, error messages use fixed text, and a Path_Leak_Test runs every registered tool against a Fixture_Store.
 
@@ -38,8 +38,8 @@ flowchart TD
 
     subgraph Store["tools/oscal_store.py (OscalStore)"]
         S["scan_directory(dir, origin=...)<br/>Relative_Name, Doc_ID, provenance refresh"]
-        MIG["_migrate()<br/>user_version 0 → 1"]
-        IDX["_ensure_indexed()<br/>FTS cleanup + Control_Prose"]
+        MIG["_migrate()<br/>user_version 0 → 2, 1 → 2"]
+        IDX["_ensure_indexed()<br/>FTS cleanup + Control_Prose + element_id"]
         TS["text_search()"]
         DS["search_documentation(origins=...)"]
         GD["get_documentation(doc_id)"]
@@ -90,7 +90,7 @@ sequenceDiagram
 
 ### Key decisions
 
-**D1. Keep the FTS5 schema; resolve identifiers by join.** `fts_index.entity_id` keeps the internal row id (`child_elements.id` or `documents.id`). Search queries join to `child_elements` and `documents` to return Element_IDs and Document_UUIDs and never select the row id into an item. Rationale: changing an FTS5 table means dropping and rebuilding it in every DB; the join is cheap (primary-key lookups on one page of rows), and `AUTOINCREMENT` guarantees row ids are never reused, so an orphan FTS row can never resolve to the wrong element. Orphans are filtered by the join and removed by D3.
+**D1. Keep the FTS5 schema; resolve identifiers by join.** `fts_index.entity_id` keeps the internal row id (`child_elements.id` or `documents.id`). Search queries join to `child_elements` and `documents` to return Element_IDs and Document_UUIDs and never select the row id into an item. Rationale: changing an FTS5 table means dropping and rebuilding it in every DB; the join is cheap (primary-key lookups on one page of rows), and `AUTOINCREMENT` guarantees row ids are never reused, so an orphan FTS row can never resolve to the wrong element. Orphans are filtered by the join and removed by D3. *Amended by D10:* the FTS table gains a searchable `element_id` column (so it is rebuilt once per DB after all), but `entity_id` still holds the internal row id and items still take Element_IDs and Document_UUIDs from the join, never from `fts_index.element_id`.
 
 **D2. Column-scoped, quoted phrases joined by OR; all-terms-first by a computed flag.** Each Search_Term becomes `{title description} : "<term>"`. The match-any expression joins them with `OR`; the match-all expression joins them with `AND`. One SQL statement selects hits of the match-any expression and orders by `(rowid IN (match-all subquery)) DESC, rank, rowid`. Rationale: quoting makes every caller character literal (FTS5 tokenizes string contents with the same tokenizer, so `ac-2` becomes the phrase `ac 2`); scoping keeps `entity_type`, `entity_id`, and `model_type` values from matching query words; one statement keeps `LIMIT/OFFSET` paging exact and deterministic (the `rowid` tie-break). The per-phrase form (`{cols} : "a" OR {cols} : "b"`) is used rather than `{cols} : (...)` because it is basic FTS5 syntax on every SQLite version Python ships.
 
@@ -108,11 +108,14 @@ sequenceDiagram
 
 **D9. `get_oscal_documentation` lives in `query_documentation.py`.** It shares that module's `_store` singleton and `init_store`, so no new `init_store` call is needed in `main._init_oscal_store()`.
 
+**D10. Index identifiers in a searchable FTS `element_id` column; rebuild `fts_index` once (schema version 2).** Found while implementing task 9.1: `text_search` matches only `title` and `description`, and `entity_id` holds the row id (D1), so a search for `ac-2` misses control `ac-2` ("Account Management") unless "AC-2" appears in its title or prose (Requirement 6.7). The FTS table gains a sixth column, `element_id`, appended last so the existing column indexes (`snippet(fts_index, 3, …)` = `description`) stay valid. It holds the Element_ID (`child_elements.uuid`) for `child_element` rows, the Document_UUID (`documents.uuid`) for `document` rows, and `''` for `documentation` rows. Text search scopes its phrases to `{title description element_id}`. Documentation search stays on `{title description}` (`DOC_SEARCH_COLUMNS`): its `element_id` is always empty, so including it would change nothing, and the explicit scope keeps Doc_IDs out of the searchable text if that ever changes. The `unicode61` tokenizer splits `ac-2` into `ac` `2`, and Query_Normalization quotes `ac-2` as the phrase `"ac-2"`, which matches the `element_id` value `ac-2` (and also `ac-2.1`, tokens `ac 2 1`; BM25 typically ranks the shorter `ac-2` value higher, but no order between them is promised beyond Requirement 8.6). A Document_UUID is one Search_Term (`_TERM` joins hex groups with `-`), matched as a five-token phrase. FTS5 virtual tables do not support `ALTER TABLE … ADD COLUMN` (they do support `RENAME`), so the upgrade creates a new table, copies every row with `element_id` filled by joins, drops the old table, and renames the new one. Rationale: a separate column keeps identifiers out of `title`/`description` (so snippets, descriptions, and Control_Prose are unchanged) and lets BM25 weigh identifier matches like any other column match; reading identifiers for items through the D1 join means a stale FTS value can never put a wrong ID into a result.
+
 ### Requirement changes (applied to requirements.md)
 
 | ID | Requirement | Change | Reason | Status |
 |---|---|---|---|---|
 | RC-1 | 10.1, 7.7 | `limit` uses the shared `BudgetedLimit` alias (default 10, range 1-100), not `Limit` | D7: a page may hold fewer items to fit `RESPONSE_BUDGET`, which `BudgetedLimit`'s text says and `Limit`'s does not. `text_search_oscal.limit` changes the same way (parameter name and range unchanged, so 13.3 holds) | Applied: 10.1 updated, 7.7 added |
+| RC-2 | 6.7, 14.1, 14.2, 14.6 | Text search finds entities by Element_ID or Document_UUID; the bundled build and the upgrade (now also from early-feature DBs) index identifiers; opening a current DB writes nothing | D10, found in task 9.1. Item keys unchanged, so 6.5 holds | Applied: 6.7 and 14.6 added, 14.1 and 14.2 extended |
 
 ## Components and Interfaces
 
@@ -130,7 +133,9 @@ STOP_WORDS: Final[frozenset[str]] = frozenset({
     "why", "will", "with", "would", "you", "your",
 })
 MAX_SEARCH_TERMS: Final = 16
-SEARCH_COLUMNS: Final = "{title description}"
+SEARCH_COLUMNS: Final = "{title description element_id}"   # text search (D10)
+DOC_SEARCH_COLUMNS: Final = "{title description}"           # documentation search (D10)
+TITLE_COLUMNS: Final = "{title}"                            # by_title FTS fallback
 
 # A Search_Term: word characters, optionally joined by - . / : ' ’ to more word characters.
 _TERM = re.compile(r"\w+(?:[-./:'\u2019]\w+)*")
@@ -150,7 +155,7 @@ Query_Normalization (`normalize_query`):
 5. Keep the first `MAX_SEARCH_TERMS` terms. This bounds the cost of the match-all subquery; the kept terms are the Search_Terms, so Requirement 8.5 holds for them.
 6. Return the tuple (possibly empty).
 
-`match_expressions(terms)` returns `(" OR ".join(f"{SEARCH_COLUMNS} : {phrase(t)}"), " AND ".join(...))`. `AND`, `OR`, `NOT`, and `NEAR` from the caller are always inside quotes, so FTS5 reads them as text (Requirement 8.3). `phrase()` doubles `"` even though `_TERM` cannot produce one, so the function is safe on its own.
+`match_expressions(terms, columns=SEARCH_COLUMNS)` returns `(" OR ".join(f"{columns} : {phrase(t)}"), " AND ".join(...))`; `search_documentation` passes `DOC_SEARCH_COLUMNS`. `AND`, `OR`, `NOT`, and `NEAR` from the caller are always inside quotes, so FTS5 reads them as text (Requirement 8.3). `phrase()` doubles `"` even though `_TERM` cannot produce one, so the function is safe on its own.
 
 ### 2. OscalStore schema and migration
 
@@ -164,8 +169,18 @@ CREATE INDEX IF NOT EXISTS idx_documents_origin ON documents(origin, model_type)
 
 No SQL `CHECK`: SQLite verifies an `ADD COLUMN ... CHECK` against existing rows, and `''` would fail it. `scan_directory` validates Origin in Python, and Property 1 checks the invariant.
 
+`fts_index` gains `element_id` as its last column (D10); fresh DBs create it directly:
+
+```sql
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_index USING fts5(
+    entity_type, entity_id, title, description, model_type, element_id
+);
+```
+
+Schema versions: `0` = pre-feature (no provenance columns, five-column FTS); `1` = provenance columns, Doc_IDs, Control_Prose, five-column FTS (early builds of this feature); `2` = version 1 plus the `element_id` FTS column.
+
 ```python
-SCHEMA_VERSION: Final = 1
+SCHEMA_VERSION: Final = 2
 Origin = Literal["bundled", "user"]
 ORIGIN_BUNDLED: Final = "bundled"
 ORIGIN_USER: Final = "user"
@@ -179,17 +194,22 @@ DOC_ID_NAMESPACE: Final = uuid5(NAMESPACE_URL, "https://github.com/dfkunstler/mc
 def _migrate(self) -> None:
     conn = self._conn
     if conn.execute("PRAGMA user_version").fetchone()[0] >= SCHEMA_VERSION:
-        return
+        return                               # 14.6: no writes on a current DB
     conn.execute("BEGIN IMMEDIATE")          # serializes two servers on one persistent DB
     try:
-        if conn.execute("PRAGMA user_version").fetchone()[0] >= SCHEMA_VERSION:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version >= SCHEMA_VERSION:
             conn.rollback(); return          # another process upgraded meanwhile
-        self._add_column_if_missing("origin", "TEXT NOT NULL DEFAULT ''")
-        self._add_column_if_missing("relative_name", "TEXT NOT NULL DEFAULT ''")
-        self._backfill_provenance()          # D4, rows WHERE origin = ''
-        self._rekey_documentation()          # Doc_ID per Requirement 2 for model_type='documentation'
-        conn.execute("UPDATE documents SET indexed = 0 WHERE model_type = 'catalog'")  # 14.3
-        self._delete_orphan_fts_rows()
+        if version < 1:                      # v0 → v1: provenance, Doc_IDs, Control_Prose
+            self._add_column_if_missing("origin", "TEXT NOT NULL DEFAULT ''")
+            self._add_column_if_missing("relative_name", "TEXT NOT NULL DEFAULT ''")
+            self._backfill_provenance()      # D4, rows WHERE origin = ''
+            self._rekey_documentation()      # Doc_ID per Requirement 2 for model_type='documentation'
+            conn.execute("UPDATE documents SET indexed = 0 WHERE model_type = 'catalog'")  # 14.3
+            self._delete_orphan_fts_rows()
+            self._delete_duplicate_fts_rows()
+        if version < 2:                      # v1 → v2 (and the tail of v0 → v2): D10
+            self._rebuild_fts_with_element_id()
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")  # constant int, nosec B608
         conn.commit()
     except sqlite3.Error as exc:
@@ -202,7 +222,29 @@ def _migrate(self) -> None:
 - `_backfill_provenance` uses `legacy_provenance(file_path) -> (Origin, relative_name)` (pure): normalize `\` to `/`, find the last bundled marker (D4), and take the suffix after it as `relative_name` (`bundled`). Otherwise the origin is `user` and `relative_name` is the basename, or `<zip basename>/<member>` when the path contains `.zip/`. The startup scan replaces these with exact values (Requirement 14.4).
 - `_rekey_documentation` sets `uuid = doc_id(origin, relative_name)`. If two legacy rows map to one Doc_ID, it keeps the lower `id` and deletes the other row and its `documentation` FTS row (FTS rows have no foreign key, so they are deleted explicitly).
 - `_delete_orphan_fts_rows` removes FTS rows whose `entity_id` matches no `child_elements.id` (`child_element`) or `documents.id` (`document`, `documentation`). Old re-indexes left these behind (D3).
-- Fresh and bundled DBs: `build_oscal_db.py` creates a fresh DB, so `_migrate` runs on an empty table and sets `user_version = 1`. The bundled DB then opens with no migration and no writes, which keeps the post-copy hash check meaningful.
+- `_rebuild_fts_with_element_id` (D10) runs inside the same transaction. If `PRAGMA table_info(fts_index)` already lists `element_id` (a fresh DB, whose `_init_schema` created the six-column table), it does nothing. Otherwise:
+
+  ```sql
+  CREATE VIRTUAL TABLE fts_index_v2 USING fts5(
+      entity_type, entity_id, title, description, model_type, element_id);
+  INSERT INTO fts_index_v2 (rowid, entity_type, entity_id, title, description, model_type, element_id)
+  SELECT f.rowid, f.entity_type, f.entity_id, f.title, f.description, f.model_type,
+         CASE f.entity_type
+           WHEN 'child_element' THEN COALESCE(ce.uuid, '')
+           WHEN 'document'      THEN COALESCE(d.uuid, '')
+           ELSE '' END
+  FROM fts_index f
+  LEFT JOIN child_elements ce
+         ON f.entity_type = 'child_element' AND ce.id = CAST(f.entity_id AS INTEGER)
+  LEFT JOIN documents d
+         ON f.entity_type = 'document' AND d.id = CAST(f.entity_id AS INTEGER);
+  DROP TABLE fts_index;
+  ALTER TABLE fts_index_v2 RENAME TO fts_index;
+  ```
+
+  Rows keep their `rowid`, so the `rowid` tie-break order is unchanged. On the v0 path the orphan and duplicate cleanup runs first, so every copied `child_element` and `document` row resolves; an unresolved row (v1 DBs can hold none after D3, but the copy does not assume it) gets `''` and is still dropped from results by the D1 join. Catalogs marked `indexed = 0` by the v0 step are re-extracted later by `_ensure_indexed`, which writes `element_id` itself (section 4). All statements are fixed text with no caller values.
+- Fresh and bundled DBs: `build_oscal_db.py` creates a fresh DB, so `_migrate` runs on empty tables (the FTS rebuild is skipped because the column exists) and sets `user_version = 2`. The bundled DB then opens with no migration and no writes, which keeps the post-copy hash check meaningful (Requirement 14.6).
+- A DB at version 1 (written by an earlier build of this feature) takes only the v1 → v2 step: no provenance, Doc_ID, or catalog re-extraction work is repeated.
 
 ### 3. Ingestion provenance
 
@@ -254,6 +296,8 @@ DELETE FROM fts_index WHERE entity_type = 'child_element'
 DELETE FROM fts_index WHERE entity_type = 'document' AND entity_id = ?;
 ```
 
+Every FTS insert names the `element_id` column (D10): `_ensure_indexed` writes the child's Element_ID (`child_elements.uuid`) for `child_element` rows and the Document_UUID for the `document` row; the markdown indexer writes `''` for `documentation` rows. Inserts list their columns explicitly, so an omitted `element_id` would be `NULL`, not a crash; tests check the written values.
+
 Catalog extraction sets `description=control_prose(ctrl)` for top-level controls and in `_extract_controls_from_groups` (every level the store extracts, Requirement 9.4). The FTS insert already copies `child.get("description", "")`; it changes to `child.get("description") or ""` so a `None` description is stored as `""`.
 
 ```python
@@ -297,7 +341,7 @@ def text_search(self, query_text: str, oscal_model_type: OSCALModelType | None =
 
 1. `terms = normalize_query(query_text)`. If empty, return the empty Page_Response (Requirement 8.8).
 2. `_index_pending_oscal_documents()`: for each `SELECT id, uuid FROM documents WHERE indexed = 0 AND model_type != 'documentation'`, call `_ensure_indexed`. On any exception, `logger.warning("Failed to index document %s for text_search", uuid)` and continue (Requirements 7.2, 7.3). A failed document stays `indexed=0` and is retried on the next search. These documents passed model validation at ingestion, so failures should be rare.
-3. Run the ranked query (D1, D2). Values are bound; only fixed fragments are composed (`# nosec B608`):
+3. Run the ranked query (D1, D2, D10). `:any` and `:all` come from `match_expressions(terms)` with the default `SEARCH_COLUMNS` (`{title description element_id}`), so a Search_Term equal to an Element_ID or Document_UUID matches that entity's row and is ranked by the same rules (Requirement 6.7). The `element_id` column is search-only; items take identifiers from the joins below. Values are bound; only fixed fragments are composed (`# nosec B608`):
 
 ```sql
 WITH hits AS (
@@ -327,7 +371,7 @@ LIMIT :limit OFFSET :offset
 4. Build items: `entity_type`, `entity_id` (= `element_id`), `title`, `description` (capped at 500 characters plus `TRUNCATION_MARK`, Requirement 7.4), `model_type`, and `parentDocumentUuid` on child hits only. Internal row ids are never selected into items (Requirement 6.6).
 5. Return `budget_page(items, total, offset, truncatable=("description",))` (Requirement 7.5).
 
-LIKE fallback (Requirement 8.9): if step 3 raises `sqlite3.OperationalError`, log a warning (the normalized terms, not the raw text) and run the same join over `fts_index` with `(f.title LIKE :p ESCAPE '\' OR f.description LIKE :p ESCAPE '\')` per term ORed. Order by the number of terms matched (a sum of `CASE` expressions) descending, then `f.title`, then `f.rowid`. The item shape is the same.
+LIKE fallback (Requirement 8.9): if step 3 raises `sqlite3.OperationalError`, log a warning (the normalized terms, not the raw text) and run the same join over `fts_index` with `(f.title LIKE :p ESCAPE '\' OR f.description LIKE :p ESCAPE '\' OR f.element_id LIKE :p ESCAPE '\')` per term ORed. Order by the number of terms matched (a sum of `CASE` expressions) descending, then `f.title`, then `f.rowid`. The item shape is the same.
 
 `_query_by_title_fts` also normalizes its input: it matches `{title} : "<t1>" AND {title} : "<t2>" ...` with `entity_type = 'document'` (and `model_type`) as SQL filters, not inside the MATCH string. This removes that path's `OperationalError` → `LIKE` route for hyphenated titles. Its ordering is unchanged.
 
@@ -338,7 +382,7 @@ def search_documentation(self, query_text: str, offset: int = 0, limit: int = 10
                          origins: Sequence[Origin] = ORIGINS) -> dict:
 ```
 
-It has no internal cap on `limit`; the tool validates it, and KB_Mode needs `offset + limit` local hits. Same normalization and two-group ordering as text search, over `entity_type = 'documentation'`, joined to `documents d ON d.id = CAST(f.entity_id AS INTEGER) AND d.origin IN (...)` (Requirements 11.2, 11.7). Items are `{"docId": d.uuid, "title": f.title, "snippet": s}`, where `s` = `snippet(fts_index, 3, '', '', '...', 40)` cut to 200 characters. If the snippet is empty (title-only match), `s` is the first 200 characters of the description (Requirement 10.3). The LIKE fallback uses `_extract_like_snippet` around the first matched term. There is no `source` key.
+It has no internal cap on `limit`; the tool validates it, and KB_Mode needs `offset + limit` local hits. Same normalization and two-group ordering as text search, with phrases scoped to `DOC_SEARCH_COLUMNS` (`{title description}`; D10: documentation rows hold `''` in `element_id`, and the LIKE fallback also checks only `title` and `description`), over `entity_type = 'documentation'`, joined to `documents d ON d.id = CAST(f.entity_id AS INTEGER) AND d.origin IN (...)` (Requirements 11.2, 11.7). Items are `{"docId": d.uuid, "title": f.title, "snippet": s}`, where `s` = `snippet(fts_index, 3, '', '', '...', 40)` cut to 200 characters. If the snippet is empty (title-only match), `s` is the first 200 characters of the description (Requirement 10.3). The LIKE fallback uses `_extract_like_snippet` around the first matched term. There is no `source` key.
 
 ```python
 @dataclass(frozen=True)
@@ -493,7 +537,7 @@ SELECT raw_json FROM documents
 
 ### 13. `bin/build_oscal_db.py`
 
-Both scans pass `origin=ORIGIN_BUNDLED`. Eager indexing is unchanged, so catalog controls get Control_Prose at build. The resulting DB has `user_version = 1`. `build_db` adds `origins` (distinct values) and `prose_controls` (controls with a non-empty description) to its stats dict for `tests/test_build_oscal_db.py` (Requirement 14.5).
+Both scans pass `origin=ORIGIN_BUNDLED`. Eager indexing is unchanged, so catalog controls get Control_Prose at build and every `child_element` and `document` FTS row gets its `element_id` (Requirement 14.1). The resulting DB has `user_version = 2` (`SCHEMA_VERSION`). `build_db` adds `origins` (distinct values) and `prose_controls` (controls with a non-empty description) to its stats dict for `tests/test_build_oscal_db.py` (Requirement 14.5).
 
 ### 14. Descriptions, Routing_Guide, and budget
 
@@ -554,9 +598,16 @@ Both keep Doc_IDs path-free (UUIDs) and leave `UNKNOWN_DOC_ID_MESSAGE` unchanged
 | `relative_name` | new, `TEXT NOT NULL DEFAULT ''` | `/`-separated, NFC; zip members are `<zip rel>/<member>` |
 | `uuid` | documentation rows re-keyed | `doc_id(origin, relative_name)`; OSCAL rows unchanged |
 | `file_path` | unchanged, internal | Still used for change detection; never returned |
-| `PRAGMA user_version` | new marker | `1` = this schema |
+| `PRAGMA user_version` | new marker | `2` = this schema (`1` = early builds of this feature, `0` = pre-feature) |
 
-`fts_index` and `child_elements` schemas are unchanged. Catalog control `child_elements.description` and the matching FTS `description` hold Control_Prose.
+### `fts_index` virtual table (modified, D10)
+
+| Column | Change | Notes |
+|---|---|---|
+| `entity_type`, `entity_id`, `title`, `description`, `model_type` | unchanged | `entity_id` stays the internal row id (D1) |
+| `element_id` | new, last column | Element_ID for `child_element` rows, Document_UUID for `document` rows, `''` for `documentation` rows; searched by `text_search` only |
+
+The `child_elements` schema is unchanged. Catalog control `child_elements.description` and the matching FTS `description` hold Control_Prose.
 
 ### Text search item
 
@@ -604,7 +655,7 @@ Document hits omit `parentDocumentUuid`, and their `entity_id` is the Document_U
 
 ### Property 3: Query normalization never yields FTS5 syntax
 
-*For any* Unicode query text (including `"`, `*`, `:`, `(`, `)`, `^`, `{`, `}`, `AND`, `OR`, `NOT`, `NEAR`, hyphenated tokens, and only-punctuation strings), `normalize_query` returns terms that each match `_TERM` exactly. Running both `match_expressions` against an OscalStore never raises `sqlite3.OperationalError`, and `text_search` and `search_documentation` return an empty page with `total` 0 exactly when the term tuple is empty.
+*For any* Unicode query text (including `"`, `*`, `:`, `(`, `)`, `^`, `{`, `}`, `AND`, `OR`, `NOT`, `NEAR`, hyphenated tokens, and only-punctuation strings), `normalize_query` returns terms that each match `_TERM` exactly. Running both `match_expressions`, scoped to `SEARCH_COLUMNS` (`{title description element_id}`) and to `DOC_SEARCH_COLUMNS`, against an OscalStore's six-column FTS table never raises `sqlite3.OperationalError`, and `text_search` and `search_documentation` return an empty page with `total` 0 exactly when the term tuple is empty.
 
 **Validates: Requirements 8.1, 8.2, 8.3, 8.8**
 
@@ -698,11 +749,17 @@ Document hits omit `parentDocumentUuid`, and their `entity_id` is the Document_U
 
 **Validates: Requirements 4.3, 11.8**
 
-### Property 19: Pre-feature DBs upgrade in place, once
+### Property 19: Older DBs upgrade in place, once
 
-*For any* generated pre-feature DB (the old schema with no `origin`/`relative_name`, `user_version` 0, path-derived documentation UUIDs, catalogs with title-only control descriptions, and orphan and duplicate FTS rows), opening it with `OscalStore` gives every row an Origin and Relative_Name. Every documentation row has its Requirement 2 Doc_ID, and every catalog control has Control_Prose before the next search or child lookup on it. No FTS row is orphaned or duplicated, and `user_version` is 1. Opening the DB a second time changes nothing.
+*For any* generated pre-feature DB (the old schema with no `origin`/`relative_name`, a five-column FTS table, `user_version` 0, path-derived documentation UUIDs, catalogs with title-only control descriptions, and orphan and duplicate FTS rows), opening it with `OscalStore` gives every row an Origin and Relative_Name. Every documentation row has its Requirement 2 Doc_ID, and every catalog control has Control_Prose before the next search or child lookup on it. No FTS row is orphaned or duplicated, `fts_index` has the `element_id` column, and `user_version` is 2. *For any* generated version-1 DB (provenance columns present, five-column FTS table), opening it rebuilds `fts_index` with the same rows (same `rowid`, `entity_type`, `entity_id`, `title`, `description`, `model_type`) plus `element_id` equal to the joined Element_ID or Document_UUID (`''` for documentation rows), leaves `documents` and `child_elements` unchanged, and sets `user_version` to 2. In both cases, opening the DB a second time changes nothing (Requirement 14.6).
 
-**Validates: Requirements 2.4, 14.2, 14.3**
+**Validates: Requirements 2.4, 14.2, 14.3, 14.6**
+
+### Property 20: Identifiers find their entity
+
+*For any* generated store with OSCAL documents of several model types whose child Element_IDs are token IDs (such as `ac-2`, `x-7.1`) or UUIDs, searching `text_search` for a child's Element_ID returns a hit with that `entity_id` and its parent's `parentDocumentUuid`, and searching for a document's Document_UUID returns a document hit with that `entity_id`. Items keep the Property 7 shape.
+
+**Validates: Requirements 6.7**
 
 ## Error Handling
 
@@ -710,7 +767,7 @@ Document hits omit `parentDocumentUuid`, and their `entity_id` is the Document_U
 |---|---|
 | `scan_directory` with an Origin outside {`bundled`, `user`} | `ValueError` before any file is read |
 | Unchanged hash whose new Doc_ID belongs to another row | Warning logged; Origin and Relative_Name updated, Doc_ID kept |
-| Schema upgrade fails | Rollback; `RuntimeError("Failed to upgrade the OSCAL store schema")`; path in the log only. `_init_oscal_store` logs it and the server starts without a store, as today |
+| Schema upgrade fails (any step, including the D10 FTS rebuild) | Rollback, so the old `fts_index` and `user_version` stay intact; `RuntimeError("Failed to upgrade the OSCAL store schema")`; path in the log only. `_init_oscal_store` logs it and the server starts without a store, as today |
 | Query text normalizes to no terms | Empty Page_Response, `total` 0, no SQL run |
 | FTS5 `MATCH` raises despite normalization | Warning with the normalized terms; LIKE fallback with the same item shape |
 | Indexing a pending document fails during `text_search` | Warning naming the Document_UUID; search continues; retried next call |
@@ -744,7 +801,8 @@ Minimum 100 examples each (Windows CI caps them through `OSCAL_TEST_MAX_EXAMPLES
 | 13, 18 | same | Stores with docs of both Origins; stubbed `Session` (no boto3 network) |
 | 14, 15, 16 | `tests/tools/test_get_oscal_documentation.py` | Random line lists (`\n`, `\r\n`, no final newline, huge lines); unknown IDs from UUIDs, stored OSCAL UUIDs, and path-like text |
 | 17 | `tests/tools/test_validate_oscal_content.py` | Output text with embedded path forms; `shutil.which` and `subprocess.run` patched |
-| 19 | `tests/tools/test_oscal_store_migration.py` | Legacy DB built with the pre-feature DDL and raw `INSERT`s (no `OscalStore` code), random rows and FTS orphans |
+| 19 | `tests/tools/test_oscal_store_migration.py` | Legacy DBs built with raw DDL and `INSERT`s (no `OscalStore` code): the pre-feature (v0) DDL with random rows and FTS orphans, and the version-1 DDL (provenance columns, five-column FTS) |
+| 20 | `tests/tools/test_text_search.py` | Small stores whose children have generated token IDs and UUIDs; queries are one identifier. Task 9.10 checks it with examples; the generated form can extend the Property 6 test |
 
 ### Unit and example tests
 
@@ -754,6 +812,8 @@ Minimum 100 examples each (Windows CI caps them through `OSCAL_TEST_MAX_EXAMPLES
 - `_ensure_indexed` re-index leaves no duplicate or orphan FTS rows (D3).
 - `text_search` warns and continues when one pending document has corrupt `raw_json` (Requirement 7.3); LIKE fallback with `_fts_search` patched to raise (Requirement 8.9).
 - Searches for `back-matter`, `ac-2`, `control-implementation`, and `"profile resolution" AND (x` return results without `OperationalError` (Requirement 8.2).
+- Identifier search (Requirement 6.7, D10): `ac-2` against a fixture catalog whose control `ac-2` is titled "Account Management" (no "AC-2" in title or prose) returns that control with `entity_id` `ac-2` and the catalog's `parentDocumentUuid`; a document's Document_UUID returns that document hit; `query_oscal_documentation`/`search_documentation` results are unchanged by the column (documentation rows hold `''`).
+- Schema version 2 (Requirements 14.2, 14.6): a version-1 DB upgrades to 2 with `element_id` filled and documents/children unchanged; reopening a version-2 DB leaves a full dump (schema, tables, `user_version`) byte-identical; a fresh DB has the six-column FTS table and `user_version` 2.
 - A phrase only in a fixture control's guidance finds that control (Requirement 9.6).
 - Against the bundled DB when present (skipped otherwise): "how does profile resolution work" ⊇ "profile resolution" (Requirement 8.7).
 - `query_<model>` items have no `file_path` (Requirement 3.2); `by_title` with a hyphenated title finds the document.
@@ -821,7 +881,7 @@ Tests:
 
 ### Integration and smoke tests
 
-- `tests/test_build_oscal_db.py`: a build from fixture directories (a catalog with prose, cdefs, two markdown files) has only `bundled` Origins, Requirement 2 Doc_IDs, Control_Prose, and `user_version` 1 (Requirements 1.3, 9.5, 14.1, 14.5).
+- `tests/test_build_oscal_db.py`: a build from fixture directories (a catalog with prose, cdefs, two markdown files) has only `bundled` Origins, Requirement 2 Doc_IDs, Control_Prose, filled FTS `element_id` values, and `user_version` equal to `SCHEMA_VERSION` (2) (Requirements 1.3, 9.5, 14.1, 14.5).
 - `tests/test_main.py`: `_init_oscal_store` with a temp `OSCAL_DOCUMENTS_DIR` records `user` and the `about` count (Requirements 1.4, 1.7). It reuses `_install_store`.
 - `tests/test_integration_stdio_smoke.py` is unchanged and still passes (it starts the real server).
 - `hatch run tests` passes (Requirement 13.7). `hatch run build-db` regenerates the bundled DB and `hashes.json`. Both are gitignored build artifacts, so no manifest is committed.
@@ -829,6 +889,12 @@ Tests:
 ### Tests to update
 
 These assert today's shapes: `tests/tools/test_local_doc_search.py` and `tests/tools/test_query_documentation.py` (`source` key, raw KB response, `limit` cap), `tests/tools/test_oscal_store.py` (`file_path`, `entity_id` row ids, `count_documents_under`, uuid5-of-path), `tests/test_integration.py`, `tests/conftest.py` (`sample_bedrock_response` stays as the KB stub input), and `tests/tools/test_local_doc_search.py::TestAboutUserDocumentsLoaded` (the `about` count, which reaches `count_documents_under` through `_init_oscal_store`).
+
+For D10 (schema version 2), these embed the FTS DDL or the schema version:
+
+- `tests/tools/test_fts_query_properties.py`: its literal `_FTS_DDL` copy becomes the six-column DDL, so the pure Property 3 test runs `SEARCH_COLUMNS` (which names `element_id`) against the store's real column set.
+- `tests/tools/test_oscal_store_migration.py`: `LEGACY_DDL` stays the pre-feature (v0) DDL, since Property 19's v0 case depends on it. Add a version-1 DDL (v0 plus the provenance columns, five-column FTS, `user_version` 1) for the v1 → v2 case. Assertions on the upgraded version compare with `SCHEMA_VERSION`, not a literal `1`; the failed-upgrade test still expects `user_version` 0 for a v0 DB.
+- Any test that asserts `user_version == 1` or the five-column FTS column list (including the task 16.2 expectation in `tests/test_build_oscal_db.py`) uses `SCHEMA_VERSION` and the six-column list.
 
 ### Sync targets
 

@@ -113,13 +113,14 @@ class TestIntegration:
 
         mock_context = Mock()
 
-        # Execute tool
-        result = query_oscal_documentation("What is OSCAL?", mock_context)
+        # Execute tool (no store installed: KB_Hits only)
+        with patch("mcp_server_for_oscal.tools.query_documentation._store", None):
+            result = query_oscal_documentation("What is OSCAL?", ctx=mock_context)
 
-        # Verify result
-        assert result == mock_response
-        assert "retrievalResults" in result
-        assert len(result["retrievalResults"]) > 0
+        # KB_Hits are normalized into a Page_Response of Doc_Result_Items
+        assert result["items"] == [{"title": "", "snippet": "Test OSCAL content"}]
+        assert result["total"] == 1
+        assert result["hasMore"] is False
 
     @staticmethod
     def _schema_context() -> AsyncMock:
@@ -271,13 +272,16 @@ class TestIntegration:
         mock_session.client.return_value = mock_client
         mock_session_class.return_value = mock_session
 
-        mock_context = Mock()
+        mock_context = AsyncMock()
 
-        # KB failure now falls back to local search (Req 4.4) instead of raising
-        result = query_oscal_documentation("test query", mock_context)
+        # KB failure falls back to local search instead of raising
+        result = query_oscal_documentation("test query", ctx=mock_context)
 
-        # Verify KB error was reported to context before fallback
-        mock_context.error.assert_called_once()
+        # The client gets a fixed warning with no KB details, not an error
+        mock_context.warning.assert_called_once_with(
+            "Knowledge Base search failed; showing local documentation results."
+        )
+        mock_context.error.assert_not_called()
 
         # Verify fallback produced a result (either local search or error dict)
         assert result is not None

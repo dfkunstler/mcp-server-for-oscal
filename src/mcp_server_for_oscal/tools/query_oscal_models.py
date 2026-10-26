@@ -18,6 +18,7 @@ from mcp.server.mcpserver import Context
 from strands import tool
 
 from mcp_server_for_oscal.tools.descriptions import (
+    BudgetedLimit,
     Limit,
     Offset,
     OptionalModelName,
@@ -26,8 +27,9 @@ from mcp_server_for_oscal.tools.descriptions import (
     PerModelQueryType,
     QueryValue,
 )
+from mcp_server_for_oscal.tools.metaschema_common import check_page
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
-from mcp_server_for_oscal.tools.utils import OSCALModelType
+from mcp_server_for_oscal.tools.utils import OSCALModelType, try_notify_client_error
 
 logger = logging.getLogger(__name__)
 
@@ -311,11 +313,17 @@ def text_search_oscal(
     query_text: Annotated[str, ParamDoc("Full-text search terms.")],
     oscal_model_type: OptionalModelName = None,
     offset: Offset = 0,
-    limit: Limit = 10,
-    ctx: Context | None = None,  # noqa: ARG001 - injected by MCP; kept for API
+    limit: BudgetedLimit = 10,
+    ctx: Context | None = None,
 ) -> dict:
-    """Search the text of loaded OSCAL documents and child elements, ranked by relevance. Each
-    item has entity type, ID, title, description, and model type. Results are paged."""
+    """Search loaded OSCAL documents and child elements, including control prose, ranked by
+    relevance. Pass a child hit's entity ID and `parentDocumentUuid` to get_child_element."""
+    try:
+        check_page(offset, limit)
+    except ValueError as err:
+        try_notify_client_error(str(err), ctx)
+        raise
+
     model_type_enum: OSCALModelType | None = None
     if oscal_model_type:
         try:

@@ -423,3 +423,6 @@ class TestToolRegistration:
         tool_names = {fn.__name__ for fn in tool_list}
         registered = tool_names & set(CHILD_ELEMENT_TOOL_NAMES)
         assert len(registered) == 13
+        # 45 registry tools (46 with the server's `about`); get_oscal_documentation joined
+        # in search-fetch-pairs (#45).
+        assert len(tool_list) == len(tool_names) == 45

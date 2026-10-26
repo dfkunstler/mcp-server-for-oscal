@@ -9,7 +9,7 @@ GitHub issue #45. `text_search_oscal` and `query_oscal_documentation` should for
 | OSCAL entities | `text_search_oscal` | `get_child_element` (child elements), the per-model query tools (documents) |
 | Documentation | `query_oscal_documentation` | `get_oscal_documentation` (new) |
 
-Neither pair works end to end today. `text_search_oscal` returns the internal FTS row id as `entity_id`, which `get_child_element` cannot resolve; it returns whole documentation pages (up to ~31 KB each); catalog controls are indexed by title only; hyphenated terms (`back-matter`, `ac-2`) raise `sqlite3.OperationalError` and fall back to an unranked `LIKE`; and documents from `OSCAL_DOCUMENTS_DIR` stay invisible until another tool indexes them. `query_oscal_documentation` cannot reach user documentation when a Bedrock Knowledge Base is configured, ANDs every term of a question, has no paging, and returns a different shape in KB and local modes.
+Neither pair works end to end today. `text_search_oscal` returns the internal FTS row id as `entity_id`, which `get_child_element` cannot resolve; it returns whole documentation pages (up to ~31 KB each); catalog controls are indexed by title only; no entity can be found by its Element_ID or Document_UUID (only `title` and `description` are searched); hyphenated terms (`back-matter`, `ac-2`) raise `sqlite3.OperationalError` and fall back to an unranked `LIKE`; and documents from `OSCAL_DOCUMENTS_DIR` stay invisible until another tool indexes them. `query_oscal_documentation` cannot reach user documentation when a Bedrock Knowledge Base is configured, ANDs every term of a question, has no paging, and returns a different shape in KB and local modes.
 
 Several tool results also disclose filesystem paths and storage locations: `query_oscal_documentation` returns `source` (an absolute path) in local mode and the raw Bedrock `retrieve` response (with S3 `location` and metadata) in KB mode, and `query_<model>` items carry `file_path`. Documentation IDs are `uuid5(NAMESPACE_URL, <absolute path>)`, so they differ per machine.
 
@@ -132,6 +132,7 @@ This feature is non-breaking: no tool is renamed or removed, and documentation s
 4. WHEN a Per_Model_Query_Tool for the hit's `model_type` is called with the `entity_id` of an OSCAL_Document hit as the document UUID, THE Per_Model_Query_Tool SHALL return that OSCAL_Document.
 5. THE Text_Search_Tool SHALL keep the existing item keys `entity_type`, `entity_id`, `title`, `description`, and `model_type`.
 6. THE Text_Search_Tool SHALL omit internal SQLite and FTS row ids from every item.
+7. WHEN the query text contains a Child_Element's Element_ID (for example `ac-2`) or an OSCAL_Document's Document_UUID, THE Text_Search_Tool SHALL return that Child_Element or OSCAL_Document as a hit, ranked by the same rules as other matches (Requirement 8), with the item keys of criteria 1, 2, and 5.
 
 ### Requirement 7: Text search scope, freshness, and size
 
@@ -243,11 +244,12 @@ This feature is non-breaking: no tool is renamed or removed, and documentation s
 
 #### Acceptance Criteria
 
-1. WHEN `hatch run build-db` runs, THE build script SHALL produce a bundled DB in which every `documents` row has Origin `bundled`, every Documentation_Document has a Doc_ID per Requirement 2, and catalog controls carry Control_Prose per Requirement 9.
-2. WHEN the OscalStore opens a DB that predates this feature, THE OscalStore SHALL upgrade the DB schema in place so that every `documents` row has an Origin.
+1. WHEN `hatch run build-db` runs, THE build script SHALL produce a bundled DB in which every `documents` row has Origin `bundled`, every Documentation_Document has a Doc_ID per Requirement 2, catalog controls carry Control_Prose per Requirement 9, and the search index holds the Element_ID or Document_UUID of every indexed Child_Element and OSCAL_Document per Requirement 6.7.
+2. WHEN the OscalStore opens a DB whose schema predates the current schema version (a DB that predates this feature, or one written by an earlier build of this feature without Element_ID indexing), THE OscalStore SHALL upgrade the DB schema in place so that every `documents` row has an Origin and the search index holds the Element_ID or Document_UUID of every indexed Child_Element and OSCAL_Document.
 3. WHEN the OscalStore upgrades a pre-feature DB, THE OscalStore SHALL re-extract the Child_Elements of every catalog OSCAL_Document before the next search or child lookup on that document.
 4. WHEN the Server starts with a persistent DB that predates this feature and `OSCAL_DOCUMENTS_DIR` is set, THE Server SHALL record Origin `user` and Requirement 2 Doc_IDs for every document scanned from `OSCAL_DOCUMENTS_DIR`.
 5. THE `tests/test_build_oscal_db.py` tests SHALL check criterion 1 against a build from fixture directories.
+6. WHEN the OscalStore opens a DB that is already at the current schema version, THE OscalStore SHALL perform no writes to the DB during the upgrade check.
 
 ### Requirement 15: Follow-up issue for full-text fetch of KB hits
 

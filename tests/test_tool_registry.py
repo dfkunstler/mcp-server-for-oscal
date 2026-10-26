@@ -64,8 +64,9 @@ BASE_TOOL_NAMES = {
     "list_poam_items",
     "list_mapping_collection_mappings",
     "get_child_element",
-    # Documentation tool (unconditionally registered)
+    # Documentation tools (unconditionally registered)
     "query_oscal_documentation",
+    "get_oscal_documentation",
 }
 
 
@@ -77,6 +78,8 @@ class TestGetToolListUnit:
         tools = get_tool_list()
         tool_names = {t.__name__ for t in tools}
         assert tool_names == BASE_TOOL_NAMES
+        # 45 here; the server adds `about` for 46 (get_oscal_documentation joined in #45).
+        assert len(tools) == len(BASE_TOOL_NAMES) == 45
 
     def test_excludes_about(self):
         """get_tool_list() never includes the 'about' tool."""

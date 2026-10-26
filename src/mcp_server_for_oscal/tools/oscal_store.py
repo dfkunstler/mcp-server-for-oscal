@@ -21,13 +21,25 @@ import tempfile
 import threading
 import unicodedata
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 from urllib.parse import urlparse
 from uuid import NAMESPACE_URL, uuid5
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
 from mcp_server_for_oscal.config import config
-from mcp_server_for_oscal.tools.utils import MODEL_MAP, ROOT_KEY_TO_MODEL_TYPE, OSCALModelType
+from mcp_server_for_oscal.tools import fts_query
+from mcp_server_for_oscal.tools.fts_query import TITLE_COLUMNS, match_expressions, normalize_query
+from mcp_server_for_oscal.tools.utils import (
+    MODEL_MAP,
+    ROOT_KEY_TO_MODEL_TYPE,
+    TRUNCATION_MARK,
+    OSCALModelType,
+    budget_page,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +93,19 @@ def doc_id(origin: Origin, rel: str) -> str:
     return str(uuid5(DOC_ID_NAMESPACE, f"{origin}:{rel}"))
 
 
-# Schema version recorded in ``PRAGMA user_version``. Version 1 adds the ``origin`` and
-# ``relative_name`` columns, Doc_IDs per Origin and Relative_Name, and catalog Control_Prose.
-SCHEMA_VERSION: Final = 1
+# Schema version recorded in ``PRAGMA user_version``. Version 0 is the pre-feature schema.
+# Version 1 adds the ``origin`` and ``relative_name`` columns, Doc_IDs per Origin and
+# Relative_Name, and catalog Control_Prose. Version 2 adds the searchable ``element_id``
+# column to ``fts_index`` (D10).
+SCHEMA_VERSION: Final = 2
+
+# DDL of the current ``fts_index`` table; ``{table}`` is a fixed table name. ``element_id``
+# is last, so the column indexes of the older five columns (``snippet(fts_index, 3, ...)``
+# = ``description``) stay valid (D10).
+_FTS_DDL: Final = (
+    "CREATE VIRTUAL TABLE {table} USING fts5("
+    "entity_type, entity_id, title, description, model_type, element_id)"
+)
 
 # Path markers of the bundled build inputs (D4). Only the pre-feature migration uses them;
 # runtime selection reads the ``origin`` column.
@@ -140,6 +162,42 @@ CHILD_ELEMENT_TYPES: dict[OSCALModelType, tuple[str, ...]] = {
 # Names of the catalog control parts whose prose (and nested parts' prose) forms the
 # Control_Prose stored as the control's description (Requirement 9).
 PROSE_PART_NAMES: Final = frozenset({"statement", "guidance"})
+
+# Maximum length of a text_search hit's description before TRUNCATION_MARK (Requirement 7.4).
+TEXT_SEARCH_DESCRIPTION_CAP: Final = 500
+
+# FROM/JOIN/WHERE of text_search over the ``hits`` CTE: resolves each FTS row to its
+# Element_ID or Document_UUID (D1) and drops orphan FTS rows. Fixed SQL, no caller text.
+_TEXT_SEARCH_JOIN: Final = """
+    FROM hits h
+    LEFT JOIN child_elements ce
+           ON h.entity_type = 'child_element' AND ce.id = CAST(h.entity_id AS INTEGER)
+    LEFT JOIN documents pd ON pd.id = ce.parent_doc_id
+    LEFT JOIN documents d
+           ON h.entity_type = 'document' AND d.id = CAST(h.entity_id AS INTEGER)
+    WHERE COALESCE(ce.id, d.id) IS NOT NULL
+"""
+
+# Maximum length of a documentation search snippet (Requirement 10.3).
+DOC_SNIPPET_CAP: Final = 200
+
+# FROM/JOIN of search_documentation over the ``hits`` CTE: resolves each FTS row to its
+# Doc_ID and drops orphan FTS rows. The caller appends the bound Origin filter
+# (Requirements 11.2, 11.7). Fixed SQL, no caller text.
+_DOC_SEARCH_JOIN: Final = """
+    FROM hits h
+    JOIN documents d
+      ON d.id = CAST(h.entity_id AS INTEGER) AND d.model_type = 'documentation'
+"""
+
+
+@dataclass(frozen=True)
+class DocumentationText:
+    """A Documentation_Document's Doc_ID, title, and text lines (with line endings)."""
+
+    doc_id: str
+    title: str
+    lines: tuple[str, ...]
 
 
 def control_prose(control: object) -> str:
@@ -488,16 +546,8 @@ class OscalStore:
                 "CREATE INDEX IF NOT EXISTS idx_child_parent ON child_elements(parent_doc_id)"
             )
 
-            # -- FTS5 virtual table --
-            cur.execute("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS fts_index USING fts5(
-                    entity_type,
-                    entity_id,
-                    title,
-                    description,
-                    model_type
-                )
-            """)
+            # -- FTS5 virtual table (element_id last, D10) --
+            cur.execute(_FTS_DDL.format(table="IF NOT EXISTS fts_index"))
 
             self._conn.commit()
         except sqlite3.Error as exc:
@@ -523,12 +573,13 @@ class OscalStore:
     def _migrate(self) -> None:
         """Upgrade a DB older than ``SCHEMA_VERSION`` in place, in one transaction.
 
-        Adds the provenance columns, infers Origin and Relative_Name for rows that
-        lack them (D4), re-keys documentation rows to Doc_IDs, marks catalogs for
-        re-extraction (Control_Prose), removes orphan and duplicate FTS rows, and sets
-        ``user_version``. ``BEGIN IMMEDIATE`` and the re-check serialize two
-        processes upgrading one persistent DB. A DB already at ``SCHEMA_VERSION``
-        is not written to.
+        Version 0 (pre-feature): adds the provenance columns, infers Origin and
+        Relative_Name for rows that lack them (D4), re-keys documentation rows to
+        Doc_IDs, marks catalogs for re-extraction (Control_Prose), and removes orphan
+        and duplicate FTS rows. Versions 0 and 1: rebuild ``fts_index`` with the
+        ``element_id`` column (D10). Then sets ``user_version``. ``BEGIN IMMEDIATE``
+        and the version read inside it serialize two processes upgrading one
+        persistent DB. A DB already at ``SCHEMA_VERSION`` is not written to.
 
         Raises:
             RuntimeError: If the upgrade fails; the DB is left unchanged.
@@ -538,16 +589,19 @@ class OscalStore:
             return
         try:
             conn.execute("BEGIN IMMEDIATE")
-            if conn.execute("PRAGMA user_version").fetchone()[0] >= SCHEMA_VERSION:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            if version >= SCHEMA_VERSION:
                 conn.rollback()  # another process upgraded the DB meanwhile
                 return
-            self._add_column_if_missing("origin", _PROVENANCE_COLUMN)
-            self._add_column_if_missing("relative_name", _PROVENANCE_COLUMN)
-            self._backfill_provenance()
-            self._rekey_documentation()
-            conn.execute("UPDATE documents SET indexed = 0 WHERE model_type = 'catalog'")
-            self._delete_orphan_fts_rows()
-            self._delete_duplicate_fts_rows()
+            if version < 1:
+                self._add_column_if_missing("origin", _PROVENANCE_COLUMN)
+                self._add_column_if_missing("relative_name", _PROVENANCE_COLUMN)
+                self._backfill_provenance()
+                self._rekey_documentation()
+                conn.execute("UPDATE documents SET indexed = 0 WHERE model_type = 'catalog'")
+                self._delete_orphan_fts_rows()
+                self._delete_duplicate_fts_rows()
+            self._rebuild_fts_with_element_id()
             conn.execute(
                 f"PRAGMA user_version = {int(SCHEMA_VERSION)}"  # nosec B608 - constant int
             )
@@ -626,6 +680,37 @@ class OscalStore:
             "DELETE FROM fts_index WHERE rowid NOT IN "
             "(SELECT MIN(rowid) FROM fts_index GROUP BY entity_type, entity_id)"
         )
+
+    def _rebuild_fts_with_element_id(self) -> None:
+        """Rebuild a five-column ``fts_index`` with the ``element_id`` column (D10).
+
+        FTS5 tables do not support ``ADD COLUMN``, so every row is copied with its
+        ``rowid`` into a new table, with ``element_id`` from the joined Element_ID or
+        Document_UUID (``''`` for documentation and unresolved rows); then the old
+        table is dropped and the new one renamed. Does nothing when ``fts_index``
+        already has ``element_id``. Runs in the caller's transaction (no commit).
+        """
+        columns = {r["name"] for r in self._conn.execute("PRAGMA table_info(fts_index)")}
+        if "element_id" in columns:
+            return
+        self._conn.execute(_FTS_DDL.format(table="fts_index_v2"))
+        self._conn.execute(
+            "INSERT INTO fts_index_v2 "
+            "(rowid, entity_type, entity_id, title, description, model_type, element_id) "
+            "SELECT f.rowid, f.entity_type, f.entity_id, f.title, f.description, "
+            "f.model_type, "
+            "CASE f.entity_type "
+            " WHEN 'child_element' THEN COALESCE(ce.uuid, '') "
+            " WHEN 'document' THEN COALESCE(d.uuid, '') "
+            " ELSE '' END "
+            "FROM fts_index f "
+            "LEFT JOIN child_elements ce "
+            " ON f.entity_type = 'child_element' AND ce.id = CAST(f.entity_id AS INTEGER) "
+            "LEFT JOIN documents d "
+            " ON f.entity_type = 'document' AND d.id = CAST(f.entity_id AS INTEGER)"
+        )
+        self._conn.execute("DROP TABLE fts_index")
+        self._conn.execute("ALTER TABLE fts_index_v2 RENAME TO fts_index")
 
     def _delete_document_row(self, row_id: int) -> None:
         """Delete a documents row, its child elements, and all their FTS rows.
@@ -886,8 +971,8 @@ class OscalStore:
                 cur.execute(
                     """
                     INSERT INTO fts_index
-                        (entity_type, entity_id, title, description, model_type)
-                    VALUES (?, ?, ?, ?, ?)
+                        (entity_type, entity_id, title, description, model_type, element_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
                         "child_element",
@@ -895,6 +980,7 @@ class OscalStore:
                         child["title"],
                         child.get("description") or "",
                         model_type_str,
+                        child["uuid"],
                     ),
                 )
 
@@ -902,8 +988,8 @@ class OscalStore:
             cur.execute(
                 """
                 INSERT INTO fts_index
-                    (entity_type, entity_id, title, description, model_type)
-                VALUES (?, ?, ?, ?, ?)
+                    (entity_type, entity_id, title, description, model_type, element_id)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "document",
@@ -911,6 +997,7 @@ class OscalStore:
                     row["title"],
                     "",
                     model_type_str,
+                    row["uuid"],
                 ),
             )
 
@@ -1227,8 +1314,8 @@ class OscalStore:
 
         Returns:
             Page_Response dict with keys: items, total, offset, limit, hasMore.
-            Each item has uuid, title, model_type, file_path, sizeInBytes, and
-            childTypeCounts.
+            Each item has uuid, title, model_type, sizeInBytes, and
+            childTypeCounts. Storage paths are never returned.
 
         Raises:
             ValueError: If query_type is not one of VALID_QUERY_TYPES, or if
@@ -1269,7 +1356,7 @@ class OscalStore:
         ).fetchone()["cnt"]
 
         rows = self._conn.execute(
-            f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_path, d.file_size "  # nosec B608
+            f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_size "  # nosec B608
             f"FROM documents d {where} ORDER BY d.id LIMIT ? OFFSET ?",  # nosec B608
             [*params, limit, offset],
         ).fetchall()
@@ -1299,7 +1386,7 @@ class OscalStore:
 
         if total > 0:
             rows = self._conn.execute(
-                f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_path, d.file_size "  # nosec B608
+                f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_size "  # nosec B608
                 f"FROM documents d {where} ORDER BY d.id LIMIT ? OFFSET ?",  # nosec B608
                 [*params, limit, offset],
             ).fetchall()
@@ -1316,34 +1403,31 @@ class OscalStore:
         offset: int,
         limit: int,
     ) -> dict:
-        """FTS fallback for title search."""
-        try:
-            fts_where = "WHERE fts_index MATCH ?"
-            fts_params: list = [f"entity_type:document {title_value}"]
-            if oscal_model_type is not None:
-                fts_params = [
-                    f"entity_type:document model_type:{oscal_model_type.value} {title_value}"
-                ]
+        """FTS fallback for title search.
 
-            fts_ids = self._conn.execute(
-                f"SELECT CAST(f.entity_id AS INTEGER) as doc_id "  # nosec B608
-                f"FROM fts_index f {fts_where}",  # nosec B608
-                fts_params,
-            ).fetchall()
-            doc_ids = [r["doc_id"] for r in fts_ids]
-        except sqlite3.OperationalError:
-            # Bad FTS syntax — fall back to LIKE
-            like_where = "WHERE d.title LIKE ?"
-            like_params: list = [f"%{title_value}%"]
-            if oscal_model_type is not None:
-                like_where += " AND d.model_type = ?"
-                like_params.append(oscal_model_type.value)
+        The title is normalized into Search_Terms that are ANDed as quoted ``{title}``
+        phrases, so hyphenated titles and FTS5 operator characters match literally.
+        ``entity_type`` and ``model_type`` are SQL filters, not part of the MATCH string.
+        """
+        terms = normalize_query(title_value)
+        if not terms:
+            return self._page_response([], 0, offset, limit)
+        _match_any, match_all = match_expressions(terms, columns=TITLE_COLUMNS)
 
-            like_rows = self._conn.execute(
-                f"SELECT d.id FROM documents d {like_where}",  # nosec B608
-                like_params,
-            ).fetchall()
-            doc_ids = [r["id"] for r in like_rows]
+        fts_sql = (
+            "SELECT DISTINCT d.id AS doc_id FROM fts_index "
+            "JOIN documents d ON d.id = CAST(fts_index.entity_id AS INTEGER) "
+            "WHERE fts_index MATCH ? AND fts_index.entity_type = 'document'"
+        )
+        fts_params: list = [match_all]
+        if oscal_model_type is not None:
+            fts_sql += " AND fts_index.model_type = ?"
+            fts_params.append(oscal_model_type.value)
+
+        fts_sql += " ORDER BY d.id"
+
+        fts_rows = self._conn.execute(fts_sql, fts_params).fetchall()
+        doc_ids = [r["doc_id"] for r in fts_rows]
 
         if not doc_ids:
             return self._page_response([], 0, offset, limit)
@@ -1355,7 +1439,7 @@ class OscalStore:
 
         placeholders = ",".join("?" for _ in paged_ids)
         rows = self._conn.execute(
-            f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_path, d.file_size "  # nosec B608
+            f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_size "  # nosec B608
             f"FROM documents d WHERE d.id IN ({placeholders}) ORDER BY d.id",  # nosec B608
             paged_ids,
         ).fetchall()
@@ -1382,7 +1466,7 @@ class OscalStore:
         ).fetchone()["cnt"]
 
         rows = self._conn.execute(
-            f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_path, d.file_size "  # nosec B608
+            f"SELECT d.id, d.uuid, d.title, d.model_type, d.file_size "  # nosec B608
             f"FROM documents d {where} ORDER BY d.id LIMIT ? OFFSET ?",  # nosec B608
             [*params, limit, offset],
         ).fetchall()
@@ -1414,7 +1498,6 @@ class OscalStore:
                     "uuid": row["uuid"],
                     "title": row["title"],
                     "model_type": row["model_type"],
-                    "file_path": row["file_path"],
                     "sizeInBytes": row["file_size"],
                     "childTypeCounts": self._child_type_counts(doc_id),
                 }
@@ -2067,8 +2150,8 @@ class OscalStore:
             self._conn.execute(
                 """
                 INSERT INTO fts_index
-                    (entity_type, entity_id, title, description, model_type)
-                VALUES (?, ?, ?, ?, ?)
+                    (entity_type, entity_id, title, description, model_type, element_id)
+                VALUES (?, ?, ?, ?, ?, '')
                 """,
                 (
                     "documentation",
@@ -2191,16 +2274,14 @@ class OscalStore:
         offset: int = 0,
         limit: int = 10,
     ) -> dict:
-        """FTS5 full-text search across documents and child elements.
+        """Ranked full-text search across OSCAL documents and child elements.
 
-        Queries the ``fts_index`` FTS5 virtual table using ``MATCH`` syntax.
-        Results are ranked by relevance (using FTS5 ``rank``).  When the
-        query text contains invalid FTS5 syntax, catches
-        ``sqlite3.OperationalError`` and falls back to a ``LIKE`` query on
-        the ``title`` and ``description`` columns.
-
-        Supports optional ``oscal_model_type`` scoping so that only entities
-        of the specified model type appear in results.
+        The query is normalized into Search_Terms (``fts_query.normalize_query``) that are
+        matched as quoted, column-scoped FTS5 phrases. Entities that match any term are
+        returned; those that match every term come first, each group ordered by FTS5
+        rank. Documentation is excluded. OSCAL documents not yet indexed are indexed
+        first. If the FTS5 ``MATCH`` still raises ``sqlite3.OperationalError``, a
+        ``LIKE`` search over the same terms is used instead.
 
         Args:
             query_text: The search string.
@@ -2210,305 +2291,364 @@ class OscalStore:
             limit: Maximum number of items to return.
 
         Returns:
-            Page_Response dict with keys: items, total, offset, limit, hasMore.
-            Each item contains: entity_type, entity_id, title, description,
-            model_type.
+            Page_Response dict with keys: items, total, offset, limit, hasMore, where
+            ``limit`` is the number of items returned (the page may be shortened to fit
+            ``RESPONSE_BUDGET``). Each item contains: entity_type, entity_id (the
+            Element_ID or Document_UUID), title, description (at most 500 characters
+            plus ``TRUNCATION_MARK``), model_type, and ``parentDocumentUuid`` on child
+            element hits.
+
+        Raises:
+            ValueError: If ``query_text`` is not a string.
         """
-        if not query_text or not query_text.strip():
-            return {
-                "items": [],
-                "total": 0,
-                "offset": offset,
-                "limit": limit,
-                "hasMore": False,
-            }
+        terms = normalize_query(query_text)
+        if not terms:
+            return budget_page([], 0, offset)
+
+        self._index_pending_oscal_documents()
 
         try:
-            return self._fts_search(query_text, oscal_model_type, offset, limit)
+            rows, total = self._fts_search(terms, oscal_model_type, offset, limit)
         except sqlite3.OperationalError:
-            logger.warning(
-                "FTS MATCH failed for query '%s'; falling back to LIKE",
-                query_text,
-            )
-            return self._like_search(query_text, oscal_model_type, offset, limit)
+            logger.warning("FTS MATCH failed for search terms %r; falling back to LIKE", terms)
+            rows, total = self._like_search(terms, oscal_model_type, offset, limit)
+
+        items = [self._text_search_item(row) for row in rows]
+        return budget_page(items, total, offset, truncatable=("description",))
+
+    def _index_pending_oscal_documents(self) -> None:
+        """Index every OSCAL document with ``indexed=0`` (Requirements 7.2, 7.3).
+
+        A document that fails to index is logged by Document_UUID and skipped; it stays
+        ``indexed=0`` and is retried on the next call.
+        """
+        pending = self._conn.execute(
+            "SELECT id, uuid FROM documents WHERE indexed = 0 AND model_type != 'documentation'"
+        ).fetchall()
+        for row in pending:
+            try:
+                self._ensure_indexed(row["id"])
+            except Exception:
+                logger.warning("Failed to index document %s for text_search", row["uuid"])
+
+    @staticmethod
+    def _text_search_scope(oscal_model_type: OSCALModelType | None) -> tuple[str, list]:
+        """Return the fixed ``fts_index`` scope filter and its bound values."""
+        sql = "fts_index.entity_type IN ('document', 'child_element')"
+        params: list = []
+        if oscal_model_type is not None:
+            sql += " AND fts_index.model_type = ?"
+            params.append(oscal_model_type.value)
+        return sql, params
 
     def _fts_search(
         self,
-        query_text: str,
+        terms: tuple[str, ...],
         oscal_model_type: OSCALModelType | None,
         offset: int,
         limit: int,
-    ) -> dict:
-        """Execute an FTS5 MATCH search on fts_index.
+    ) -> tuple[list[sqlite3.Row], int]:
+        """Run the ranked FTS5 query for ``terms``; return one page of rows and the total.
 
-        May raise ``sqlite3.OperationalError`` on bad FTS syntax.
+        May raise ``sqlite3.OperationalError``.
         """
-        where_clauses = ["fts_index MATCH ?"]
-        params: list = [query_text]
+        match_any, match_all = match_expressions(terms)
+        scope_sql, scope_params = self._text_search_scope(oscal_model_type)
+        hits_params: list = [match_any, *scope_params]
+        # Fixed fragments only; values are bound.
+        hits_cte = (
+            "WITH hits AS ("  # nosec B608
+            "SELECT fts_index.rowid AS rid, fts_index.entity_type AS entity_type, "
+            "fts_index.entity_id AS entity_id, fts_index.title AS title, "
+            "fts_index.description AS description, fts_index.model_type AS model_type, "
+            "rank AS r "
+            f"FROM fts_index WHERE fts_index MATCH ? AND {scope_sql})"
+        )
 
-        if oscal_model_type is not None:
-            where_clauses.append("model_type = ?")
-            params.append(oscal_model_type.value)
+        total = self._conn.execute(
+            f"{hits_cte} SELECT COUNT(*) AS cnt {_TEXT_SEARCH_JOIN}",  # nosec B608
+            hits_params,
+        ).fetchone()["cnt"]
 
-        where_sql = " AND ".join(where_clauses)
+        # With one term every hit matches all terms, so the subquery is skipped.
+        all_terms_params: list = []
+        all_terms_sql = "1"
+        if len(terms) > 1:
+            all_terms_sql = "(h.rid IN (SELECT rowid FROM fts_index WHERE fts_index MATCH ?))"
+            all_terms_params = [match_all]
 
-        # Total count
-        total_row = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM fts_index WHERE {where_sql}",  # nosec B608
-            params,
-        ).fetchone()
-        total = total_row["cnt"]
-
-        # Paginated results ranked by relevance
-        page_params = [*params, limit, offset]
         rows = self._conn.execute(
-            f"""
-            SELECT entity_type, entity_id, title, description, model_type,
-                   rank
-            FROM fts_index
-            WHERE {where_sql}
-            ORDER BY rank
-            LIMIT ? OFFSET ?
-            """,  # nosec B608
-            page_params,
+            f"{hits_cte} "  # nosec B608
+            "SELECT h.entity_type, h.title, h.description, h.model_type, "
+            "COALESCE(ce.uuid, d.uuid) AS element_id, pd.uuid AS parent_uuid, "
+            f"{all_terms_sql} AS all_terms "
+            f"{_TEXT_SEARCH_JOIN} "
+            "ORDER BY all_terms DESC, h.r, h.rid LIMIT ? OFFSET ?",
+            [*hits_params, *all_terms_params, limit, offset],
         ).fetchall()
-
-        items = [
-            {
-                "entity_type": row["entity_type"],
-                "entity_id": row["entity_id"],
-                "title": row["title"],
-                "description": row["description"],
-                "model_type": row["model_type"],
-            }
-            for row in rows
-        ]
-
-        return {
-            "items": items,
-            "total": total,
-            "offset": offset,
-            "limit": limit,
-            "hasMore": offset + limit < total,
-        }
+        return rows, total
 
     def _like_search(
         self,
-        query_text: str,
+        terms: tuple[str, ...],
         oscal_model_type: OSCALModelType | None,
         offset: int,
         limit: int,
-    ) -> dict:
-        """Fallback LIKE search on fts_index title and description columns."""
-        like_pattern = f"%{query_text}%"
-        where_clauses = ["(title LIKE ? OR description LIKE ?)"]
-        params: list = [like_pattern, like_pattern]
+    ) -> tuple[list[sqlite3.Row], int]:
+        """Case-insensitive ``LIKE`` fallback for ``terms`` (Requirement 8.9).
 
-        if oscal_model_type is not None:
-            where_clauses.append("model_type = ?")
-            params.append(oscal_model_type.value)
+        Matches entities whose title, description, or Element_ID column (D10) contains
+        any term, ordered by the number of terms matched (descending), then title, then
+        FTS row id.
+        """
+        term_sql = (
+            "(fts_index.title LIKE ? ESCAPE '\\' OR fts_index.description LIKE ? ESCAPE '\\' "
+            "OR fts_index.element_id LIKE ? ESCAPE '\\')"
+        )
+        term_params: list = []
+        for term in terms:
+            pattern = fts_query.like_pattern(term)
+            term_params += [pattern, pattern, pattern]
+        matched_sql = " + ".join(f"(CASE WHEN {term_sql} THEN 1 ELSE 0 END)" for _ in terms)
+        any_sql = " OR ".join(term_sql for _ in terms)
+        scope_sql, scope_params = self._text_search_scope(oscal_model_type)
 
-        where_sql = " AND ".join(where_clauses)
+        # Fixed fragments only (one per term); values are bound.
+        hits_cte = (
+            "WITH hits AS ("  # nosec B608
+            "SELECT fts_index.rowid AS rid, fts_index.entity_type AS entity_type, "
+            "fts_index.entity_id AS entity_id, fts_index.title AS title, "
+            "fts_index.description AS description, fts_index.model_type AS model_type, "
+            f"({matched_sql}) AS matched "
+            f"FROM fts_index WHERE ({any_sql}) AND {scope_sql})"
+        )
+        hits_params = [*term_params, *term_params, *scope_params]
 
-        # Total count
-        total_row = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM fts_index WHERE {where_sql}",  # nosec B608
-            params,
-        ).fetchone()
-        total = total_row["cnt"]
+        total = self._conn.execute(
+            f"{hits_cte} SELECT COUNT(*) AS cnt {_TEXT_SEARCH_JOIN}",  # nosec B608
+            hits_params,
+        ).fetchone()["cnt"]
 
-        # Paginated results
-        page_params = [*params, limit, offset]
         rows = self._conn.execute(
-            f"""
-            SELECT entity_type, entity_id, title, description, model_type
-            FROM fts_index
-            WHERE {where_sql}
-            ORDER BY title
-            LIMIT ? OFFSET ?
-            """,  # nosec B608
-            page_params,
+            f"{hits_cte} "  # nosec B608
+            "SELECT h.entity_type, h.title, h.description, h.model_type, "
+            "COALESCE(ce.uuid, d.uuid) AS element_id, pd.uuid AS parent_uuid "
+            f"{_TEXT_SEARCH_JOIN} "
+            "ORDER BY h.matched DESC, h.title, h.rid LIMIT ? OFFSET ?",
+            [*hits_params, limit, offset],
         ).fetchall()
+        return rows, total
 
-        items = [
-            {
-                "entity_type": row["entity_type"],
-                "entity_id": row["entity_id"],
-                "title": row["title"],
-                "description": row["description"],
-                "model_type": row["model_type"],
-            }
-            for row in rows
-        ]
-
-        return {
-            "items": items,
-            "total": total,
-            "offset": offset,
-            "limit": limit,
-            "hasMore": offset + limit < total,
+    @staticmethod
+    def _text_search_item(row: sqlite3.Row) -> dict:
+        """Build one text_search item from a joined hit row (no internal row ids)."""
+        description = row["description"] or ""
+        if len(description) > TEXT_SEARCH_DESCRIPTION_CAP:
+            description = description[:TEXT_SEARCH_DESCRIPTION_CAP] + TRUNCATION_MARK
+        item = {
+            "entity_type": row["entity_type"],
+            "entity_id": row["element_id"],
+            "title": row["title"] or "",
+            "description": description,
+            "model_type": row["model_type"],
         }
+        if row["entity_type"] == "child_element":
+            item["parentDocumentUuid"] = row["parent_uuid"]
+        return item
 
     def search_documentation(
         self,
         query_text: str,
         offset: int = 0,
         limit: int = 10,
+        *,
+        origins: Sequence[Origin] = ORIGINS,
     ) -> dict:
-        """Full-text search scoped to documentation content only.
+        """Ranked full-text search over Documentation_Documents of the given Origins.
 
-        Queries the ``fts_index`` FTS5 virtual table filtered to
-        ``entity_type = 'documentation'``.  Results are ranked by FTS5
-        relevance.  When the query contains invalid FTS5 syntax, catches
-        ``sqlite3.OperationalError`` and falls back to a case-insensitive
-        ``LIKE`` search on the title and description columns.
+        The query is normalized into Search_Terms (``fts_query.normalize_query``) that are
+        matched as quoted FTS5 phrases scoped to ``DOC_SEARCH_COLUMNS`` (title and
+        description, D10). Documents that match any term are returned; those that match
+        every term come first, each group ordered by FTS5 rank. If the FTS5 ``MATCH``
+        raises ``sqlite3.OperationalError``, a ``LIKE`` search over the same terms is used
+        instead. There is no internal cap on ``limit``: the tool validates it, and KB_Mode
+        needs ``offset + limit`` local hits.
 
         Args:
             query_text: The search string.
             offset: Pagination offset (0-based).
-            limit: Maximum number of items to return (default 10, max 100).
+            limit: Maximum number of items to return.
+            origins: Origins of the Documentation_Documents to search.
 
         Returns:
-            Page_Response dict with keys: items, total, offset, limit,
-            hasMore.  Each item contains: title, snippet, source.
-        """
-        limit = min(limit, 100)
+            Page_Response dict with keys: items, total, offset, limit, hasMore. Each item
+            contains ``docId`` (the Doc_ID), ``title``, and ``snippet`` (at most 200
+            characters of matched content).
 
-        if not query_text or not query_text.strip():
-            return {
-                "items": [],
-                "total": 0,
-                "offset": offset,
-                "limit": limit,
-                "hasMore": False,
-            }
+        Raises:
+            ValueError: If ``query_text`` is not a string.
+        """
+        terms = normalize_query(query_text)
+        if not terms or not origins:
+            return self._page_response([], 0, offset, limit)
 
         try:
-            return self._doc_fts_search(query_text, offset, limit)
+            rows, total = self._doc_fts_search(terms, origins, offset, limit)
         except sqlite3.OperationalError:
             logger.warning(
-                "FTS MATCH failed for doc query '%s'; falling back to LIKE",
-                query_text,
+                "FTS MATCH failed for documentation search terms %r; falling back to LIKE",
+                terms,
             )
-            return self._doc_like_search(query_text, offset, limit)
+            rows, total = self._doc_like_search(terms, origins, offset, limit)
+            items = [self._doc_like_item(row, terms) for row in rows]
+        else:
+            items = [self._doc_fts_item(row) for row in rows]
+        return self._page_response(items, total, offset, limit)
+
+    @staticmethod
+    def _doc_origin_filter(origins: Sequence[Origin]) -> str:
+        """Return the fixed ``d.origin IN (?, ...)`` filter with one placeholder per Origin."""
+        placeholders = ", ".join("?" for _ in origins)
+        return f"AND d.origin IN ({placeholders})"
 
     def _doc_fts_search(
         self,
-        query_text: str,
+        terms: tuple[str, ...],
+        origins: Sequence[Origin],
         offset: int,
         limit: int,
-    ) -> dict:
-        """FTS5 MATCH search for documentation, with snippet and source.
+    ) -> tuple[list[sqlite3.Row], int]:
+        """Run the ranked FTS5 documentation query; return one page of rows and the total.
 
-        May raise ``sqlite3.OperationalError`` on bad FTS syntax.
+        May raise ``sqlite3.OperationalError``.
         """
-        where_sql = "fts_index MATCH ? AND entity_type = 'documentation'"
-        params: list = [query_text]
+        match_any, match_all = match_expressions(terms, columns=fts_query.DOC_SEARCH_COLUMNS)
+        origin_sql = self._doc_origin_filter(origins)
+        # Fixed fragments only; values are bound.
+        hits_cte = (
+            "WITH hits AS ("
+            "SELECT fts_index.rowid AS rid, fts_index.entity_id AS entity_id, "
+            "fts_index.title AS title, fts_index.description AS description, "
+            "snippet(fts_index, 3, '', '', '...', 40) AS snippet, rank AS r "
+            "FROM fts_index WHERE fts_index MATCH ? "
+            "AND fts_index.entity_type = 'documentation')"
+        )
+        hits_params: list = [match_any, *origins]
 
-        # Total count
-        total_row = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM fts_index "  # nosec B608
-            f"WHERE {where_sql}",
-            params,
-        ).fetchone()
-        total = total_row["cnt"]
+        total = self._conn.execute(
+            f"{hits_cte} SELECT COUNT(*) AS cnt {_DOC_SEARCH_JOIN} {origin_sql}",  # nosec B608
+            hits_params,
+        ).fetchone()["cnt"]
 
-        # Paginated results with snippet and source file_path
-        page_params = [*params, limit, offset]
+        # With one term every hit matches all terms, so the subquery is skipped.
+        all_terms_params: list = []
+        all_terms_sql = "1"
+        if len(terms) > 1:
+            all_terms_sql = "(h.rid IN (SELECT rowid FROM fts_index WHERE fts_index MATCH ?))"
+            all_terms_params = [match_all]
+
         rows = self._conn.execute(
-            f"""
-            SELECT
-                fts_index.title,
-                snippet(fts_index, 3, '', '', '...', 40) AS snippet,
-                d.file_path AS source
-            FROM fts_index
-            JOIN documents d
-                ON d.id = CAST(fts_index.entity_id AS INTEGER)
-            WHERE {where_sql}
-            ORDER BY rank
-            LIMIT ? OFFSET ?
-            """,  # nosec B608
-            page_params,
+            f"{hits_cte} "  # nosec B608
+            "SELECT d.uuid AS doc_id, h.title, h.description, h.snippet, "
+            f"{all_terms_sql} AS all_terms "
+            f"{_DOC_SEARCH_JOIN} {origin_sql} "
+            "ORDER BY all_terms DESC, h.r, h.rid LIMIT ? OFFSET ?",
+            [match_any, *all_terms_params, *origins, limit, offset],
         ).fetchall()
-
-        items = [
-            {
-                "title": row["title"],
-                "snippet": row["snippet"][:200] if row["snippet"] else "",
-                "source": row["source"],
-            }
-            for row in rows
-        ]
-
-        return {
-            "items": items,
-            "total": total,
-            "offset": offset,
-            "limit": limit,
-            "hasMore": offset + limit < total,
-        }
+        return rows, total
 
     def _doc_like_search(
         self,
-        query_text: str,
+        terms: tuple[str, ...],
+        origins: Sequence[Origin],
         offset: int,
         limit: int,
-    ) -> dict:
-        """LIKE fallback for documentation search with snippet extraction."""
-        like_pattern = f"%{query_text}%"
-        where_sql = (
-            "(fts_index.title LIKE ? OR fts_index.description LIKE ?) "
-            "AND fts_index.entity_type = 'documentation'"
+    ) -> tuple[list[sqlite3.Row], int]:
+        """Case-insensitive ``LIKE`` fallback for documentation search (Requirement 8.9).
+
+        Matches Documentation_Documents whose title or description contains any term,
+        ordered by the number of terms matched (descending), then title, then FTS row id.
+        """
+        term_sql = (
+            "(fts_index.title LIKE ? ESCAPE '\\' OR fts_index.description LIKE ? ESCAPE '\\')"
         )
-        params: list = [like_pattern, like_pattern]
+        term_params: list = []
+        for term in terms:
+            pattern = fts_query.like_pattern(term)
+            term_params += [pattern, pattern]
+        matched_sql = " + ".join(f"(CASE WHEN {term_sql} THEN 1 ELSE 0 END)" for _ in terms)
+        any_sql = " OR ".join(term_sql for _ in terms)
+        origin_sql = self._doc_origin_filter(origins)
 
-        # Total count — use a simple subquery on fts_index only
-        count_where = "(title LIKE ? OR description LIKE ?) AND entity_type = 'documentation'"
-        total_row = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM fts_index "  # nosec B608
-            f"WHERE {count_where}",
-            params,
-        ).fetchone()
-        total = total_row["cnt"]
+        # Fixed fragments only (one per term); values are bound.
+        hits_cte = (
+            "WITH hits AS ("  # nosec B608
+            "SELECT fts_index.rowid AS rid, fts_index.entity_id AS entity_id, "
+            "fts_index.title AS title, fts_index.description AS description, "
+            f"({matched_sql}) AS matched "
+            f"FROM fts_index WHERE ({any_sql}) AND fts_index.entity_type = 'documentation')"
+        )
+        hits_params = [*term_params, *term_params, *origins]
 
-        # Paginated results
-        page_params = [*params, limit, offset]
+        total = self._conn.execute(
+            f"{hits_cte} SELECT COUNT(*) AS cnt {_DOC_SEARCH_JOIN} {origin_sql}",  # nosec B608
+            hits_params,
+        ).fetchone()["cnt"]
+
         rows = self._conn.execute(
-            f"""
-            SELECT
-                fts_index.title,
-                fts_index.description,
-                d.file_path AS source
-            FROM fts_index
-            JOIN documents d
-                ON d.id = CAST(fts_index.entity_id AS INTEGER)
-            WHERE {where_sql}
-            ORDER BY fts_index.title
-            LIMIT ? OFFSET ?
-            """,  # nosec B608
-            page_params,
+            f"{hits_cte} "  # nosec B608
+            "SELECT d.uuid AS doc_id, h.title, h.description "
+            f"{_DOC_SEARCH_JOIN} {origin_sql} "
+            "ORDER BY h.matched DESC, h.title, h.rid LIMIT ? OFFSET ?",
+            [*hits_params, limit, offset],
         ).fetchall()
+        return rows, total
 
-        items = []
-        query_lower = query_text.lower()
-        for row in rows:
-            description = row["description"] or ""
-            snippet = self._extract_like_snippet(description, query_lower, 200)
-            items.append(
-                {
-                    "title": row["title"],
-                    "snippet": snippet,
-                    "source": row["source"],
-                }
-            )
+    @staticmethod
+    def _doc_fts_item(row: sqlite3.Row) -> dict:
+        """Build one Doc_Result_Item from an FTS hit row (Requirement 10.3).
 
+        A title-only match has an empty description snippet; its snippet is then the start
+        of the description.
+        """
+        snippet = row["snippet"] or row["description"] or ""
         return {
-            "items": items,
-            "total": total,
-            "offset": offset,
-            "limit": limit,
-            "hasMore": offset + limit < total,
+            "docId": row["doc_id"],
+            "title": row["title"] or "",
+            "snippet": snippet[:DOC_SNIPPET_CAP],
         }
+
+    def _doc_like_item(self, row: sqlite3.Row, terms: tuple[str, ...]) -> dict:
+        """Build one Doc_Result_Item from a LIKE hit row, snippeted at the first matched term."""
+        description = row["description"] or ""
+        lowered = description.lower()
+        first = next((t.lower() for t in terms if t.lower() in lowered), terms[0].lower())
+        return {
+            "docId": row["doc_id"],
+            "title": row["title"] or "",
+            "snippet": self._extract_like_snippet(description, first, DOC_SNIPPET_CAP),
+        }
+
+    def get_documentation(self, doc_id: str) -> DocumentationText | None:
+        """Return the Documentation_Document whose Doc_ID equals ``doc_id``, or None.
+
+        The lookup is an exact match on the stored Doc_ID and the ``documentation`` model
+        type, so an OSCAL Document_UUID never matches (Requirements 12.4, 12.6). ``lines``
+        holds the stored markdown text split with line endings kept.
+        """
+        row = self._conn.execute(
+            "SELECT uuid, title, raw_json FROM documents "
+            "WHERE uuid = ? AND model_type = 'documentation'",
+            (doc_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        text = row["raw_json"] or ""
+        return DocumentationText(
+            doc_id=row["uuid"],
+            title=row["title"] or "",
+            lines=tuple(text.splitlines(keepends=True)),
+        )
 
     @staticmethod
     def _extract_like_snippet(text: str, query_lower: str, max_len: int = 200) -> str:

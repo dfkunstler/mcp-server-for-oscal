@@ -43,6 +43,8 @@ TARGET_SELECTOR_DOC = (
 )
 QUERY_TYPE_DOC = '"all" (paged), "by_uuid", or "by_title" (exact, then full-text).'
 QUERY_VALUE_DOC = "UUID or title to match. Required for by_uuid and by_title."
+START_LINE_DOC = "1-based first line to return."
+LINE_COUNT_DOC = "Maximum lines to return, 1-500."
 
 # --- Reusable Annotated aliases. Keep these as plain assignments, not PEP 695 `type`
 # statements: Strands checks `get_origin(annotation) is Annotated` and does not unwrap a
@@ -56,6 +58,8 @@ OptionalModelName = Annotated[str | None, ParamDoc(OPTIONAL_MODEL_DOC)]
 TargetSelector = Annotated[str, ParamDoc(TARGET_SELECTOR_DOC)]
 PerModelQueryType = Annotated[Literal["all", "by_uuid", "by_title"], ParamDoc(QUERY_TYPE_DOC)]
 QueryValue = Annotated[str | None, ParamDoc(QUERY_VALUE_DOC)]
+StartLine = Annotated[int, ParamDoc(START_LINE_DOC)]
+LineCount = Annotated[int, ParamDoc(LINE_COUNT_DOC)]
 
 ABOUT_DESCRIPTION = (
     "Return server metadata: package version, keywords, bundled OSCAL version, "

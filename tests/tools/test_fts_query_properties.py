@@ -14,6 +14,7 @@ from hypothesis import strategies as st
 
 from mcp_server_for_oscal.tools.fts_query import (
     _TERM,
+    DOC_SEARCH_COLUMNS,
     MAX_SEARCH_TERMS,
     match_expressions,
     normalize_query,
@@ -28,14 +29,23 @@ _FTS_DDL = """
         entity_id,
         title,
         description,
-        model_type
+        model_type,
+        element_id
     )
 """
 
 _ROWS = [
-    ("child_element", "c1", "AC-2 Account Management", "back-matter resources", "catalog"),
-    ("document", "d1", "Profile resolution", "how does profile resolution work", "profile"),
-    ("child_element", "c2", "NOT AND OR NEAR", 'quote " star * colon : caret ^', "catalog"),
+    ("child_element", "c1", "AC-2 Account Management", "back-matter", "catalog", "ac-2"),
+    (
+        "document",
+        "d1",
+        "Profile resolution",
+        "how does profile resolution work",
+        "profile",
+        "0b6a7f2e-6d1c-4b2a-9f0e-2c1d3e4f5a6b",
+    ),
+    ("child_element", "c2", "NOT AND OR NEAR", 'quote " star * colon : caret ^', "catalog", "x"),
+    ("documentation", "m1", "Guide", "OSCAL documentation", "documentation", ""),
 ]
 
 # FTS5-hostile fragments from Requirement 8.2/8.3, mixed with arbitrary Unicode text.
@@ -56,7 +66,7 @@ _QUERIES = st.one_of(
 def fts_conn() -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(":memory:")
     conn.execute(_FTS_DDL)
-    conn.executemany("INSERT INTO fts_index VALUES (?, ?, ?, ?, ?)", _ROWS)
+    conn.executemany("INSERT INTO fts_index VALUES (?, ?, ?, ?, ?, ?)", _ROWS)
     yield conn
     conn.close()
 
@@ -79,12 +89,14 @@ class TestNormalizationNeverYieldsFts5Syntax:
             assert _TERM.fullmatch(term), term
 
         match_any, match_all = match_expressions(terms)
+        doc_any, doc_all = match_expressions(terms, columns=DOC_SEARCH_COLUMNS)
         if not terms:
             # Requirement 8.8: no terms means no MATCH; the store returns an empty page.
             assert (match_any, match_all) == ("", "")
+            assert (doc_any, doc_all) == ("", "")
             return
 
-        for expr in (match_any, match_all):
+        for expr in (match_any, match_all, doc_any, doc_all):
             # Raises sqlite3.OperationalError if any caller text leaked in as FTS5 syntax.
             fts_conn.execute(
                 "SELECT entity_id FROM fts_index WHERE fts_index MATCH ? ORDER BY rank",

@@ -78,6 +78,35 @@ LEGACY_DDL: tuple[str, ...] = (
             """,
 )
 
+# Version-1 DDL (early builds of this feature): the pre-feature tables plus the provenance
+# columns and their index, with the five-column FTS table and ``user_version`` 1.
+V1_DDL: tuple[str, ...] = (
+    """
+                CREATE TABLE IF NOT EXISTS documents (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    uuid         TEXT    NOT NULL UNIQUE,
+                    title        TEXT    NOT NULL,
+                    model_type   TEXT    NOT NULL,
+                    file_path    TEXT    NOT NULL UNIQUE,
+                    file_size    INTEGER NOT NULL,
+                    file_mtime   REAL    NOT NULL,
+                    content_hash TEXT,
+                    raw_json     TEXT    NOT NULL,
+                    indexed      INTEGER NOT NULL DEFAULT 0,
+                    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+                    updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+                    origin        TEXT NOT NULL DEFAULT '',
+                    relative_name TEXT NOT NULL DEFAULT ''
+                )
+            """,
+    *LEGACY_DDL[1:],
+    "CREATE INDEX IF NOT EXISTS idx_documents_origin ON documents(origin, model_type)",
+    "PRAGMA user_version = 1",
+)
+
+# Column names of the current (version 2) FTS table (D10).
+FTS_COLUMNS_V2 = ["entity_type", "entity_id", "title", "description", "model_type", "element_id"]
+
 # ---------------------------------------------------------------------------
 # Legacy row model and generators
 # ---------------------------------------------------------------------------
@@ -200,12 +229,35 @@ def legacy_dbs(draw) -> LegacyDb:
     return LegacyDb(docs=docs, orphans=orphans)
 
 
-def build_legacy_db(path: Path, spec: LegacyDb) -> None:
-    """Write ``spec`` to ``path`` with the pre-feature DDL and raw INSERTs."""
+def v1_spec(spec: LegacyDb) -> LegacyDb:
+    """Return ``spec`` as a version-1 DB holds it: documentation rows keyed by Doc_ID.
+
+    Documentation rows whose Doc_ID repeats an earlier row's are dropped (the version-1
+    upgrade or scan never left two rows with one Doc_ID).
+    """
+    docs: list[LegacyDoc] = []
+    seen: set[str] = set()
+    for d in spec.docs:
+        if d.model_type == "documentation":
+            target = doc_id(*legacy_provenance(d.file_path))
+            if target in seen:
+                continue
+            seen.add(target)
+            d.uuid = target
+        docs.append(d)
+    return LegacyDb(docs=docs, orphans=spec.orphans)
+
+
+def build_legacy_db(path: Path, spec: LegacyDb, version: int = 0) -> None:
+    """Write ``spec`` to ``path`` with the version-0 (or version-1) DDL and raw INSERTs.
+
+    Version-1 rows carry Origin and Relative_Name from ``legacy_provenance``; pass a
+    spec from ``v1_spec`` so documentation UUIDs are Doc_IDs.
+    """
     conn = sqlite3.connect(path)
     try:
         conn.execute("PRAGMA foreign_keys=ON")
-        for stmt in LEGACY_DDL:
+        for stmt in V1_DDL if version == 1 else LEGACY_DDL:
             conn.execute(stmt)
         for d in spec.docs:
             cur = conn.execute(
@@ -214,6 +266,11 @@ def build_legacy_db(path: Path, spec: LegacyDb) -> None:
                 (d.uuid, "Title", d.model_type, d.file_path, 2, 1.0, "h", "{}", d.indexed),
             )
             d.row_id = cur.lastrowid or 0
+            if version == 1:
+                conn.execute(
+                    "UPDATE documents SET origin = ?, relative_name = ? WHERE id = ?",
+                    (*legacy_provenance(d.file_path), d.row_id),
+                )
             fts_type = "documentation" if d.model_type == "documentation" else "document"
             if d.has_fts:
                 conn.execute(
@@ -258,6 +315,23 @@ def dump_db(path: Path) -> tuple:
         )
     finally:
         conn.close()
+
+
+def fts_columns(conn: sqlite3.Connection) -> list[str]:
+    return [r[1] for r in conn.execute("PRAGMA table_info(fts_index)")]
+
+
+def expected_element_ids(spec: LegacyDb) -> dict[tuple[str, str], str]:
+    """Map ``(entity_type, entity_id)`` of live entities to their expected ``element_id``."""
+    expected: dict[tuple[str, str], str] = {}
+    for d in spec.docs:
+        if d.model_type == "documentation":
+            expected["documentation", str(d.row_id)] = ""
+        else:
+            expected["document", str(d.row_id)] = d.uuid
+        for c in d.children:
+            expected["child_element", str(c.row_id)] = c.uuid
+    return expected
 
 
 def open_and_close(path: Path) -> None:
@@ -371,6 +445,12 @@ class TestPreFeatureUpgradeProperty:
                     ]
                 )
                 assert sorted(fts) == expected_fts
+
+                # The FTS table has the element_id column, filled from the joins (D10).
+                assert fts_columns(conn) == FTS_COLUMNS_V2
+                element_ids = expected_element_ids(spec)
+                for r in conn.execute("SELECT entity_type, entity_id, element_id FROM fts_index"):
+                    assert r["element_id"] == element_ids[r["entity_type"], r["entity_id"]]
             finally:
                 conn.close()
 
@@ -378,6 +458,47 @@ class TestPreFeatureUpgradeProperty:
             before = dump_db(db_path)
             open_and_close(db_path)
             assert dump_db(db_path) == before
+
+    @given(spec=legacy_dbs())
+    @settings(
+        max_examples=100,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
+    def test_version_1_dbs_rebuild_fts_with_element_id(self, spec: LegacyDb) -> None:
+        """Feature: search-fetch-pairs, Property 19: Version-1 DBs upgrade in place, once.
+
+        **Validates: Requirements 14.2, 14.6**
+        """
+        spec = v1_spec(spec)
+        with tempfile.TemporaryDirectory(prefix="oscal_migration_") as tmp:
+            db_path = Path(tmp) / "v1.db"
+            build_legacy_db(db_path, spec, version=1)
+            before = dump_db(db_path)
+            assert before[0] == 1
+
+            open_and_close(db_path)
+
+            after = dump_db(db_path)
+            assert after[0] == SCHEMA_VERSION
+            # documents and child_elements are unchanged.
+            assert after[2:4] == before[2:4]
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                assert fts_columns(conn) == FTS_COLUMNS_V2
+                rows = conn.execute("SELECT rowid, * FROM fts_index ORDER BY rowid").fetchall()
+            finally:
+                conn.close()
+            # Same rows (rowid and the five old columns), plus element_id from the joins;
+            # orphans and documentation rows get ''.
+            assert [tuple(r)[:6] for r in rows] == before[4]
+            element_ids = expected_element_ids(spec)
+            for r in rows:
+                assert r["element_id"] == element_ids.get((r["entity_type"], r["entity_id"]), "")
+
+            open_and_close(db_path)
+            assert dump_db(db_path) == after
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +619,94 @@ class TestMigrationUnit:
         for _ in range(2):
             open_and_close(db_path)
             assert dump_db(db_path) == upgraded
+
+    def test_version_1_db_upgrades_to_current_with_element_id(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "v1.db"
+        spec = v1_spec(
+            LegacyDb(
+                docs=[
+                    LegacyDoc(
+                        model_type="documentation",
+                        file_path="/Users/dev/repo/data/oscal_docs/intro.md",
+                        uuid="",
+                        indexed=1,
+                        has_fts=True,
+                    ),
+                    LegacyDoc(
+                        model_type="catalog",
+                        file_path="/home/alice/oscal/cat.json",
+                        uuid="cat-uuid",
+                        indexed=1,
+                        has_fts=True,
+                        children=[LegacyChild(uuid="ac-2", element_type="control", fts_copies=1)],
+                    ),
+                ],
+                orphans=[],
+            )
+        )
+        build_legacy_db(db_path, spec, version=1)
+        before = dump_db(db_path)
+
+        open_and_close(db_path)
+
+        after = dump_db(db_path)
+        assert after[0] == SCHEMA_VERSION
+        assert after[2:4] == before[2:4]  # documents and child_elements unchanged
+        conn = sqlite3.connect(db_path)
+        try:
+            assert fts_columns(conn) == FTS_COLUMNS_V2
+            fts = conn.execute(
+                "SELECT entity_type, element_id FROM fts_index ORDER BY rowid"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert fts == [("documentation", ""), ("document", "cat-uuid"), ("child_element", "ac-2")]
+
+    def test_failed_version_1_upgrade_rolls_back(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "v1.db"
+        cdef = LegacyDoc(
+            model_type="component-definition",
+            file_path="/home/alice/oscal/cdef.json",
+            uuid="cdef-uuid",
+            indexed=1,
+            has_fts=True,
+        )
+        build_legacy_db(db_path, LegacyDb(docs=[cdef], orphans=[]), version=1)
+        # A table with the rebuild's target name makes the rebuild fail with sqlite3.Error.
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE fts_index_v2 (x)")
+        conn.commit()
+        conn.close()
+        before = dump_db(db_path)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            OscalStore(db_path=str(db_path), seed_from_bundled=False)
+
+        assert str(exc_info.value) == UPGRADE_FAILED_MESSAGE
+        assert dump_db(db_path) == before
+
+    def test_populated_current_db_reopen_changes_nothing(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "current.db"
+        build_legacy_db(
+            db_path,
+            LegacyDb(
+                docs=[
+                    LegacyDoc(
+                        model_type="profile",
+                        file_path="/home/alice/oscal/p.json",
+                        uuid="p-uuid",
+                        indexed=1,
+                        has_fts=True,
+                    )
+                ],
+                orphans=[],
+            ),
+        )
+        open_and_close(db_path)  # upgrade to the current version
+        current = dump_db(db_path)
+        assert current[0] == SCHEMA_VERSION
+        open_and_close(db_path)
+        assert dump_db(db_path) == current
 
     def test_fresh_db_reopen_changes_nothing(self, tmp_path: Path) -> None:
         db_path = tmp_path / "fresh.db"

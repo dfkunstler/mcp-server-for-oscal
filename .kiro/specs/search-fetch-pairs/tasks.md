@@ -103,127 +103,135 @@ Rules for every task:
     - File `tests/tools/test_control_prose.py`; the oracle walks the JSON dict, not the models.
     - **Validates: Requirements 9.1, 9.2, 9.3, 9.4**
 
-- [-] 7. Checkpoint: store foundation
+- [x] 7. Checkpoint: store foundation
   - Run `hatch run tests`. Ensure all tests pass, ask the user if questions arise.
   - Commit the files changed in tasks 4-6 (and this file) by name, for example `feat(store): FTS query normalization, provenance, schema upgrade, control prose (#45); hatch run tests passed`.
 
-- [ ] 8. Shared response-budget and line-range helpers in `utils`
-  - [~] 8.1 Add `utils.budget_page()` and make `paginate_within_budget` use it
+- [x] 8. Shared response-budget and line-range helpers in `utils`
+  - [x] 8.1 Add `utils.budget_page()` and make `paginate_within_budget` use it
     - `budget_page(items, total, offset, *, budget=RESPONSE_BUDGET, truncatable=("description",), extra=None)`: longest fitting prefix, `limit` = items returned, `hasMore` recomputed, at least one item (truncated if needed). `paginate_within_budget` slices and then calls it; its output is unchanged.
     - _Requirements: 7.5_
-  - [~] 8.2 Move the line-range helpers to `utils` and refactor `get_metaschema_source`
+  - [x] 8.2 Move the line-range helpers to `utils` and refactor `get_metaschema_source`
     - `MAX_LINE_COUNT = 500`, `check_line_range(start_line, line_count, total, *, noun="file")`, `lines_within_budget(base, lines, start, line_count, *, budget=RESPONSE_BUDGET)` from `get_metaschema_source._check_line_count`, `_check_start_line`, `_within_budget`, `_response`.
     - Add `START_LINE_DOC`, `LINE_COUNT_DOC`, `StartLine`, `LineCount` to `tools/descriptions.py`; switch `get_metaschema_source` to them (parameter names unchanged).
     - `get_metaschema_source` output stays byte-identical; its existing tests run unchanged.
     - _Requirements: 12.7, 12.8, 12.9, 13.1, 13.3_
-  - [~] 8.3 Write unit tests for the new helpers
+  - [x] 8.3 Write unit tests for the new helpers
     - `budget_page`: fits budget, `hasMore`, single over-budget item truncated, `extra` keys. `check_line_range` messages name the parameter and range with `noun`. `lines_within_budget`: whole lines, one over-budget line cut at a code-point boundary with `TRUNCATION_MARK` and `truncated: true`.
     - Files `tests/test_utils.py` and `tests/test_paginate_within_budget.py`. Run the existing `get_metaschema_source` tests as the regression check.
     - _Requirements: 7.5, 12.7, 12.8, 12.9_
 
-- [ ] 9. Text search: resolvable, scoped, ranked, bounded
-  - [~] 9.1 Rewrite `OscalStore.text_search`
+- [x] 9. Text search: resolvable, scoped, ranked, bounded
+  - [x] 9.1 Rewrite `OscalStore.text_search`
     - `normalize_query`; empty terms → empty Page_Response with no SQL. `_index_pending_oscal_documents()` (warn with the Document_UUID and continue on failure). The ranked query of design section 5: `entity_type IN ('document', 'child_element')`, optional `model_type`, join to `child_elements`/`documents` for Element_ID, Document_UUID, and `parentDocumentUuid`, orphans dropped, `ORDER BY all_terms DESC, rank, rowid`, `total` by `COUNT(*)`. Values bound; `# nosec B608` on composed fixed fragments.
     - Items: `entity_type`, `entity_id`, `title`, `description` (500 characters + `TRUNCATION_MARK`), `model_type`, `parentDocumentUuid` on child hits only; no row ids. Return through `budget_page(..., truncatable=("description",))`.
     - LIKE fallback on `sqlite3.OperationalError`: warn with the normalized terms; ORed `LIKE ... ESCAPE '\'` per term; order by terms matched, title, rowid; same item shape.
     - `_query_by_title_fts`: normalized ANDed `{title}` phrases, `entity_type`/`model_type` as SQL filters.
     - Update tests in `tests/tools/test_oscal_store.py` and `tests/test_integration.py` that assert row-id `entity_id` values or documentation hits.
     - _Requirements: 6.1, 6.2, 6.5, 6.6, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 8.1, 8.2, 8.3, 8.5, 8.6, 8.8, 8.9_
-  - [~] 9.2 Update the `text_search_oscal` tool
+  - [x] 9.2 Update the `text_search_oscal` tool
     - `limit: BudgetedLimit = 10` (name and range unchanged) and the new description from design section 14 (≤ 180 characters, Description_Shape).
     - _Requirements: 7.7, 13.1, 13.2, 13.3_
-  - [~] 9.3 Write the resolvability property test (required)
+  - [x] 9.3 Write the resolvability property test (required)
     - **Property 6: Text search hits resolve through the fetch tools**
     - File `tests/tools/test_text_search.py`; docs of every `OSCALModelType`; child hits through `get_child_element(entity_id, parentDocumentUuid)`, document hits through the per-model query `by_uuid`.
     - **Validates: Requirements 6.1, 6.2, 6.3, 6.4**
-  - [ ]* 9.4 Write property test for normalization against the store (text search part)
+  - [x]* 9.4 Write property test for normalization against the store (text search part)
     - **Property 3: Query normalization never yields FTS5 syntax** (store part for `text_search`: no `OperationalError`; empty page with `total` 0 exactly when the term tuple is empty)
     - **Validates: Requirements 8.1, 8.2, 8.3, 8.8**
-  - [ ]* 9.5 Write property test for ranking against a per-term oracle
+  - [x]* 9.5 Write property test for ranking against a per-term oracle
     - **Property 5: Search results equal a per-term oracle, all-terms first**
     - **Validates: Requirements 8.5, 8.6, 8.7**
-  - [ ]* 9.6 Write property test for item shape and scope
+  - [x]* 9.6 Write property test for item shape and scope
     - **Property 7: Text search items have the documented shape and scope**
     - **Validates: Requirements 6.5, 6.6, 7.1, 7.6**
-  - [ ]* 9.7 Write property test for search freshness
+  - [x]* 9.7 Write property test for search freshness
     - **Property 8: Newly scanned documents are searchable without other calls**
     - **Validates: Requirements 7.2**
-  - [ ]* 9.8 Write property test for text search paging within budget
+  - [x]* 9.8 Write property test for text search paging within budget
     - **Property 9: Text search pages fit the budget and cover every hit once**
     - **Validates: Requirements 7.4, 7.5**
-  - [~] 9.9 Write unit tests for text search
-    - Pending document with corrupt `raw_json` → warning and search continues (7.3); LIKE fallback with the FTS query patched to raise (8.9); `back-matter`, `ac-2`, `control-implementation`, `"profile resolution" AND (x` return results without `OperationalError` (8.2); a phrase only in a fixture control's guidance finds that control (9.6); `by_title` with a hyphenated title finds the document; against the bundled DB when present (skip otherwise), "how does profile resolution work" ⊇ "profile resolution" (8.7); the `text_search_oscal` `limit` schema uses the `BudgetedLimit` text (7.7).
+  - [x] 9.9 Write unit tests for text search
+    - Pending document with corrupt `raw_json` → warning and search continues (7.3); LIKE fallback with the FTS query patched to raise (8.9); `back-matter`, `ac-2`, `control-implementation`, `"profile resolution" AND (x` return results without `OperationalError` (8.2), and `ac-2` returns fixture control `ac-2` as a hit with its `parentDocumentUuid` (6.7, needs 9.10); a phrase only in a fixture control's guidance finds that control (9.6); `by_title` with a hyphenated title finds the document; against the bundled DB when present (skip otherwise), "how does profile resolution work" ⊇ "profile resolution" (8.7); the `text_search_oscal` `limit` schema uses the `BudgetedLimit` text (7.7).
     - File `tests/tools/test_text_search.py`.
     - _Requirements: 7.3, 7.7, 8.2, 8.7, 8.9, 9.6_
+  - [x] 9.10 Index Element_IDs in FTS for ID search
+    - Runs before 9.3-9.9 and 11.1 (dependency graph), which touch the same store and search code. Design D10, sections 1, 2, 4, 5.
+    - FTS schema: append `element_id` as the last column of `fts_index` in `_init_schema` (fresh DBs). In `tools/fts_query.py`, `SEARCH_COLUMNS = "{title description element_id}"` and add `DOC_SEARCH_COLUMNS = "{title description}"`; `search_documentation` (and task 11.1's rewrite) passes `DOC_SEARCH_COLUMNS`. The `text_search` LIKE fallback also checks `element_id`.
+    - `_ensure_indexed` writes `element_id`: the Element_ID for `child_element` rows, the Document_UUID for the `document` row. The markdown indexer writes `''` for `documentation` rows. Items still take identifiers from the D1 joins.
+    - Migration: `SCHEMA_VERSION = 2`. `_migrate` reads the version once inside `BEGIN IMMEDIATE`: version 0 runs the existing v1 steps and then the FTS rebuild; version 1 runs only `_rebuild_fts_with_element_id` (create `fts_index_v2`, copy rows with their `rowid` and `element_id` from joins to `child_elements`/`documents`, `''` for documentation, drop `fts_index`, rename); the rebuild is skipped when `PRAGMA table_info(fts_index)` already lists `element_id`. A DB at version 2 is not written to. Failures keep the fixed `RuntimeError` text and roll back.
+    - Update tests that embed the FTS DDL or assert `user_version == 1`: `tests/tools/test_fts_query_properties.py` `_FTS_DDL` → six-column DDL; `tests/tools/test_oscal_store_migration.py` keeps `LEGACY_DDL` as the v0 DDL, adds a v1 DDL, compares with `SCHEMA_VERSION`, and extends the Property 19 test to check `element_id` values after upgrade; any other literal `1` or five-column assertion (task 16.2 will expect `SCHEMA_VERSION`).
+    - Unit tests: `ac-2` finds fixture control `ac-2` (title "Account Management", no "AC-2" in title or prose) with `entity_id` `ac-2` and the catalog's `parentDocumentUuid`; a Document_UUID search finds that document hit; reopening a v2 DB leaves a full DB dump unchanged; a v1 DB upgrades to 2 with `element_id` filled and `documents`/`child_elements` unchanged; documentation search results are unchanged by the new column. Files `tests/tools/test_text_search.py` and `tests/tools/test_oscal_store_migration.py`.
+    - _Requirements: 6.7, 14.2, 14.3, 14.6_
 
-- [ ] 10. Remove `file_path` from per-model query results
-  - [~] 10.1 Stop selecting and returning `file_path`
+- [x] 10. Remove `file_path` from per-model query results
+  - [x] 10.1 Stop selecting and returning `file_path`
     - `_query_by_uuid`, `_query_by_title`, `_query_by_title_fts`, `_query_all`, and `_build_query_items` in `tools/oscal_store.py` (design section 7). Update existing tests that expect `file_path`.
     - _Requirements: 3.1, 3.2_
-  - [~] 10.2 Write unit tests for per-model items
+  - [x] 10.2 Write unit tests for per-model items
     - Every `query_<model>` item lacks `file_path`; `query_component_definition` results are unchanged.
     - File `tests/tools/test_query_oscal_models.py`.
     - _Requirements: 3.2_
 
-- [ ] 11. Documentation search: store, KB normalization, merge, and paging
-  - [~] 11.1 Rewrite `OscalStore.search_documentation` and add `get_documentation`
+- [x] 11. Documentation search: store, KB normalization, merge, and paging
+  - [x] 11.1 Rewrite `OscalStore.search_documentation` and add `get_documentation`
     - `search_documentation(query_text, offset=0, limit=10, *, origins=ORIGINS)`: same normalization and two-group ordering over `entity_type = 'documentation'`, joined to `documents` filtered by `origin IN (...)`; items `{"docId", "title", "snippet"}` with `snippet(...)` cut to 200 characters (first 200 description characters for title-only matches); LIKE fallback with `_extract_like_snippet`; no `source` key; no internal `limit` cap.
     - `DocumentationText` dataclass and `get_documentation(doc_id)` (exact `uuid` match with `model_type = 'documentation'`).
     - _Requirements: 3.3, 8.1, 8.5, 8.6, 10.3, 11.2, 11.7, 12.4, 12.6_
-  - [~] 11.2 Rewrite `query_oscal_documentation`
+  - [x] 11.2 Rewrite `query_oscal_documentation`
     - In `tools/query_documentation.py`: `KB_MAX_RESULTS`, `KB_FAILED_MESSAGE`, `UNKNOWN_DOC_ID_MESSAGE`; signature `query`, `offset: Offset = 0`, `limit: BudgetedLimit = 10`, `ctx` last; new description (design section 8).
     - Flow: `check_page` (notify and raise on error); blank query → empty page with no KB call; Local_Mode over both Origins; KB_Mode with `numberOfResults=KB_MAX_RESULTS`, `kb_result_items`, user-only local prefix of `offset + limit`, `merge_page`; KB failure → warning log with `exc_info`, `KB_FAILED_MESSAGE` as a warning, Local_Mode over both Origins; every page through `budget_page(..., truncatable=("snippet",))`.
     - Pure helpers `kb_result_items`, `kb_title` (D6), `interleave`, `merge_page`. Remove `query_kb`'s raw response and its path-echoing error.
     - Update `tests/tools/test_query_documentation.py`, `tests/tools/test_local_doc_search.py`, and `tests/conftest.py` users of `sample_bedrock_response` for the new shape.
     - _Requirements: 3.1, 3.3, 3.4, 4.3, 10.1, 10.2, 10.4, 10.5, 10.6, 10.7, 11.1, 11.3, 11.4, 11.5, 11.6, 11.8, 11.9, 13.1, 15.4_
-  - [ ]* 11.3 Write property test for Doc_Result_Item shape
+  - [x]* 11.3 Write property test for Doc_Result_Item shape
     - **Property 11: Doc_Result_Items have one shape and carry no KB location data**
     - File `tests/tools/test_query_documentation_results.py`
     - **Validates: Requirements 3.3, 3.4, 10.2, 10.3, 10.4, 10.5**
-  - [ ]* 11.4 Write property test for merged paging
+  - [x]* 11.4 Write property test for merged paging
     - **Property 12: Merged pages walk the interleaved sequence exactly once**
     - File `tests/tools/test_query_documentation_results.py`
     - **Validates: Requirements 11.3, 11.4, 11.5, 11.6**
-  - [ ]* 11.5 Write property test for Origin scope per mode
+  - [x]* 11.5 Write property test for Origin scope per mode
     - **Property 13: Each mode searches the right Origins**
     - File `tests/tools/test_query_documentation_results.py`; stubbed `Session`, no network.
     - **Validates: Requirements 11.1, 11.2, 11.7, 11.9**
-  - [ ]* 11.6 Write property test for KB failure messages
+  - [x]* 11.6 Write property test for KB failure messages
     - **Property 18: Knowledge Base failures emit no location or ARN**
     - File `tests/tools/test_query_documentation_results.py`
     - **Validates: Requirements 4.3, 11.8**
-  - [ ]* 11.7 Write property test for normalization against the store (documentation part)
+  - [x]* 11.7 Write property test for normalization against the store (documentation part)
     - **Property 3: Query normalization never yields FTS5 syntax** (store part for `search_documentation`)
     - File `tests/tools/test_local_doc_search.py`
     - **Validates: Requirements 8.1, 8.2, 8.3, 8.8**
-  - [~] 11.8 Write unit tests for `query_oscal_documentation`
+  - [x] 11.8 Write unit tests for `query_oscal_documentation`
     - Blank query returns an empty page with no KB call (10.7); KB request uses `numberOfResults=100` (11.5); `offset`/`limit` schema uses the shared `Offset`/`BudgetedLimit` descriptions (10.1); out-of-range `offset`/`limit` messages name the parameter and range (10.6); a user document with a unique token is returned in both modes (11.9).
     - File `tests/tools/test_query_documentation.py`.
     - _Requirements: 10.1, 10.6, 10.7, 11.5, 11.9_
 
-- [ ] 12. Documentation fetch tool
-  - [~] 12.1 Implement and register `get_oscal_documentation`
+- [x] 12. Documentation fetch tool
+  - [x] 12.1 Implement and register `get_oscal_documentation`
     - In `tools/query_documentation.py` (D9, shares `_store`): `doc_id`, `start_line: StartLine = 1`, `line_count: LineCount = 200`, `ctx` last; description from design section 8 (≤ 250 characters). Unknown or non-`str` `doc_id` → notify and raise `ValueError(UNKNOWN_DOC_ID_MESSAGE)` with no echo; then `check_line_range(..., noun="document")`; then `lines_within_budget({"docId", "title"}, ...)`.
     - Add it to `get_tool_list()` and update the exact tool sets and counts (45 → 46) in `tests/test_tool_registry.py` and `tests/tools/test_query_oscal_models_child_elements.py` so the suite stays green.
     - _Requirements: 4.5, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8, 12.9, 12.10, 13.1, 13.2_
-  - [ ]* 12.2 Write property test for document paging
+  - [x]* 12.2 Write property test for document paging
     - **Property 14: Paging a document reconstructs its text within budget**
     - File `tests/tools/test_get_oscal_documentation.py`
     - **Validates: Requirements 12.3, 12.8, 12.9, 12.10**
-  - [ ]* 12.3 Write property test for unknown Doc_IDs
+  - [x]* 12.3 Write property test for unknown Doc_IDs
     - **Property 15: Unknown Doc_IDs get one fixed, non-echoing error**
     - File `tests/tools/test_get_oscal_documentation.py`
     - **Validates: Requirements 4.5, 12.5, 12.6**
-  - [ ]* 12.4 Write property test for out-of-range paging arguments
+  - [x]* 12.4 Write property test for out-of-range paging arguments
     - **Property 16: Out-of-range paging arguments name the parameter and range**
     - File `tests/tools/test_get_oscal_documentation.py`; covers both `query_oscal_documentation` and `get_oscal_documentation`.
     - **Validates: Requirements 10.6, 12.7**
-  - [~] 12.5 Write unit tests for `get_oscal_documentation`
+  - [x] 12.5 Write unit tests for `get_oscal_documentation`
     - Fetch a `bundled` and a `user` document by Doc_ID; an OSCAL Document_UUID gets the unknown-ID error; the response keys match design ("docId", "title", "start-line", "end-line", "total-lines", "has-more", "text"); store not initialized raises the fixed `RuntimeError`.
     - File `tests/tools/test_get_oscal_documentation.py`.
     - _Requirements: 12.3, 12.5, 12.6_
 
-- [~] 13. Checkpoint: search and fetch pairs
+- [-] 13. Checkpoint: search and fetch pairs
   - Run `hatch run tests`. Ensure all tests pass, ask the user if questions arise.
   - Commit the files changed in tasks 8-12 (and this file) by name, for example `feat(tools): resolvable text search, documentation search paging, get_oscal_documentation (#45); hatch run tests passed`.
 
@@ -326,6 +334,7 @@ Rules for every task:
 - Store-backed tests build real `OscalStore` instances in `tmp_path` with `seed_from_bundled=False`.
 - Budget baseline (task 3.1, measured at 9cc4668, #44 included, with `hatch run python private/measure_tools_list.py`): 45 tools; `tools/list` 33,941 of 38,979 characters (headroom 5,038); longest tool description `get_constraints` 442 (cap 1,200; next `query_component_definition` 429, `find_references_to` 416); longest parameter description `get_constraints.target` 197 (cap 250); `SERVER_INSTRUCTIONS` 1,795 of 3,000. Matches the design.md section 14 baseline, so the final estimate (≈ 35,300; `SERVER_INSTRUCTIONS` ≈ 1,950) stands.
 - Budget after (task 20.1): _to be recorded_.
+- Task 9.10 was added during implementation (design D10, Requirement 6.7): task 9.1 showed that `text_search` cannot find a control by its ID. It also covers design Property 20 through its example tests. Schema version 2 supersedes the `user_version` 1 mentioned in earlier tasks (5.2, 16.2); those tasks compare with `SCHEMA_VERSION`.
 
 ## Task Dependency Graph
 
@@ -347,23 +356,24 @@ Rules for every task:
     { "id": 12, "tasks": ["8.2"] },
     { "id": 13, "tasks": ["8.3", "9.1"] },
     { "id": 14, "tasks": ["9.2", "10.1"] },
-    { "id": 15, "tasks": ["9.3", "10.2", "11.1"] },
-    { "id": 16, "tasks": ["9.4", "11.2"] },
-    { "id": 17, "tasks": ["9.5", "11.3", "11.7", "12.1"] },
-    { "id": 18, "tasks": ["9.6", "11.4", "12.2"] },
-    { "id": 19, "tasks": ["9.7", "11.5", "12.3"] },
-    { "id": 20, "tasks": ["9.8", "11.6", "12.4"] },
-    { "id": 21, "tasks": ["9.9", "11.8", "12.5"] },
-    { "id": 22, "tasks": ["14.1", "14.2", "14.4", "14.5"] },
-    { "id": 23, "tasks": ["14.3", "15.1", "16.1"] },
-    { "id": 24, "tasks": ["14.6", "15.2", "16.2"] },
-    { "id": 25, "tasks": ["16.3"] },
-    { "id": 26, "tasks": ["18.1", "18.2"] },
-    { "id": 27, "tasks": ["18.3"] },
-    { "id": 28, "tasks": ["19.1", "19.3", "19.4"] },
-    { "id": 29, "tasks": ["19.2", "19.5"] },
-    { "id": 30, "tasks": ["20.1"] },
-    { "id": 31, "tasks": ["22.1"] }
+    { "id": 15, "tasks": ["9.10"] },
+    { "id": 16, "tasks": ["9.3", "10.2", "11.1"] },
+    { "id": 17, "tasks": ["9.4", "11.2"] },
+    { "id": 18, "tasks": ["9.5", "11.3", "11.7", "12.1"] },
+    { "id": 19, "tasks": ["9.6", "11.4", "12.2"] },
+    { "id": 20, "tasks": ["9.7", "11.5", "12.3"] },
+    { "id": 21, "tasks": ["9.8", "11.6", "12.4"] },
+    { "id": 22, "tasks": ["9.9", "11.8", "12.5"] },
+    { "id": 23, "tasks": ["14.1", "14.2", "14.4", "14.5"] },
+    { "id": 24, "tasks": ["14.3", "15.1", "16.1"] },
+    { "id": 25, "tasks": ["14.6", "15.2", "16.2"] },
+    { "id": 26, "tasks": ["16.3"] },
+    { "id": 27, "tasks": ["18.1", "18.2"] },
+    { "id": 28, "tasks": ["18.3"] },
+    { "id": 29, "tasks": ["19.1", "19.3", "19.4"] },
+    { "id": 30, "tasks": ["19.2", "19.5"] },
+    { "id": 31, "tasks": ["20.1"] },
+    { "id": 32, "tasks": ["22.1"] }
   ]
 }
 ```

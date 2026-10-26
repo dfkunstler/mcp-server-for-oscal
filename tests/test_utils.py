@@ -12,16 +12,22 @@ from hypothesis import strategies as st
 from oscal_bindings import models
 
 from mcp_server_for_oscal.tools.utils import (
+    MAX_LINE_COUNT,
     MAX_PAGE_LIMIT,
+    MAX_SHOWN_CHARS,
     MODEL_MAP,
     RESPONSE_BUDGET,
     TRUNCATION_MARK,
     OSCALModelType,
+    check_line_count,
+    check_line_range,
     get_bundled_oscal_version,
+    lines_within_budget,
     load_oscal_json_schema,
     oscal_version_from_schema,
     paginate_within_budget,
     schema_names,
+    shown,
 )
 
 
@@ -397,3 +403,147 @@ class TestPaginateWithinBudgetProperty:
         else:
             event("full window")
             assert page["limit"] == limit
+
+
+class TestShown:
+    def test_short_text_unchanged(self):
+        assert shown("abc") == "abc"
+        assert shown("x" * MAX_SHOWN_CHARS) == "x" * MAX_SHOWN_CHARS
+
+    def test_long_text_cut_and_marked(self):
+        assert shown("x" * (MAX_SHOWN_CHARS + 1)) == "x" * MAX_SHOWN_CHARS + "..."
+
+
+class TestCheckLineCount:
+    """search-fetch-pairs Requirement 12.7: line_count is an int from 1 to 500."""
+
+    def test_max_line_count_is_500(self):
+        assert MAX_LINE_COUNT == 500
+
+    @pytest.mark.parametrize("value", [1, 250, MAX_LINE_COUNT])
+    def test_accepts_in_range(self, value):
+        check_line_count(value)
+
+    @pytest.mark.parametrize("value", [0, -1, MAX_LINE_COUNT + 1, True, False, 1.0, "5", None])
+    def test_rejects_out_of_range_and_non_int(self, value):
+        with pytest.raises(ValueError, match="line_count") as exc:
+            check_line_count(value)
+        assert f"Valid range: 1 to {MAX_LINE_COUNT}" in str(exc.value)
+
+    def test_long_value_is_shortened_in_message(self):
+        with pytest.raises(ValueError, match=r"\.\.\.") as exc:
+            check_line_count("z" * 1_000)
+        assert "z" * 1_000 not in str(exc.value)
+
+
+class TestCheckLineRange:
+    """search-fetch-pairs Requirement 12.7: messages name the parameter and range."""
+
+    def test_accepts_valid_range(self):
+        check_line_range(1, 1, 1)
+        check_line_range(10, MAX_LINE_COUNT, 10, noun="document")
+
+    @pytest.mark.parametrize("start", [0, 11, -3, True, "1", None])
+    def test_bad_start_line_names_parameter_and_noun(self, start):
+        with pytest.raises(ValueError, match="start_line") as exc:
+            check_line_range(start, 10, 10, noun="document")
+        assert "Valid range for this document: 1 to 10" in str(exc.value)
+
+    def test_default_noun_is_file(self):
+        with pytest.raises(ValueError, match="Valid range for this file: 1 to 3"):
+            check_line_range(4, 1, 3)
+
+    def test_line_count_checked_first(self):
+        with pytest.raises(ValueError, match="line_count"):
+            check_line_range(0, 0, 10)
+
+    def test_empty_document_rejects_every_start(self):
+        with pytest.raises(ValueError, match="1 to 0"):
+            check_line_range(1, 1, 0, noun="document")
+
+
+def _lines_size(response: dict) -> int:
+    return len(json.dumps(response))
+
+
+class TestLinesWithinBudget:
+    """search-fetch-pairs Requirements 12.8, 12.9."""
+
+    BASE = {"docId": "d1", "title": "T"}
+
+    def test_fitting_range_returned_whole(self):
+        lines = ["a\n", "b\n", "c\n", "d"]
+        response = lines_within_budget(self.BASE, lines, 2, 2)
+        assert response == {
+            "docId": "d1",
+            "title": "T",
+            "start-line": 2,
+            "end-line": 3,
+            "total-lines": 4,
+            "has-more": True,
+            "text": "b\nc\n",
+        }
+
+    def test_count_clamped_to_end(self):
+        lines = ["a\n", "b\n", "c"]
+        response = lines_within_budget(self.BASE, lines, 2, MAX_LINE_COUNT)
+        assert response["end-line"] == 3
+        assert response["has-more"] is False
+        assert response["text"] == "b\nc"
+        assert "truncated" not in response
+
+    def test_base_key_order_preserved(self):
+        base = {"z": 1, "a": 2, "m": 3}
+        response = lines_within_budget(base, ["x\n"], 1, 1)
+        assert list(response) == [
+            "z",
+            "a",
+            "m",
+            "start-line",
+            "end-line",
+            "total-lines",
+            "has-more",
+            "text",
+        ]
+
+    def test_over_budget_range_returns_whole_lines(self):
+        lines = [f"{i:04d} " + "x" * 95 + "\n" for i in range(50)]
+        budget = 1_000
+        response = lines_within_budget(self.BASE, lines, 3, 50, budget=budget)
+        k = response["end-line"] - 3 + 1
+        assert 1 <= k < 48
+        assert response["text"] == "".join(lines[2 : 2 + k])
+        assert response["has-more"] is True
+        assert "truncated" not in response
+        assert _lines_size(response) <= budget
+        # One more whole line would not fit.
+        bigger = dict(response, **{"end-line": 3 + k, "text": "".join(lines[2 : 3 + k])})
+        assert _lines_size(bigger) > budget
+
+    def test_single_over_budget_line_truncated_at_code_point(self):
+        # Astral characters serialize as 12-character surrogate-pair escapes.
+        long_line = "😀é" * 5_000 + "\n"
+        lines = ["short\n", long_line, "after\n"]
+        response = lines_within_budget(self.BASE, lines, 2, 3)
+        assert response["start-line"] == 2
+        assert response["end-line"] == 2
+        assert response["has-more"] is True
+        assert response["truncated"] is True
+        assert _lines_size(response) <= RESPONSE_BUDGET
+        text = response["text"]
+        assert text.endswith(TRUNCATION_MARK)
+        prefix = text.removesuffix(TRUNCATION_MARK)
+        assert prefix
+        assert long_line.startswith(prefix)
+        # Cut on a code point: no lone surrogate, and one more code point would not fit.
+        assert prefix.encode("utf-8").decode("utf-8") == prefix
+        longer = dict(response, text=long_line[: len(prefix) + 1] + TRUNCATION_MARK)
+        assert _lines_size(longer) > RESPONSE_BUDGET
+
+    def test_always_returns_at_least_one_line(self):
+        lines = ["y" * 500 + "\n"] * 3
+        response = lines_within_budget(self.BASE, lines, 1, 3, budget=300)
+        assert response["end-line"] == 1
+        assert response["truncated"] is True
+        assert response["text"].endswith(TRUNCATION_MARK)
+        assert _lines_size(response) <= 300
