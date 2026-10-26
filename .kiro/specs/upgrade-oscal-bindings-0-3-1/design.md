@@ -66,6 +66,16 @@ New file `tests/test_oscal_bindings_upgrade.py` (unit + Hypothesis), reusing the
 - Child `raw_json` validity property (Property 2).
 - Validator acceptance and rejection properties (Properties 3–5).
 - Default-vs-explicit serialization equivalence (Property 6).
+- Open-enum acceptance property (Property 7).
+- Schema-oracle enum parity check (unit, not Hypothesis). Encodes the contract in cairn-proofs/oscal-bindings-specs#9, whose Python fix cairn-proofs/oscal-bindings-python#21 is already in 0.3.1, so no behavior change is expected when #9 lands:
+  - Walk the bundled `oscal_complete_schema.json` and collect every closed enum (an `allOf` with an `enum` member) and every open enum (an `anyOf` with an `enum` member) as value sets.
+  - Assert the schema has exactly 26 closed enums, so a schema bump forces a review of this test.
+  - Introspect the `model_fields` of every `oscal_bindings.models` class. A closed Bindings field has a bare `Enum` annotation with no base-datatype branch (26 fields today; some schema sites split across union classes such as `MetadataPartyWithAddresses`/`MetadataPartyWithLocationUuids`, `InsertControlsWithIncludeAll`/`InsertControlsWithIncludeControls`, and `Mapping`/`Map`/`MappingProvenance`). An open Bindings field has an `Enum` branch plus a base-datatype branch, `str` or `AnyUrl`: `Annotated[str, ...] | Enum`, `AnyUrl | Enum` (the 6 URI enums such as `DocumentId.scheme`), or list-valued `list[str | Enum]` (`Observation.methods`, `Observation.types`) (27 fields today).
+  - Assert each schema closed set equals the member values of at least one closed Bindings field, and each closed Bindings field's member values equal some schema closed set.
+  - Assert each schema open set matches the member values of an open Bindings field (one with a base-datatype branch, `str` or `AnyUrl`), so no open enum is bound as closed.
+- Property 4 stays the document-level closed-enum test (generated documents, Validator model level). The parity check extends 4.7 coverage to every closed enum without generating a document for each site.
+
+Error type: all enum tests assert the result at the model level (Validator model level invalid or valid, Store rejects or ingests). `model_validate` raises pydantic `ValidationError`, which is not a subclass of `OscalParseError`; `OscalParseError` (the contract's `parse-error` category) comes only from the banned `parse_*` helpers, so tests never assert it.
 
 Hypothesis tests use `@settings(max_examples=100)`; `OSCAL_TEST_MAX_EXAMPLES` caps them on Windows CI through `tests/conftest.py`.
 
@@ -153,6 +163,8 @@ For any generated valid document containing a closed-enum field, and any string 
 
 **Validates: Requirements 4.7**
 
+This property is the document-level closed-enum test. Parity of every closed enum's value set with the bundled schema is covered by the schema-oracle parity check.
+
 ### Property 5: Python field names are rejected on the dict path
 
 For any generated valid document and any hyphenated key whose Python field name differs from its alias, renaming that key to the Python field name makes both `OscalStore` model validation and the Validator model level reject the document.
@@ -165,12 +177,19 @@ For any generated valid OSCAL document, `model_dump_json()` with default argumen
 
 **Validates: Requirements 6.1, 6.5**
 
+### Property 7: Open enums accept off-list values
+
+For any generated valid document with an open-enum field (component `type` in component definitions and SSPs, assessment plan task `type`), and any NCName/token valid for the field's base datatype that is not a listed value, setting the field to that value keeps the Validator model level valid and the Store ingests the document.
+
+**Validates: Requirements 4.9**
+
 ## Testing Strategy
 
 - Property tests (Hypothesis, 100 examples each) in `tests/test_oscal_bindings_upgrade.py`, one test per property, each tagged in its docstring: `Feature: upgrade-oscal-bindings-0-3-1, Property N: <title>`.
 - Example/smoke tests:
   - Existing `TestBundledOscalVersion` and `TestModelMap` cover Requirements 2 and 3.2.
   - New AST source-scan test covers 3.5.
+  - New schema-oracle enum parity test covers 4.7 and 4.9 for every enum site.
   - Existing tool and store tests cover behavior preservation on fixtures.
 - Snapshot check for Requirement 4.1 on real content: before the bump, record (element_type, uuid, title) tuples for every fixture and `data/` document with a throwaway `hatch run python -c` script into a temp file; compare after the bump; delete the temp file.
 - Quality gates: `hatch run tests`, `hatch check fmt`, `hatch check code`.

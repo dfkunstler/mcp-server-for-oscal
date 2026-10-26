@@ -20,6 +20,9 @@ The upgrade must keep all MCP tool behavior unchanged, keep every validation pat
 - **Test_Suite**: The `hatch run tests` script: mypy, `hatch test` on Python 3.13 and 3.14 with coverage, and bandit.
 - **Guidance_Docs**: `.kiro/steering/oscal-bindings.md` and the matching serialization line in `AGENTS.md`.
 - **Bundled_DB**: The gitignored `oscal_store.db` artifact built by `hatch run build-db`.
+- **Bundled_Schema**: `src/mcp_server_for_oscal/oscal_schemas/oscal_complete_schema.json`, the oracle for which OSCAL enums are closed or open.
+- **Closed_Enum**: An enum in the Bundled_Schema expressed as an `allOf` that contains an `enum` member. Only the listed values are valid.
+- **Open_Enum**: An enum in the Bundled_Schema expressed as an `anyOf` that contains an `enum` member. Any value valid for the base datatype is valid; the listed values are suggestions.
 
 ## Requirements
 
@@ -67,8 +70,11 @@ The upgrade must keep all MCP tool behavior unchanged, keep every validation pat
 4. WHEN the Store extracts mapping Child_Elements from a mapping-collection document, THE Store SHALL extract one Child_Element per entry in the `MappingCollectionMappings` root list.
 5. WHEN the Store extracts controls from a catalog, THE Store SHALL extract controls nested at every group depth for groups of either Bindings catalog group class.
 6. WHEN the Validator validates a document that a Bindings 0.3.1 model accepts, THE Validator SHALL report the model level as valid.
-7. IF a document contains a value outside a closed OSCAL enum, THEN THE Validator SHALL report the model level as invalid with the Bindings validation error.
+7. IF a document contains a value outside the value set of any Closed_Enum, THEN THE Validator SHALL report the model level as invalid with the Bindings validation error, and THE Bindings value set of each Closed_Enum SHALL equal the value set listed in the bundled OSCAL JSON Schema (contract: cairn-proofs/oscal-bindings-specs#9; Python fix: cairn-proofs/oscal-bindings-python#21).
 8. IF a document passed to the Store or Validator uses Python field names instead of OSCAL property names, THEN THE Store and Validator SHALL reject the document at the model level.
+9. IF a document holds a value of an Open_Enum that is outside the listed values and valid for the Open_Enum base datatype, THEN THE Store and Validator SHALL accept the document at the model level (contract: cairn-proofs/oscal-bindings-specs#9).
+
+Note on criteria 4.7, 4.8, and 4.9: the Server checks acceptance and rejection at the model level, where `model_validate` raises a pydantic `ValidationError`. The contract's `parse-error` category maps to `OscalParseError`, which only the Bindings `parse_*` helpers raise. The Server bans those helpers (criterion 3.5), so tests do not assert `OscalParseError`.
 
 ### Requirement 5: Test suite compatibility
 

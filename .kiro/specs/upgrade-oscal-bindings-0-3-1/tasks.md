@@ -46,7 +46,7 @@ Rules for every task:
     - Keep explicit `by_alias=True, exclude_none=True` kwargs; leave the direct `ComponentDefinition` import in `query_component_definition.py` (note it as a follow-up)
     - Confirm no `model_validate_json` or `parse_*` usage in `src/`
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
-  - [ ]* 4.2 Write AST source-scan test
+  - [x] 4.2 Write AST source-scan test
     - In `tests/test_oscal_bindings_upgrade.py`, assert no `model_validate_json` attribute call and no `parse_*` import from `oscal_bindings` anywhere under `src/mcp_server_for_oscal/`
     - _Requirements: 3.5_
 
@@ -63,25 +63,35 @@ Rules for every task:
   - Run `hatch run tests`; compare extraction tuples and document counts against the task 2.1 baseline. Ensure all tests pass, ask the user if questions arise.
   - _Requirements: 2.2, 4.1, 5.1_
 
-- [ ] 7. Regression guard property tests
-  - [ ]* 7.1 Write property test for child extraction completeness
+- [x] 7. Regression guard property tests
+  - [x] 7.1 Write property test for child extraction completeness
     - **Property 1: Child extraction is complete**
     - **Validates: Requirements 4.1, 4.4, 4.5**
-  - [ ]* 7.2 Write property test for child raw_json validity and round trip
+  - [x] 7.2 Write property test for child raw_json validity and round trip
     - **Property 2: Child raw_json is valid OSCAL and round-trips**
     - **Validates: Requirements 4.2, 4.3**
-  - [ ]* 7.3 Write property test for Validator acceptance
+  - [x] 7.3 Write property test for Validator acceptance
     - **Property 3: Validator accepts model-valid documents**
     - **Validates: Requirements 4.6, 3.4**
-  - [ ]* 7.4 Write property test for out-of-enum rejection
+  - [x] 7.4 Write property test for out-of-enum rejection
     - **Property 4: Out-of-enum values are rejected**
     - **Validates: Requirements 4.7**
-  - [ ]* 7.5 Write property test for Python field name rejection
+  - [x] 7.5 Write property test for Python field name rejection
     - **Property 5: Python field names are rejected on the dict path**
     - **Validates: Requirements 4.8, 3.4**
-  - [ ]* 7.6 Write property test for default vs explicit serialization
+  - [x] 7.6 Write property test for default vs explicit serialization
     - **Property 6: Default serialization equals explicit-flag serialization**
     - **Validates: Requirements 6.1, 6.5**
+  - [x] 7.7 Write closed and open enum schema parity test
+    - Unit test (not Hypothesis) in `tests/test_oscal_bindings_upgrade.py`, per the design's schema-oracle parity check
+    - Walk `src/mcp_server_for_oscal/oscal_schemas/oscal_complete_schema.json`; collect closed (`allOf` + `enum`) and open (`anyOf` + `enum`) value sets; assert exactly 26 closed
+    - Assert each schema closed set equals the member values of some closed Bindings field (bare `Enum`), and each closed Bindings field's set appears among the schema closed sets
+    - Assert each schema open set maps to an open Bindings field (base-datatype branch, `str` or `AnyUrl`)
+    - Assert model-level results only, never `OscalParseError`
+    - **Validates: Requirements 4.7, 4.9**
+  - [x] 7.8 Write property test for open-enum acceptance
+    - **Property 7: Open enums accept off-list values**
+    - **Validates: Requirements 4.9**
 
 - [x] 8. Update guidance documentation
   - [x] 8.1 Revise `.kiro/steering/oscal-bindings.md`
@@ -111,6 +121,14 @@ Rules for every task:
     - Do not push; ask the user for approval before any push or PR
     - _Requirements: 5.1, 5.2, 5.3_
 
+- [ ] 11. Final checkpoint for enum contract tests
+  - [-] 11.1 Run quality gates and commit
+    - Run `hatch run tests`, `hatch check fmt`, `hatch check code` (use `--fix` only for formatting/lint fixes, then re-run)
+    - After user approval, commit `tests/test_oscal_bindings_upgrade.py` and the spec files to branch `42-add-oscal-bindings-regression-guard-tests` with `#42` in the message (state actual test status)
+    - Do not stage `.mcp.json` or `mcp_server_oscal_architecture.svg`
+    - Do not push; ask the user for approval before any push or PR
+    - _Requirements: 4.7, 4.9, 5.1, 5.2, 5.3_
+
 ## Notes
 
 - Tasks marked with `*` are optional and can be skipped for a faster upgrade; 4.2 and 7.x guard against future regressions, especially upstream #6
@@ -136,7 +154,10 @@ Rules for every task:
     { "id": 11, "tasks": ["7.5"] },
     { "id": 12, "tasks": ["7.6"] },
     { "id": 13, "tasks": ["9.1"] },
-    { "id": 14, "tasks": ["10.1"] }
+    { "id": 14, "tasks": ["10.1"] },
+    { "id": 15, "tasks": ["7.7"] },
+    { "id": 16, "tasks": ["7.8"] },
+    { "id": 17, "tasks": ["11.1"] }
   ]
 }
 ```
