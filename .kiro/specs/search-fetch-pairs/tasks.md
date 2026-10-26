@@ -327,8 +327,8 @@ Rules for every task:
     - Do not push the branch and do not open a PR. Ask the user for explicit approval before either.
     - _Requirements: 13.6, 15.3_
 
-- [ ] 23. Fix Windows path handling found by CI on PR #48
-  - [-] 23.1 Treat Windows drive-letter paths and file:// URIs as local files
+- [x] 23. Fix Windows path handling found by CI on PR #48
+  - [x] 23.1 Treat Windows drive-letter paths and file:// URIs as local files
     - CI `test (windows-latest, py3.13)` fails 4 tests: `tests/test_path_leak.py::test_no_storage_location_leaks[validate_oscal_file-0-ok-off]` and `[validate_oscal_file-1-ok-off]`, `tests/tools/test_oscal_store_provenance.py::TestLoadExternalComponentDefinition::test_local_zip_is_user_origin_relative_to_zip_parent`, `tests/tools/test_validate_oscal_content.py::TestValidateOscalFileMessages::test_directory_path`.
     - Root cause: `urlparse` reads a drive letter (`C:`) as a URL scheme, so `validate_oscal_file` (`tools/validate_oscal_content.py`) and the store loader (`tools/oscal_store.py`, at the `urlparse(source)` call) treat a Windows path as a remote URI. For `file:///C:/...`, `Path(uri.path)` yields a path with a leading separator before the drive (OSError 22).
     - Fix both sites with one shared helper in `tools/utils.py` that classifies a source as local or remote and returns the local `Path`: a single-letter scheme followed by `:` and a path separator is a local path; `file:` URIs convert with `urllib.request.url2pathname` (handles `/C:/...` and percent-encoding). Keep remote handling, messages, and the remote-URI gate unchanged.
