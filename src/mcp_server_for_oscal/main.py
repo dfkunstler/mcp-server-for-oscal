@@ -53,6 +53,10 @@ mcp = build_server()
 
 _DEPRECATED_CDEF_DIR_ENV = "OSCAL_COMPONENT_DEFINITIONS_DIR"
 
+# Documents in the store that came from OSCAL_DOCUMENTS_DIR; set by _init_oscal_store,
+# reported by `about`. Stays 0 when the setting is unset, the dir is missing, or init fails.
+_user_documents_loaded = 0
+
 
 def _warn_deprecated_settings() -> None:
     """Log a warning for each deprecated setting present in the environment.
@@ -80,6 +84,8 @@ def _init_oscal_store() -> None:
     but the Component Definition tools raise ``RuntimeError`` until a
     store is initialised.
     """
+    global _user_documents_loaded  # noqa: PLW0603 - startup state read by `about`
+    _user_documents_loaded = 0
     try:
         from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
@@ -96,6 +102,8 @@ def _init_oscal_store() -> None:
                 oscal_docs_dir = my_dir / config.oscal_documents_dir
             if oscal_docs_dir.exists():
                 store.scan_directory(oscal_docs_dir)
+                _user_documents_loaded = store.count_documents_under(oscal_docs_dir)
+                logger.info("%d document(s) loaded from %s", _user_documents_loaded, oscal_docs_dir)
             else:
                 logger.warning(
                     "Configured oscal_documents_dir does not exist: %s",
@@ -166,6 +174,7 @@ def _setup_tools(server: MCPServer | None = None) -> None:
             "version": meta.get("version"),
             "keywords": meta.get("keywords"),
             "oscal-version": get_bundled_oscal_version(),
+            "user-documents-loaded": _user_documents_loaded,
         }
 
 

@@ -271,7 +271,7 @@ class TestBundledOscalVersion:
         result = about.fn()
         assert result["oscal-version"] == get_bundled_oscal_version()
         # The about output is unchanged by the bindings switch: no bindings-version field
-        assert set(result) == {"version", "keywords", "oscal-version"}
+        assert set(result) == {"version", "keywords", "oscal-version", "user-documents-loaded"}
         assert not any("bindings" in key.lower() for key in result)
 
 

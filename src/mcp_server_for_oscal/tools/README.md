@@ -281,6 +281,7 @@ Returns metadata about the MCP server itself.
 - `version`: Server version
 - `keywords`: Server keywords
 - `oscal-version`: Supported OSCAL version (currently 1.2.1)
+- `user-documents-loaded`: Number of documents in the store from `OSCAL_DOCUMENTS_DIR`, counting files unchanged since an earlier scan (0 when unset or the directory is missing)
 
 ---
 
