@@ -87,12 +87,14 @@ list_assessment_results, list_poams, list_mapping_collections; one document: que
 query_profile, query_ssp, query_assessment_plan, query_assessment_results, query_poam, \
 query_mapping_collection; its child elements: the matching list_* child tools, then \
 get_child_element
-- Full-text search across loaded documents: text_search_oscal
+- Full-text search across loaded OSCAL content: text_search_oscal, then get_child_element \
+for child hits or the matching query_* tool (by_uuid) for document hits
 - Component Definitions: query_component_definition, directly with by_title or by_type when \
 you know the name or type, else after list_component_definitions or list_components; \
 list_capabilities and get_capability only for definitions that contain capabilities
 - Validate OSCAL JSON: validate_oscal_content (text) or validate_oscal_file (file)
-- OSCAL documentation questions: query_oscal_documentation
+- OSCAL documentation questions: query_oscal_documentation, then get_oscal_documentation \
+for the full page of a hit with a docId (Knowledge Base hits are snippets only)
 - OSCAL community tools and resources: list_oscal_resources
 Metaschema tip: rules for every prop and link are declared on the generic "property" and \
 "link" definitions, so also query "property/@name" and "link/@rel"."""

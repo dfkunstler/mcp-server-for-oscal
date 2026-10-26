@@ -1,0 +1,25 @@
+{
+  "profile": {
+    "uuid": "5e1f0c2a-0002-4a00-8000-000000000001",
+    "metadata": {
+      "title": "Leak Fixture Baseline",
+      "last-modified": "2024-01-01T00:00:00Z",
+      "version": "1.0",
+      "oscal-version": "1.0.4"
+    },
+    "imports": [
+      {
+        "href": "https://example.com/oscal/leak-fixture-catalog.json",
+        "include-all": {}
+      }
+    ],
+    "modify": {
+      "set-parameters": [
+        {
+          "param-id": "ac-1_prm_1",
+          "values": ["quarterly"]
+        }
+      ]
+    }
+  }
+}

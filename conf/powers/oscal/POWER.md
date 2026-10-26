@@ -60,7 +60,8 @@ OSCAL (Open Security Controls Assessment Language) is a set of framework-agnosti
 | `list_components` | List all loaded components with summary metadata |
 | `list_capabilities` | List all loaded capabilities with summary metadata |
 | `get_capability` | Retrieve a single capability by UUID with full OSCAL representation |
-| `query_oscal_documentation` | RAG-based documentation query (requires AWS Bedrock Knowledge Base; conditionally registered) |
+| `query_oscal_documentation` | Search OSCAL documentation and return paged `{title, snippet}` passages; local pages carry a `docId`. Uses an AWS Bedrock Knowledge Base when `OSCAL_KB_ID` is set (merged with your own docs), else local full-text search |
+| `get_oscal_documentation` | Read a documentation page by `docId` (from `query_oscal_documentation`) as a verbatim line range |
 | `about` | Server metadata including version and supported OSCAL version |
 | **Catalog tools** | |
 | `query_catalog` | Query OSCAL Catalog documents by UUID, title, type, or list all (paginated) |
@@ -96,7 +97,7 @@ OSCAL (Open Security Controls Assessment Language) is a set of framework-agnosti
 | `list_mapping_collections` | List loaded OSCAL Mapping Collections with summary metadata |
 | `list_mapping_collection_mappings` | List mapping elements (cross-framework control relationships) within OSCAL Mapping Collection documents |
 | **Cross-cutting tools** | |
-| `text_search_oscal` | Full-text search across all loaded OSCAL documents and child elements using SQLite FTS5, ranked by relevance |
+| `text_search_oscal` | Full-text search across loaded OSCAL documents and child elements (including control prose and element IDs), ranked by relevance. Child hits carry `entity_id` and `parentDocumentUuid` for `get_child_element` |
 | `get_child_element` | Retrieve a single child element by its identifier (UUID or token ID), with optional parent document scoping |
 
 ### Key Tool Parameters
@@ -136,7 +137,17 @@ OSCAL (Open Security Controls Assessment Language) is a set of framework-agnosti
 - `query_text` (string, required) — The search text.
 - `oscal_model_type` (string, optional) — Filter results to a specific OSCAL model type (e.g. `"catalog"`, `"system-security-plan"`). When omitted, all model types are searched.
 - `offset` (integer, default: `0`) — Zero-based pagination offset.
-- `limit` (integer, default: `10`) — Maximum items per page (1–100).
+- `limit` (integer, default: `10`) — Maximum items per page (1–100). A page may hold fewer to fit the response budget.
+
+**`query_oscal_documentation`**
+- `query` (string, required) — Question or search terms about OSCAL.
+- `offset` (integer, default: `0`) — Zero-based pagination offset.
+- `limit` (integer, default: `10`) — Maximum items per page (1–100). A page may hold fewer to fit the response budget.
+
+**`get_oscal_documentation`**
+- `doc_id` (string, required) — `docId` from a `query_oscal_documentation` result.
+- `start_line` (integer, default: `1`) — 1-based first line to return.
+- `line_count` (integer, default: `200`) — Maximum lines to return (1–500). Continue from `end-line` + 1 while `has-more` is true.
 
 **`get_child_element`**
 - `element_id` (string, required) — UUID or token ID of the child element (e.g. `"ac-1"` for a catalog control).
@@ -189,6 +200,11 @@ list_catalog_controls(parent_doc_uuid="<catalog-uuid>")
 text_search_oscal(query_text="access control", oscal_model_type="catalog")
 ```
 
+**Search documentation, then read a full page:**
+```
+query_oscal_documentation(query="profile resolution")  →  get_oscal_documentation(doc_id="<docId>")
+```
+
 **Retrieve a specific child element:**
 ```
 get_child_element(element_id="ac-1", parent_doc_uuid="<catalog-uuid>")
@@ -229,7 +245,7 @@ Use the provided `mcp.json` file.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OSCAL_KB_ID` | AWS Bedrock Knowledge Base ID (enables `query_oscal_documentation`) | _(empty — tool not registered)_ |
+| `OSCAL_KB_ID` | AWS Bedrock Knowledge Base ID used by `query_oscal_documentation` | _(empty — local documentation search)_ |
 | `BEDROCK_MODEL_ID` | Bedrock model for agent features | `us.anthropic.claude-sonnet-4-20250514-v1:0` |
 | `AWS_PROFILE` | AWS profile for Bedrock access | _(default credentials)_ |
 | `AWS_REGION` | AWS region | _(SDK default)_ |
@@ -376,9 +392,9 @@ Expected response should list the 8 GA OSCAL models across the three layers.
 1. Use `list_oscal_models` to see valid model names
 2. Use exact model names: catalog, profile, ssp, component-definition, etc.
 
-**Error:** "Knowledge base ID is not set"
-**Cause:** `query_oscal_documentation` requires an AWS Bedrock Knowledge Base
-**Solution:** Set `OSCAL_KB_ID` environment variable, or use other tools (`get_oscal_schema`, `list_oscal_resources`) for documentation needs
+**Error:** "Unknown documentation ID. Use a docId from a query_oscal_documentation result."
+**Cause:** `get_oscal_documentation` only accepts a `docId` returned by `query_oscal_documentation`; OSCAL document UUIDs and Knowledge Base hits (which have no `docId`) don't work
+**Solution:** Run `query_oscal_documentation` and pass a hit's `docId`. For OSCAL documents and child elements, use `text_search_oscal` and `get_child_element` instead
 
 ### Package Installation Issues
 

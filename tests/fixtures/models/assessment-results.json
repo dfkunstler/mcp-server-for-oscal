@@ -1,0 +1,37 @@
+{
+  "assessment-results": {
+    "uuid": "5e1f0c2a-0006-4a00-8000-000000000001",
+    "metadata": {
+      "title": "Leak Fixture Assessment Results",
+      "last-modified": "2024-01-01T00:00:00Z",
+      "version": "1.0",
+      "oscal-version": "1.0.4"
+    },
+    "import-ap": {
+      "href": "https://example.com/oscal/leak-fixture-plan.json"
+    },
+    "results": [
+      {
+        "uuid": "5e1f0c2a-0006-4a00-8000-000000000002",
+        "title": "Account Review Result",
+        "description": "Result of the account review assessment.",
+        "start": "2024-01-02T00:00:00Z",
+        "reviewed-controls": {
+          "control-selections": [{"include-all": {}}]
+        },
+        "findings": [
+          {
+            "uuid": "5e1f0c2a-0006-4a00-8000-000000000003",
+            "title": "Stale Account Found",
+            "description": "One account was not reviewed this quarter.",
+            "target": {
+              "type": "objective-id",
+              "target-id": "ac-2_obj",
+              "status": {"state": "not-satisfied"}
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

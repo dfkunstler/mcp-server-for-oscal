@@ -1,0 +1,59 @@
+{
+  "system-security-plan": {
+    "uuid": "5e1f0c2a-0004-4a00-8000-000000000001",
+    "metadata": {
+      "title": "Leak Fixture System Security Plan",
+      "last-modified": "2024-01-01T00:00:00Z",
+      "version": "1.0",
+      "oscal-version": "1.0.4"
+    },
+    "import-profile": {
+      "href": "https://example.com/oscal/leak-fixture-profile.json"
+    },
+    "system-characteristics": {
+      "system-ids": [{"id": "leak-fixture-001"}],
+      "system-name": "Leak Fixture System",
+      "description": "A system that tracks user accounts.",
+      "security-sensitivity-level": "moderate",
+      "system-information": {
+        "information-types": [
+          {
+            "title": "Account Records",
+            "description": "Records of user accounts.",
+            "confidentiality-impact": {"base": "fips-199-moderate"},
+            "integrity-impact": {"base": "fips-199-moderate"},
+            "availability-impact": {"base": "fips-199-low"}
+          }
+        ]
+      },
+      "security-impact-level": {
+        "security-objective-confidentiality": "moderate",
+        "security-objective-integrity": "moderate",
+        "security-objective-availability": "low"
+      },
+      "status": {"state": "operational"},
+      "authorization-boundary": {"description": "The system network."}
+    },
+    "system-implementation": {
+      "users": [{"uuid": "5e1f0c2a-0004-4a00-8000-000000000002"}],
+      "components": [
+        {
+          "uuid": "5e1f0c2a-0004-4a00-8000-000000000003",
+          "type": "this-system",
+          "title": "Leak Fixture Account Service",
+          "description": "Manages user accounts for the system.",
+          "status": {"state": "operational"}
+        }
+      ]
+    },
+    "control-implementation": {
+      "description": "The system implements the leak fixture baseline.",
+      "implemented-requirements": [
+        {
+          "uuid": "5e1f0c2a-0004-4a00-8000-000000000004",
+          "control-id": "ac-2"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "component-definition": {
+    "uuid": "5e1f0c2a-0003-4a00-8000-000000000001",
+    "metadata": {
+      "title": "Leak Fixture Component Definition",
+      "last-modified": "2024-01-01T00:00:00Z",
+      "version": "1.0",
+      "oscal-version": "1.0.4"
+    },
+    "components": [
+      {
+        "uuid": "5e1f0c2a-0003-4a00-8000-000000000002",
+        "type": "service",
+        "title": "Leak Fixture Directory Service",
+        "description": "Directory service that manages user accounts."
+      }
+    ],
+    "capabilities": [
+      {
+        "uuid": "5e1f0c2a-0003-4a00-8000-000000000003",
+        "name": "Account Lifecycle",
+        "description": "Creates, reviews, and removes user accounts."
+      }
+    ]
+  }
+}

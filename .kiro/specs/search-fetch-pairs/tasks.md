@@ -278,46 +278,46 @@ Rules for every task:
     - Re-run `hatch test tests/tools/test_text_search.py` so the bundled-DB test for Requirement 8.7 runs against the new DB.
     - _Requirements: 9.5, 14.1_
 
-- [-] 17. Checkpoint: hygiene and wiring
+- [x] 17. Checkpoint: hygiene and wiring
   - Run `hatch run tests`. Ensure all tests pass, ask the user if questions arise.
   - Commit the files changed in tasks 14-16 (and this file) by name, for example `fix(tools): path-free messages, origin-aware startup and build (#45); hatch run tests passed`.
 
-- [ ] 18. Path_Leak_Test
-  - [~] 18.1 Add minimal model fixtures
+- [x] 18. Path_Leak_Test
+  - [x] 18.1 Add minimal model fixtures
     - `tests/fixtures/models/<model>.json`, one per `OSCALModelType`: model-valid, minimal, no paths in content; the catalog has nested groups and statement and guidance prose.
     - _Requirements: 5.1_
-  - [~] 18.2 Add `build_leak_store(root)` to `tests/fixture_store.py`
+  - [x] 18.2 Add `build_leak_store(root)` to `tests/fixture_store.py`
     - Builds `<tmp>/bundled/` (model fixtures, `cdefs.zip`, `awesome-oscal.md`, `concepts/overview.md`, scanned with `origin="bundled"`) and `<tmp>/user-docs/` (the three valid cdef fixtures, `notes/user-guide.md`, `concepts/overview.md`, scanned with `origin="user"`) into `<tmp>/db/store.db`; returns a `LeakFixture` with the IDs the CALLS table needs.
     - _Requirements: 5.1, 2.3_
-  - [~] 18.3 Write `tests/test_path_leak.py` (required)
+  - [x] 18.3 Write `tests/test_path_leak.py` (required)
     - Guard: one model fixture per `OSCALModelType`. Install the store with `main._install_store`; restore singletons afterwards. Call through `main.build_server()` + `main._setup_tools(server)` and an in-memory `Client(server)`; capture Client_Facing_Messages by patching every module binding of `safe_log_mcp`/`try_notify_client_error`.
     - `Call` dataclass and `CALLS` table with one entry per registered tool plus `about`, including `unknown` calls for identifying parameters and `kb="stub"`/`kb="fail"` calls for `query_oscal_documentation` (stub hits with `s3://leak-bucket/...` locations, metadata, and an ARN).
     - Tests: coverage (`set(CALLS)` equals live `tools/list` names; failure lists missing and stale tools); table shape (every tool has an `ok` call, every tool with an identifying parameter has an `unknown` call); no leaks over every `(tool, call)` against all needles (tmp root, DB path, both content dirs in native, POSIX, realpath, and JSON-escaped forms, `Path.home()` when longer than 3 characters, the package dir, `tempfile.gettempdir()`, `s3://`, `arn:aws`, stub location and metadata values), naming tool, call, and needle kind; Metaschema `source-file`/`file` values are members of `get_index().source_files()`.
     - _Requirements: 3.1, 3.4, 3.5, 4.1, 4.3, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
 
-- [ ] 19. Sync targets and documentation
-  - [~] 19.1 Update the Routing_Guide
+- [x] 19. Sync targets and documentation
+  - [x] 19.1 Update the Routing_Guide
     - `ROUTING_GUIDE` in `tools/descriptions.py`: the two lines from design section 14 (`text_search_oscal` → `get_child_element` / `query_*` by_uuid; `query_oscal_documentation` → `get_oscal_documentation`), within `ROUTING_GUIDE_CAP`.
     - _Requirements: 13.5_
-  - [~] 19.2 Finish the registry tests
+  - [x] 19.2 Finish the registry tests
     - In `tests/test_tool_registry.py`: a frozen snapshot of every pre-feature tool name and parameter is still present (13.3); `"documentation"` is not in `OSCALModelType`, `MODEL_MAP`, or any model-name enum (13.4); the Routing_Guide names both fetch steps (13.5). Confirm `tests/tools/test_query_oscal_models_child_elements.py` and `tests/test_tool_param_parity.py` pass unchanged for the new tool.
     - _Requirements: 13.1, 13.3, 13.4, 13.5_
-  - [~] 19.3 Update `src/mcp_server_for_oscal/tools/README.md`
+  - [x] 19.3 Update `src/mcp_server_for_oscal/tools/README.md`
     - Add `get_oscal_documentation`; describe the new `text_search_oscal` and `query_oscal_documentation` result shapes, the removed `file_path`, and Origin / Doc_ID.
     - _Requirements: 13.6_
-  - [~] 19.4 Update `README.md`, `AGENTS.md`, and related docs
+  - [x] 19.4 Update `README.md`, `AGENTS.md`, and related docs
     - `README.md` tool list and result shapes; `AGENTS.md` code map (`tools/fts_query.py`, `get_oscal_documentation` in `query_documentation.py`) and OscalStore essentials (Origin, Relative_Name, Doc_ID, `user_version`); `.agents/summary/interfaces.md` and `conf/powers/oscal/POWER.md` where they list tools or shapes. Keep the README first-line `mcp-name` comment.
     - _Requirements: 13.6_
-  - [~] 19.5 Verify `bin/build_mcpb.py` and parity
+  - [x] 19.5 Verify `bin/build_mcpb.py` and parity
     - `bin/build_mcpb.py` needs no code change (it reads `get_tool_list()` summaries); run `hatch test tests/test_build_mcpb.py tests/test_tool_param_parity.py tests/test_tool_budget.py` and fix any failure.
     - _Requirements: 13.1, 13.2, 13.6_
 
-- [ ] 20. Context budget after the change
-  - [~] 20.1 Measure and record the final budget
+- [x] 20. Context budget after the change
+  - [x] 20.1 Measure and record the final budget
     - Re-run `hatch run python private/measure_tools_list.py`. Record before/after numbers in the Notes section (design estimate ≈ 35,300 of 38,979; `SERVER_INSTRUCTIONS` ≈ 1,950 of 3,000). If over a cap, shorten descriptions or reuse aliases rather than raise a limit. Delete the script afterwards.
     - _Requirements: 13.2_
 
-- [~] 21. Final checkpoint
+- [-] 21. Final checkpoint
   - Run `hatch run tests`. Ensure all tests pass, ask the user if questions arise.
   - Commit the files changed in tasks 18-20 (and this file) by name, for example `test(tools): Path_Leak_Test over every registered tool; docs and sync targets (#45); hatch run tests passed`.
 
@@ -333,7 +333,7 @@ Rules for every task:
 - Property tests run at least 100 examples (`OSCAL_TEST_MAX_EXAMPLES` caps them on Windows CI) and carry the docstring tag `Feature: search-fetch-pairs, Property N: <title>`.
 - Store-backed tests build real `OscalStore` instances in `tmp_path` with `seed_from_bundled=False`.
 - Budget baseline (task 3.1, measured at 9cc4668, #44 included, with `hatch run python private/measure_tools_list.py`): 45 tools; `tools/list` 33,941 of 38,979 characters (headroom 5,038); longest tool description `get_constraints` 442 (cap 1,200; next `query_component_definition` 429, `find_references_to` 416); longest parameter description `get_constraints.target` 197 (cap 250); `SERVER_INSTRUCTIONS` 1,795 of 3,000. Matches the design.md section 14 baseline, so the final estimate (≈ 35,300; `SERVER_INSTRUCTIONS` ≈ 1,950) stands.
-- Budget after (task 20.1): _to be recorded_.
+- Budget after (task 20.1, measured on ab70952 plus the uncommitted task 18–19 working tree, same script): 46 tools (+1, `get_oscal_documentation`); `tools/list` 34,938 of 38,979 characters (+997; headroom 4,041, down from 5,038; 362 under the ≈ 35,300 estimate); longest tool description still `get_constraints` 442 (cap 1,200; next `query_component_definition` 429, `find_references_to` 416, `get_metaschema_source` 369, `get_allowed_values` 362); longest parameter description still `get_constraints.target` 197 (cap 250); `SERVER_INSTRUCTIONS` 2,005 of 3,000 (+210; 55 over the ≈ 1,950 estimate, within cap). All caps hold, so no description was shortened and no limit was changed. `private/measure_tools_list.py` deleted.
 - Task 9.10 was added during implementation (design D10, Requirement 6.7): task 9.1 showed that `text_search` cannot find a control by its ID. It also covers design Property 20 through its example tests. Schema version 2 supersedes the `user_version` 1 mentioned in earlier tasks (5.2, 16.2); those tasks compare with `SCHEMA_VERSION`.
 
 ## Task Dependency Graph

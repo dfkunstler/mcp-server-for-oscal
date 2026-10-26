@@ -46,7 +46,7 @@ The server is lightweight and meant to run locally without additional setup. By 
 
 The default tools should not connect to any remote services or resources - all required content is bundled with the server. As a security measure, we've implemented basic file integrity verification for bundled content. At build-time we generate manifests including SHA-256 hashes of the bundled OSCAL schemas and the pre-built content database. Each time the server starts, both are verified against their manifests. A schema mismatch produces an error and prevents startup; a database mismatch causes the server to discard the bundled database and start with an empty one.
 
-The tools cover OSCAL schemas and model metadata, Metaschema allowed-values, constraint, reference, and definition lookup plus source reading (`get_allowed_values`, `get_constraints`, `find_references_to`, `get_definition`, `get_metaschema_source`), multi-level content validation, Component Definition navigation, query/list/full-text search for every OSCAL model type (catalogs, profiles, SSPs, assessment plans and results, POA&Ms, mapping collections), community resources, and documentation search. See the [tools README](src/mcp_server_for_oscal/tools/README.md) for the full list.
+The tools cover OSCAL schemas and model metadata, Metaschema allowed-values, constraint, reference, and definition lookup plus source reading (`get_allowed_values`, `get_constraints`, `find_references_to`, `get_definition`, `get_metaschema_source`), multi-level content validation, Component Definition navigation, query/list/full-text search for every OSCAL model type (catalogs, profiles, SSPs, assessment plans and results, POA&Ms, mapping collections), community resources, and documentation. Search tools come in search/fetch pairs: `text_search_oscal` returns element IDs plus `parentDocumentUuid` that `get_child_element` resolves, and `query_oscal_documentation` returns paged `{title, snippet}` passages, with a `docId` on local pages that `get_oscal_documentation` reads as a line range. Results never include filesystem paths. See the [tools README](src/mcp_server_for_oscal/tools/README.md) for the full list.
 
 In addition to the MCP server, the package includes a standalone OSCAL agent built with [Strands Agents](https://github.com/strands-agents/sdk-python). See the [OSCAL Agent](#oscal-agent) section below.
 
@@ -496,7 +496,7 @@ Set the `OSCAL_DOCUMENTS_DIR` environment variable to the path of your OSCAL con
 }
 ```
 
-The server scans the directory recursively for `.json` files and indexes any valid OSCAL documents it finds. Your content is merged with the bundled content — both are queryable in the same session.
+The server scans the directory recursively for `.json` files and indexes any valid OSCAL documents it finds. Your content is merged with the bundled content — both are queryable in the same session. Markdown (`.md`) files in the directory are indexed as documentation: `query_oscal_documentation` searches them (also when a Bedrock Knowledge Base is configured), and `get_oscal_documentation` reads them by `docId`.
 
 These environment variables control the OSCAL store behavior:
 
@@ -507,7 +507,7 @@ These environment variables control the OSCAL store behavior:
 | `OSCAL_STORE_CACHE_SIZE` | `100` | Maximum number of parsed OSCAL documents to keep in the in-memory LRU cache. |
 
 > [!TIP]
-> Setting `OSCAL_STORE_DB_PATH` is recommended if you have a large collection of OSCAL documents. The server only needs to index new or changed files on subsequent startups.
+> Setting `OSCAL_STORE_DB_PATH` is recommended if you have a large collection of OSCAL documents. The server only needs to index new or changed files on subsequent startups. A database created by an older server version is upgraded in place on first start.
 
 ## OSCAL Agent
 

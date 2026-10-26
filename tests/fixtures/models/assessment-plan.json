@@ -1,0 +1,34 @@
+{
+  "assessment-plan": {
+    "uuid": "5e1f0c2a-0005-4a00-8000-000000000001",
+    "metadata": {
+      "title": "Leak Fixture Assessment Plan",
+      "last-modified": "2024-01-01T00:00:00Z",
+      "version": "1.0",
+      "oscal-version": "1.0.4"
+    },
+    "import-ssp": {
+      "href": "https://example.com/oscal/leak-fixture-ssp.json"
+    },
+    "local-definitions": {
+      "activities": [
+        {
+          "uuid": "5e1f0c2a-0005-4a00-8000-000000000002",
+          "title": "Interview Account Managers",
+          "description": "Ask account managers how accounts are reviewed."
+        }
+      ]
+    },
+    "reviewed-controls": {
+      "control-selections": [{"include-all": {}}]
+    },
+    "tasks": [
+      {
+        "uuid": "5e1f0c2a-0005-4a00-8000-000000000003",
+        "type": "action",
+        "title": "Inspect Account Reviews",
+        "description": "Inspect the records of quarterly account reviews."
+      }
+    ]
+  }
+}
