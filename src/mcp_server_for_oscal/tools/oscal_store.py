@@ -38,6 +38,7 @@ from mcp_server_for_oscal.tools.utils import (
     TRUNCATION_MARK,
     OSCALModelType,
     budget_page,
+    local_source_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -2977,10 +2978,9 @@ class OscalStore:
             try_notify_client_error(msg, ctx)  # type: ignore[arg-type]
             return ValueError(msg)
 
-        uri = urlparse(source)
+        lf = local_source_path(source)
 
-        if uri.scheme in ("", "file"):
-            lf = Path(source)
+        if lf is not None:
             if lf.is_dir():
                 raise ValueError("URI must point to a zip file or JSON component definition")
             if lf.is_file() and lf.name.endswith("zip"):
@@ -3035,7 +3035,7 @@ class OscalStore:
                 raw_json,
                 content_hash=content_hash,
                 origin=ORIGIN_USER,
-                relative_name=uri.path.rsplit("/", 1)[-1],
+                relative_name=urlparse(source).path.rsplit("/", 1)[-1],
             )
         except ValueError as e:
             if str(e) in _REMOTE_MESSAGES:

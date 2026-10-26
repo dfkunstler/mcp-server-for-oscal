@@ -327,6 +327,15 @@ Rules for every task:
     - Do not push the branch and do not open a PR. Ask the user for explicit approval before either.
     - _Requirements: 13.6, 15.3_
 
+- [ ] 23. Fix Windows path handling found by CI on PR #48
+  - [-] 23.1 Treat Windows drive-letter paths and file:// URIs as local files
+    - CI `test (windows-latest, py3.13)` fails 4 tests: `tests/test_path_leak.py::test_no_storage_location_leaks[validate_oscal_file-0-ok-off]` and `[validate_oscal_file-1-ok-off]`, `tests/tools/test_oscal_store_provenance.py::TestLoadExternalComponentDefinition::test_local_zip_is_user_origin_relative_to_zip_parent`, `tests/tools/test_validate_oscal_content.py::TestValidateOscalFileMessages::test_directory_path`.
+    - Root cause: `urlparse` reads a drive letter (`C:`) as a URL scheme, so `validate_oscal_file` (`tools/validate_oscal_content.py`) and the store loader (`tools/oscal_store.py`, at the `urlparse(source)` call) treat a Windows path as a remote URI. For `file:///C:/...`, `Path(uri.path)` yields a path with a leading separator before the drive (OSError 22).
+    - Fix both sites with one shared helper in `tools/utils.py` that classifies a source as local or remote and returns the local `Path`: a single-letter scheme followed by `:` and a path separator is a local path; `file:` URIs convert with `urllib.request.url2pathname` (handles `/C:/...` and percent-encoding). Keep remote handling, messages, and the remote-URI gate unchanged.
+    - Add OS-independent unit tests for the helper (drive-letter paths with both separators, `file:///C:/...`, `file:///tmp/x`, percent-encoded `file:` URIs, relative paths, `http(s)://`, `s3://`), monkeypatching where needed so they run on macOS and Linux too.
+    - Run `hatch run tests`. Commit by name, e.g. `fix(tools): treat Windows drive paths and file URIs as local (#45); hatch run tests passed`. Then push the branch (approved by the user) with `git push`. Do not open a new PR.
+    - _Requirements: 3.1, 4.1_
+
 ## Notes
 
 - Tasks marked with `*` are optional property-based tests and can be skipped for a faster MVP. Property 6 (resolvability, 9.3) and the Path_Leak_Test (18.3) are required. Unit-test sub-tasks are required because they hold the only checks for several criteria.
@@ -373,7 +382,8 @@ Rules for every task:
     { "id": 29, "tasks": ["19.1", "19.3", "19.4"] },
     { "id": 30, "tasks": ["19.2", "19.5"] },
     { "id": 31, "tasks": ["20.1"] },
-    { "id": 32, "tasks": ["22.1"] }
+    { "id": 32, "tasks": ["22.1"] },
+    { "id": 33, "tasks": ["23.1"] }
   ]
 }
 ```

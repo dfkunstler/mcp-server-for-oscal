@@ -12,7 +12,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import urlparse
 
 import regex
 import requests
@@ -26,6 +25,7 @@ from mcp_server_for_oscal.tools.utils import (
     ROOT_KEY_TO_MODEL_TYPE,
     OSCALModelType,
     load_oscal_json_schema,
+    local_source_path,
     try_notify_client_error,
 )
 
@@ -305,10 +305,9 @@ def validate_oscal_file(
     """Validate an OSCAL JSON file and return per-level results for JSON syntax, JSON Schema,
     the OSCAL model, and oscal-cli (skipped when not installed). Use when the document is in a
     file; for JSON text use validate_oscal_content."""
-    uri = urlparse(file_uri)
+    lf = local_source_path(file_uri)
 
-    if uri.scheme in ("", "file"):
-        lf = Path(uri.path)
+    if lf is not None:
         if lf.is_dir():
             raise ValueError("URI must point to a file")
 

@@ -28,6 +28,7 @@ from mcp_server_for_oscal.tools.utils import (
     get_bundled_oscal_version,
     lines_within_budget,
     load_oscal_json_schema,
+    local_source_path,
     oscal_version_from_schema,
     paginate_within_budget,
     redact_storage_locations,
@@ -639,3 +640,55 @@ class TestRedactStorageLocations:
         sent = ctx.error.call_args[0][0]
         assert sent == f"cannot open <redacted>{os.sep}secret.json from <redacted>"
         assert str(Path.home()) not in sent
+
+
+class TestLocalSourcePath:
+    """local_source_path classifies a source as local (returns a Path) or remote (None).
+
+    Expectations are written as ``Path`` values, so they hold on Windows and POSIX alike.
+    """
+
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [
+            # Windows drive-letter paths: urlparse would read "C" as the scheme.
+            ("C:\\Users\\a\\x.json", Path("C:\\Users\\a\\x.json")),
+            ("C:/Users/a/x.json", Path("C:/Users/a/x.json")),
+            ("d:\\deep\\inbox\\pack.zip", Path("d:\\deep\\inbox\\pack.zip")),
+            # file: URIs, including a drive letter and percent-encoding.
+            ("file:///C:/Users/a/x.json", Path("C:/Users/a/x.json")),
+            ("file:///c:/Users/a%20b/x%23.json", Path("c:/Users/a b/x#.json")),
+            ("file:///tmp/x.json", Path("/tmp/x.json")),
+            ("file:///tmp/a%20b.json", Path("/tmp/a b.json")),
+            ("file://localhost/tmp/x.json", Path("/tmp/x.json")),
+            ("FILE:///tmp/x.json", Path("/tmp/x.json")),
+            # Plain paths, absolute and relative.
+            ("/tmp/x.json", Path("/tmp/x.json")),
+            ("x.json", Path("x.json")),
+            ("sub/dir/x.json", Path("sub/dir/x.json")),
+        ],
+    )
+    def test_local(self, source, expected):
+        assert local_source_path(source) == expected
+
+    def test_file_uri_with_host_is_unc(self):
+        result = local_source_path("file://server/share/x.json")
+        assert result is not None
+        assert result.as_posix() == "//server/share/x.json"
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "http://example.com/x.json",
+            "https://example.com/C:/x.json",
+            "s3://bucket/key/x.json",
+            "ftp://example.com/x.json",
+        ],
+    )
+    def test_remote(self, source):
+        assert local_source_path(source) is None
+
+    def test_as_uri_round_trip(self, tmp_path):
+        target = tmp_path / "a b#c.json"
+        assert local_source_path(target.as_uri()) == target
+        assert local_source_path(str(target)) == target

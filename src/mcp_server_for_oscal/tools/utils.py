@@ -16,6 +16,8 @@ from enum import StrEnum
 from functools import cache
 from pathlib import Path
 from typing import Final, Literal
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 import anyio.from_thread
 from mcp import MCPDeprecationWarning
@@ -187,6 +189,36 @@ def redact_storage_locations(text: str) -> str:
     flags = re.IGNORECASE if os.name == "nt" else 0
     pattern = "|".join(re.escape(d) for d in dirs)
     return re.sub(rf"(?:{pattern})(?![\w.-])", REDACTED, text, flags=flags)
+
+
+# A Windows drive-letter path ("C:\x", "c:/x"). urlparse reads the drive as a scheme.
+_DRIVE_PATH_RE: Final = re.compile(r"^[A-Za-z]:[\\/]")
+# A drive path behind the leading separator a file: URI path keeps on POSIX ("/C:/x").
+_ROOTED_DRIVE_RE: Final = re.compile(r"^[\\/](?=[A-Za-z]:[\\/])")
+
+
+def local_source_path(source: str) -> Path | None:
+    """Return the local file ``Path`` that ``source`` names, or ``None`` for a remote URI.
+
+    Local: a path with no URL scheme, a Windows drive-letter path (``C:\\x`` or ``C:/x``),
+    and a ``file:`` URI. A ``file:`` URI converts with ``url2pathname`` (percent-decoding;
+    ``/C:/x`` becomes ``C:\\x`` on Windows). A host other than ``localhost`` is kept as a
+    UNC prefix (``//host/share``). The leading separator before a drive letter is dropped
+    on every OS, so the result does not depend on the platform. Anything else (``http``,
+    ``https``, ``s3``, ...) is remote.
+    """
+    if _DRIVE_PATH_RE.match(source):
+        return Path(source)
+    uri = urlparse(source)
+    if uri.scheme == "":
+        return Path(source)
+    if uri.scheme.lower() != "file":
+        return None
+    # Convert the path only: Python 3.14 url2pathname rejects a non-local authority.
+    local = _ROOTED_DRIVE_RE.sub("", url2pathname(uri.path))
+    if uri.netloc and uri.netloc.lower() != "localhost":
+        return Path(f"//{uri.netloc}{local.replace('\\', '/')}")
+    return Path(local)
 
 
 def try_notify_client_error(msg: str, ctx: Context | None) -> None:
