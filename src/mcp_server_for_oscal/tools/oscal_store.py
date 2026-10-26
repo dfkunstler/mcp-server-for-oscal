@@ -13,6 +13,7 @@ import functools
 import hashlib
 import json
 import logging
+import os
 import re
 import shutil
 import sqlite3
@@ -1297,6 +1298,25 @@ class OscalStore:
             )
 
         return count
+
+    def count_documents_under(self, directory: Path) -> int:
+        """Return the number of stored documents whose source file lies under ``directory``.
+
+        Unlike the return value of :meth:`scan_directory`, this includes documents
+        left unchanged since an earlier scan (persistent DB mode). Matches both the
+        native path form (``.json``/``.md`` files) and the POSIX form (zip members).
+        """
+        # Trailing separator so "/a/docs" doesn't match "/a/docs2/..."
+        prefixes = sorted({f"{directory}{os.sep}", f"{directory.as_posix()}/"})
+        clauses = " OR ".join("substr(file_path, 1, ?) = ?" for _ in prefixes)
+        params: list[object] = []
+        for prefix in prefixes:
+            params.extend((len(prefix), prefix))
+        row = self._conn.execute(
+            f"SELECT COUNT(*) AS cnt FROM documents WHERE {clauses}",  # nosec B608
+            params,
+        ).fetchone()
+        return int(row["cnt"])
 
     def _file_unchanged(self, file_path: str, content_hash: str) -> bool:
         """Check if a file's SHA-256 content hash matches the stored value.

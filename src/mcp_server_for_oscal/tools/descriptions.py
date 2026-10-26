@@ -57,7 +57,10 @@ TargetSelector = Annotated[str, ParamDoc(TARGET_SELECTOR_DOC)]
 PerModelQueryType = Annotated[Literal["all", "by_uuid", "by_title"], ParamDoc(QUERY_TYPE_DOC)]
 QueryValue = Annotated[str | None, ParamDoc(QUERY_VALUE_DOC)]
 
-ABOUT_DESCRIPTION = "Return server metadata: package version, keywords, and bundled OSCAL version."
+ABOUT_DESCRIPTION = (
+    "Return server metadata: package version, keywords, bundled OSCAL version, "
+    "and the number of documents loaded from OSCAL_DOCUMENTS_DIR."
+)
 
 # --- Server instructions: intro + Routing_Guide (Req 8). Clients load `instructions` into
 # context too, so tests/test_tool_budget.py caps SERVER_INSTRUCTIONS at ROUTING_GUIDE_CAP.

@@ -1660,3 +1660,52 @@ class TestStartupWiring:
             mock_cd_init.assert_called_once_with(mock_store)
             mock_models_init.assert_called_once_with(mock_store)
             mock_doc_init.assert_called_once_with(mock_store)
+
+
+class TestAboutUserDocumentsLoaded:
+    """`about` reports the number of documents loaded from OSCAL_DOCUMENTS_DIR."""
+
+    @staticmethod
+    def _about_result(main_module) -> dict:
+        server = main_module.build_server()  # fresh instance, never main.mcp
+        main_module._setup_tools(server)
+        return server._tool_manager.get_tool("about").fn()
+
+    def _run_init(self, main_module, documents_dir: str, db_path: str) -> None:
+        with (
+            patch("mcp_server_for_oscal.main.config") as mock_config,
+            patch("mcp_server_for_oscal.tools.list_oscal_resources.init_store"),
+            patch("mcp_server_for_oscal.tools.query_component_definition.init_store"),
+            patch("mcp_server_for_oscal.tools.query_oscal_models.init_store"),
+            patch("mcp_server_for_oscal.tools.query_documentation.init_store"),
+        ):
+            mock_config.oscal_store_db_path = db_path
+            mock_config.oscal_store_cache_size = 10
+            mock_config.oscal_documents_dir = documents_dir
+            main_module._init_oscal_store()
+
+    def test_reports_count_from_documents_dir(self, tmp_path, monkeypatch):
+        from mcp_server_for_oscal import main as main_module
+
+        monkeypatch.setattr(main_module, "_user_documents_loaded", 0)
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        (doc_dir / "one.md").write_text("# One\n\nText.", encoding="utf-8")
+        (doc_dir / "two.md").write_text("# Two\n\nText.", encoding="utf-8")
+        db_path = tmp_path / "store.db"
+        sqlite3.connect(db_path).close()  # existing file: no bundled seeding
+
+        self._run_init(main_module, str(doc_dir), str(db_path))
+
+        assert self._about_result(main_module)["user-documents-loaded"] == 2
+
+    def test_reports_zero_when_dir_missing(self, tmp_path, monkeypatch):
+        from mcp_server_for_oscal import main as main_module
+
+        monkeypatch.setattr(main_module, "_user_documents_loaded", 5)
+        db_path = tmp_path / "store.db"
+        sqlite3.connect(db_path).close()
+
+        self._run_init(main_module, str(tmp_path / "missing"), str(db_path))
+
+        assert self._about_result(main_module)["user-documents-loaded"] == 0
