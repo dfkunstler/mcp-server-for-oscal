@@ -317,12 +317,12 @@ Rules for every task:
     - Re-run `hatch run python private/measure_tools_list.py`. Record before/after numbers in the Notes section (design estimate ≈ 35,300 of 38,979; `SERVER_INSTRUCTIONS` ≈ 1,950 of 3,000). If over a cap, shorten descriptions or reuse aliases rather than raise a limit. Delete the script afterwards.
     - _Requirements: 13.2_
 
-- [-] 21. Final checkpoint
+- [x] 21. Final checkpoint
   - Run `hatch run tests`. Ensure all tests pass, ask the user if questions arise.
   - Commit the files changed in tasks 18-20 (and this file) by name, for example `test(tools): Path_Leak_Test over every registered tool; docs and sync targets (#45); hatch run tests passed`.
 
-- [ ] 22. Report on #45
-  - [~] 22.1 Comment on #45 with a short summary of what landed
+- [x] 22. Report on #45
+  - [x] 22.1 Comment on #45 with a short summary of what landed
     - `gh issue comment 45 --body-file <file>` (file under `private/`, deleted afterwards): the two pairs, the new tool, the changed shapes, Origin/Doc_ID and the schema upgrade, path hygiene and the Path_Leak_Test, the budget numbers, and the follow-up issue number.
     - Do not push the branch and do not open a PR. Ask the user for explicit approval before either.
     - _Requirements: 13.6, 15.3_
