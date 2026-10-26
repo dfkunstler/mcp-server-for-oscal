@@ -13,11 +13,13 @@ from hypothesis import strategies as st
 
 import mcp_server_for_oscal.tools.list_oscal_resources as lr_module
 from mcp_server_for_oscal.tools.list_oscal_resources import (
+    AWESOME_OSCAL_RELATIVE_NAME,
+    LIST_RESOURCES_ERROR,
     list_oscal_resources,
     parse_resource_entries,
     read_resources_file,
 )
-from mcp_server_for_oscal.tools.oscal_store import OscalStore
+from mcp_server_for_oscal.tools.oscal_store import ORIGIN_BUNDLED, ORIGIN_USER, OscalStore
 
 PAGE_KEYS = {"items", "total", "offset", "limit", "hasMore"}
 BUNDLED_ENTRY_COUNT = 82
@@ -150,7 +152,7 @@ class TestListOscalResources:
         assert isinstance(result, str)
 
     def test_list_oscal_resources_file_not_found_error(self):
-        """Test error handling when store is unavailable and file is not found."""
+        """A missing file is reported with fixed text; the path stays out of the message."""
         ctx = _ctx()
         # Patch Path.exists to return False so both fallback paths fail
         with (
@@ -158,35 +160,37 @@ class TestListOscalResources:
                 "mcp_server_for_oscal.tools.list_oscal_resources.Path.exists",
                 return_value=False,
             ),
-            pytest.raises(FileNotFoundError),
+            pytest.raises(RuntimeError) as exc_info,
         ):
             list_oscal_resources(ctx=ctx)
 
-        # Verify error was reported to context
-        ctx.error.assert_called_once()
+        assert str(exc_info.value) == LIST_RESOURCES_ERROR
+        assert isinstance(exc_info.value.__cause__, FileNotFoundError)
+        ctx.error.assert_called_once_with(LIST_RESOURCES_ERROR)
 
     @patch("mcp_server_for_oscal.tools.list_oscal_resources.open")
     def test_list_oscal_resources_io_error(self, mock_open):
-        """Test error handling for IO errors when reading the file."""
-        mock_open.side_effect = OSError("Permission denied")
+        """IO error text (which names the file) is logged, not sent to the client."""
+        mock_open.side_effect = OSError(13, "Permission denied", "/secret/awesome-oscal.md")
         ctx = _ctx()
 
-        with pytest.raises(IOError):
+        with pytest.raises(RuntimeError) as exc_info:
             list_oscal_resources(ctx=ctx)
 
-        ctx.error.assert_called_once()
-        assert "Failed to list OSCAL resources" in ctx.error.call_args[0][0]
+        assert str(exc_info.value) == LIST_RESOURCES_ERROR
+        ctx.error.assert_called_once_with(LIST_RESOURCES_ERROR)
+        assert "/secret" not in ctx.error.call_args[0][0]
 
     @patch("mcp_server_for_oscal.tools.list_oscal_resources.open")
     def test_list_oscal_resources_unicode_decode_error(self, mock_open):
-        """Test error handling for encoding issues."""
+        """Encoding errors are reported with the fixed text."""
         mock_open.side_effect = UnicodeDecodeError("utf-8", b"", 0, 1, "invalid start byte")
         ctx = _ctx()
 
-        with pytest.raises(UnicodeDecodeError):
+        with pytest.raises(RuntimeError, match=f"^{LIST_RESOURCES_ERROR}$"):
             list_oscal_resources(ctx=ctx)
 
-        ctx.error.assert_called_once()
+        ctx.error.assert_called_once_with(LIST_RESOURCES_ERROR)
 
     def test_read_resources_file_with_temporary_file(self):
         """Test reading a temporary file with known content."""
@@ -323,6 +327,64 @@ class TestListOscalResources:
         )
 
         assert _read_from_store() is None
+
+    def test_read_from_store_selects_bundled_relative_name(self, tmp_path):
+        """The bundled ``awesome-oscal.md`` is found by Origin and Relative_Name; a nested
+        bundled file with the same basename is not."""
+        bundled = tmp_path / "bundled"
+        (bundled / "nested").mkdir(parents=True)
+        (bundled / AWESOME_OSCAL_RELATIVE_NAME).write_text("# Bundled\n", encoding="utf-8")
+        (bundled / "nested" / AWESOME_OSCAL_RELATIVE_NAME).write_text(
+            "# Nested\n", encoding="utf-8"
+        )
+        store = OscalStore(db_path=str(tmp_path / "store.db"), seed_from_bundled=False)
+        try:
+            store.scan_directory(bundled, origin=ORIGIN_BUNDLED)
+            lr_module.init_store(store)
+            assert lr_module._read_from_store() == "# Bundled\n"
+        finally:
+            store.close()
+
+    def test_read_from_store_ignores_user_origin(self, tmp_path):
+        """A ``user`` file named ``awesome-oscal.md`` is not read as the bundled list."""
+        user = tmp_path / "user"
+        user.mkdir()
+        (user / AWESOME_OSCAL_RELATIVE_NAME).write_text("# User\n", encoding="utf-8")
+        store = OscalStore(db_path=str(tmp_path / "store.db"), seed_from_bundled=False)
+        try:
+            store.scan_directory(user, origin=ORIGIN_USER)
+            lr_module.init_store(store)
+            assert lr_module._read_from_store() is None
+        finally:
+            store.close()
+
+    def test_user_file_does_not_shadow_bundled_list(self, tmp_path):
+        """search-fetch-pairs Requirement 1.6: with a bundled and a user ``awesome-oscal.md``
+        in the store, the tool lists the bundled entries, in either scan order."""
+        bundled = tmp_path / "bundled"
+        user = tmp_path / "user"
+        bundled.mkdir()
+        user.mkdir()
+        (bundled / AWESOME_OSCAL_RELATIVE_NAME).write_text(
+            "# Awesome OSCAL\n\n## Content\n\n- [B](https://b.example): bundled entry\n",
+            encoding="utf-8",
+        )
+        (user / AWESOME_OSCAL_RELATIVE_NAME).write_text(
+            "# Mine\n\n## Tools\n\n- [U](https://u.example): user entry\n", encoding="utf-8"
+        )
+        store = OscalStore(db_path=str(tmp_path / "store.db"), seed_from_bundled=False)
+        try:
+            # User scanned last, so a "latest row wins" lookup would pick it.
+            store.scan_directory(bundled, origin=ORIGIN_BUNDLED)
+            store.scan_directory(user, origin=ORIGIN_USER)
+            lr_module.init_store(store)
+            result = list_oscal_resources(ctx=_ctx())
+        finally:
+            store.close()
+        assert result["items"] == [
+            {"category": "Content", "text": "[B](https://b.example): bundled entry"}
+        ]
+        assert result["total"] == 1
 
 
 # --- Property 6 generators -------------------------------------------------------------

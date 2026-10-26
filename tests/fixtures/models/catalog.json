@@ -1,0 +1,65 @@
+{
+  "catalog": {
+    "uuid": "5e1f0c2a-0001-4a00-8000-000000000001",
+    "metadata": {
+      "title": "Leak Fixture Catalog",
+      "last-modified": "2024-01-01T00:00:00Z",
+      "version": "1.0",
+      "oscal-version": "1.0.4"
+    },
+    "groups": [
+      {
+        "id": "ac",
+        "title": "Access Control",
+        "groups": [
+          {
+            "id": "ac-acct",
+            "title": "Account Controls",
+            "controls": [
+              {
+                "id": "ac-1",
+                "title": "Policy and Procedures",
+                "parts": [
+                  {
+                    "id": "ac-1_smt",
+                    "name": "statement",
+                    "prose": "Develop and document an access control policy."
+                  }
+                ]
+              },
+              {
+                "id": "ac-2",
+                "title": "Account Management",
+                "parts": [
+                  {
+                    "id": "ac-2_smt",
+                    "name": "statement",
+                    "prose": "Define and document the types of system accounts allowed."
+                  },
+                  {
+                    "id": "ac-2_gdn",
+                    "name": "guidance",
+                    "prose": "Account guidance: review account types every quarter."
+                  }
+                ],
+                "controls": [
+                  {
+                    "id": "ac-2.1",
+                    "title": "Automated Account Management",
+                    "parts": [
+                      {
+                        "id": "ac-2.1_smt",
+                        "name": "statement",
+                        "prose": "Support account management with automated mechanisms."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -31,7 +31,9 @@ erDiagram
         TEXT uuid UK
         TEXT title
         TEXT model_type "enum value or 'documentation'"
-        TEXT file_path UK "zip members: zip_path/inner_name"
+        TEXT file_path UK "internal only; zip members: zip_path/inner_name"
+        TEXT origin "bundled | user"
+        TEXT relative_name "path under the scanned root"
         INTEGER file_size
         REAL file_mtime
         TEXT content_hash "SHA-256; added by ALTER TABLE migration"
@@ -60,17 +62,20 @@ erDiagram
 
 - `UNIQUE(uuid, parent_doc_id)` on `child_elements`: token IDs such as `ac-1` can repeat across documents, which is why `get_child_element` can return an ambiguity error.
 - Change detection compares SHA-256 content hashes (`_file_unchanged`). A NULL hash from before the migration forces a re-index.
-- Markdown documents get a deterministic `uuid5(NAMESPACE_URL, file_path)`. The title comes from the first heading, or from the filename.
-- `fts_index` is an FTS5 virtual table. On FTS syntax errors, search falls back to `LIKE`.
+- Every document row records `origin` (`bundled` or `user`) and `relative_name` (NFC, `/`-joined path under the scanned root). Markdown documents get a Doc_ID, `uuid5(DOC_ID_NAMESPACE, "<origin>:<relative_name>")`, stable across machines. The title comes from the first heading, or from the filename. `file_path` is internal (change detection) and never returned.
+- `fts_index` is an FTS5 virtual table with a sixth `element_id` column. Queries go through `tools/fts_query.py` (quoted, column-scoped terms). If `MATCH` still fails, search falls back to `LIKE`.
+- The schema version is `PRAGMA user_version` (`SCHEMA_VERSION` = 2); `_migrate()` upgrades older persistent DBs in place.
 
 ## Response shapes
 
 | Shape | Keys | Producers |
 |---|---|---|
 | Page response | `items`, `total`, `offset`, `limit`, `hasMore` | `utils.paginate`, `OscalStore._page_response`; every list/query tool |
-| Query item | `uuid`, `title`, `model_type`, `file_path`, `sizeInBytes`, `children[]` (`uuid`, `title`, `element_type`, `description`) | `OscalStore.query` |
+| Query item | `uuid`, `title`, `model_type`, `sizeInBytes`, `childTypeCounts` (no `file_path`; no tool result contains a filesystem path) | `OscalStore.query` |
 | Child item | `id`, `title`, `element_type`, `description`, `parentDocumentTitle`, `parentDocumentUuid` (+ `raw_json` for `get_child_element`) | child listers, `get_child_element` |
-| Search item | `entity_type`, `entity_id`, `title`, `description`, `model_type` | `text_search_oscal` |
+| Search item | `entity_type`, `entity_id` (Element_ID or Document_UUID), `title`, `description`, `model_type`, plus `parentDocumentUuid` on child hits | `text_search_oscal` |
+| Doc result item | `title`, `snippet`, `docId` (local docs only) | `query_oscal_documentation` |
+| Doc page | `docId`, `title`, `start-line`, `end-line`, `total-lines`, `has-more`, `text` | `get_oscal_documentation` |
 | Validation result | `valid`, `model_type`, `levels{well_formedness, json_schema, model, oscal_cli}` each `{level, valid, errors[], warnings[], skipped, skip_reason}` | `validate_oscal_*` |
 | cdef query | `components[]` (stored OSCAL JSON, hyphenated keys such as `control-implementations`), `total_count`, `query_type`, `component_definitions_searched`, `filtered_by`, plus pagination | `query_component_definition` |
 

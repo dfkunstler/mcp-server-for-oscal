@@ -179,6 +179,18 @@ class TestServerInstructions:
     def test_guide_names_tool_per_task(self, tool_name: str) -> None:
         assert tool_name in descriptions.ROUTING_GUIDE
 
+    @pytest.mark.parametrize(
+        ("search_tool", "fetch_tool"),
+        [
+            ("text_search_oscal", "get_child_element"),
+            ("query_oscal_documentation", "get_oscal_documentation"),
+        ],
+    )
+    def test_guide_names_fetch_step_after_search(self, search_tool: str, fetch_tool: str) -> None:
+        """Validates: search-fetch-pairs Requirement 13.5."""
+        line = next((ln for ln in descriptions.ROUTING_GUIDE.splitlines() if search_tool in ln), "")
+        assert f"{search_tool}, then {fetch_tool}" in line, line
+
     def test_guide_has_property_link_tip(self) -> None:
         assert '"property/@name"' in descriptions.ROUTING_GUIDE
         assert '"link/@rel"' in descriptions.ROUTING_GUIDE

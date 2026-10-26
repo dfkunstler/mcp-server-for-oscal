@@ -112,9 +112,10 @@ def get_tool_list() -> list[Callable]:
     ]
 
     from mcp_server_for_oscal.tools.query_documentation import (
+        get_oscal_documentation,
         query_oscal_documentation,
     )
 
-    tools.append(query_oscal_documentation)
+    tools.extend([query_oscal_documentation, get_oscal_documentation])
 
     return tools

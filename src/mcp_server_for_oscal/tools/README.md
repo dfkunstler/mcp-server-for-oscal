@@ -23,7 +23,8 @@ Each tool's description is its docstring: a summary sentence, an optional "Use w
 | `list_components` | List loaded components with summary metadata (paginated) |
 | `list_capabilities` | List loaded capabilities, for Component Definitions that contain them (paginated) |
 | `get_capability` | Retrieve a single capability by UUID as OSCAL JSON (`uuid` required) |
-| `query_oscal_documentation` | Search OSCAL documentation: Bedrock Knowledge Base when configured, else full-text search of bundled docs |
+| `query_oscal_documentation` | Search OSCAL documentation (Bedrock Knowledge Base when configured, plus local docs) and return `{title, snippet, docId}` passages (paginated within the response budget) |
+| `get_oscal_documentation` | Read a local OSCAL documentation page by `docId` as a verbatim line range (paged by line range within the response budget) |
 | `about` | Server metadata including version and supported OSCAL version |
 | **Catalog tools** | |
 | `query_catalog` | Query OSCAL Catalog documents by UUID or title, or list all, with `childTypeCounts` (paginated) |
@@ -59,7 +60,7 @@ Each tool's description is its docstring: a summary sentence, an optional "Use w
 | `list_mapping_collections` | List loaded OSCAL Mapping Collections with summary metadata |
 | `list_mapping_collection_mappings` | List mapping elements (cross-framework control relationships) within OSCAL Mapping Collection documents |
 | **Cross-cutting tools** | |
-| `text_search_oscal` | Full-text search across all loaded OSCAL documents and child elements using SQLite FTS5, ranked by relevance |
+| `text_search_oscal` | Full-text search across loaded OSCAL documents and child elements (not documentation) using SQLite FTS5; hits carry the ID to pass to `query_<model>` or `get_child_element` (paginated within the response budget) |
 | `get_child_element` | Retrieve a single child element by its identifier (UUID or token ID), with optional parent document scoping |
 
 ### 1. List OSCAL Models
@@ -177,12 +178,18 @@ Returns a page of loaded components across all Component Definitions. Use it to 
 ### 7. Query OSCAL Documentation
 **Tool**: `query_oscal_documentation`
 
-Searches OSCAL documentation for questions about concepts, best practices, and implementation guidance that the model schemas do not answer. When a Knowledge Base ID is configured, it queries Amazon Bedrock Knowledge Base; otherwise (or if the Bedrock query fails) it runs a full-text search over the bundled OSCAL documentation.
+Searches OSCAL documentation for questions about concepts, best practices, and implementation guidance that the model schemas do not answer. Without a Knowledge Base ID, it runs a full-text search over the local documentation of both Origins: `bundled` (the OSCAL docs built into the bundled DB) and `user` (markdown files in `OSCAL_DOCUMENTS_DIR`). With a Knowledge Base ID, it interleaves Amazon Bedrock Knowledge Base results with local `user` documentation hits; if the Bedrock query fails, it falls back to the local search of both Origins.
 
 **Parameters**:
-- `query` (str, required): Question or search terms about OSCAL
+- `query` (str, required): Question or search terms about OSCAL. Blank text returns an empty page
+- `offset` (int, default=0), `limit` (int, default=10, 1–100): Pagination. A page may hold fewer items to fit the response budget
 
-**Returns**: Bedrock retrieve results, or the matching passages from the local search
+**Returns**: The standard paginated response. Each item contains:
+- `title`: Document title
+- `snippet`: Matching passage (local snippets are at most 200 characters)
+- `docId`: Doc_ID to pass to `get_oscal_documentation`. Present only on local hits; Knowledge Base hits are snippet-only (see #47)
+
+If a single item exceeds the budget, its `snippet` is shortened and the item gets `truncated: true`. Results never contain file paths.
 
 **Bedrock configuration** (optional):
 - `OSCAL_KB_ID` environment variable
@@ -191,7 +198,33 @@ Searches OSCAL documentation for questions about concepts, best practices, and i
 
 ---
 
-### 8. Validate OSCAL Content
+### 8. Get OSCAL Documentation
+**Tool**: `get_oscal_documentation`
+
+Reads a local OSCAL documentation page verbatim, by the `docId` from a `query_oscal_documentation` hit. Use it when a snippet is not enough.
+
+A Doc_ID is a UUID v5 derived from the document's Origin (`bundled` or `user`) and Relative_Name (its path relative to the scanned directory, `/`-separated; for a zip member, the zip's Relative_Name plus `/` and the member name). It stays the same across machines and rebuilds, and the same file name gives different Doc_IDs in the two Origins. OSCAL document UUIDs are not Doc_IDs.
+
+**Parameters**:
+- `doc_id` (str, required): `docId` from a `query_oscal_documentation` result
+- `start_line` (int, default=1): 1-based first line to return
+- `line_count` (int, default=200, 1–500): Maximum lines to return
+
+**Returns**: Dictionary with:
+- `docId`, `title`: The document's Doc_ID and title
+- `start-line`, `end-line`: The 1-based, inclusive line range returned
+- `total-lines`: Number of lines in the document
+- `has-more`: Whether lines follow `end-line`; continue from `end-line` + 1
+- `text`: The lines verbatim, with their line endings
+
+**Key behaviors**:
+- A response may hold fewer than `line_count` lines to fit the response budget, but always at least one line
+- If that one line alone exceeds the budget, its text is shortened and the response gets `truncated: true`
+- An unknown `doc_id` raises an error that does not repeat the value; an out-of-range `start_line` or `line_count` raises an error naming the valid range
+
+---
+
+### 9. Validate OSCAL Content
 **Tool**: `validate_oscal_content`
 
 Validates OSCAL JSON content through a multi-level pipeline:
@@ -223,7 +256,7 @@ Each entry in `levels` carries the level name: `well_formedness`, `json_schema`,
 
 ---
 
-### 9. Validate OSCAL File
+### 10. Validate OSCAL File
 **Tool**: `validate_oscal_file`
 
 Validates an OSCAL JSON file through the same multi-level pipeline as `validate_oscal_content`.
@@ -242,7 +275,7 @@ Validates an OSCAL JSON file through the same multi-level pipeline as `validate_
 
 ---
 
-### 10. List Capabilities
+### 11. List Capabilities
 **Tool**: `list_capabilities`
 
 Returns a page of capabilities across all loaded Component Definitions. Capabilities are optional in OSCAL, so the list is empty when no loaded Component Definition contains any.
@@ -258,7 +291,7 @@ Returns a page of capabilities across all loaded Component Definitions. Capabili
 
 ---
 
-### 11. Get Capability
+### 12. Get Capability
 **Tool**: `get_capability`
 
 Retrieves a single capability by UUID with its full OSCAL representation. Use it only for Component Definitions that contain capabilities.
@@ -270,7 +303,7 @@ Retrieves a single capability by UUID with its full OSCAL representation. Use it
 
 ---
 
-### 12. About
+### 13. About
 **Tool**: `about`
 
 Returns metadata about the MCP server itself.
@@ -303,7 +336,7 @@ Child element tools (`list_<model>_<element>`) list elements within a specific p
 | `offset` | int | `0` | Zero-based pagination offset |
 | `limit` | int | `10` | Maximum items to return, 1–100 |
 
-Each `query_*` item contains `uuid`, `title`, `model_type`, `file_path`, `sizeInBytes`, and `childTypeCounts`: a map from child element type to its count in that document (for example `{"control": 1007, "group": 20}`). Types with no elements are omitted, so a document without child elements has `{}`. Child elements are not returned inline.
+Each `query_*` item contains `uuid`, `title`, `model_type`, `sizeInBytes`, and `childTypeCounts`: a map from child element type to its count in that document (for example `{"control": 1007, "group": 20}`). Types with no elements are omitted, so a document without child elements has `{}`. Child elements are not returned inline. Items no longer carry `file_path`: tool results and client-facing error messages do not contain server storage locations (the DB path, scanned directories, stored file paths, or KB `s3://` URIs).
 
 ### Common Parameters for `list_*` Tools
 
@@ -314,7 +347,7 @@ Each `query_*` item contains `uuid`, `title`, `model_type`, `file_path`, `sizeIn
 
 ### Common Return Format
 
-All `query_*` and `list_*` tools (and `list_oscal_resources`) return a paginated response dict:
+All `query_*` and `list_*` tools (and `list_oscal_resources` and `text_search_oscal`) return a paginated response dict. Budgeted tools (`text_search_oscal`, `query_oscal_documentation`) set `limit` to the number of items returned, so continue from `offset` + `limit`:
 
 | Key | Type | Description |
 |-----|------|-------------|
@@ -336,16 +369,23 @@ Each returned item contains: `id`, `title`, `element_type`, `description`, `pare
 
 ### `text_search_oscal`
 
-Full-text search across all loaded OSCAL documents and child elements using SQLite FTS5. Results are ranked by relevance.
+Full-text search across all loaded OSCAL documents and child elements using SQLite FTS5. It matches titles, descriptions, catalog control prose (statement and guidance parts), and element IDs or document UUIDs, and indexes pending documents before searching. Documentation pages are excluded; use `query_oscal_documentation` for them. Results that match every search term come first, then by relevance.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `query_text` | str | _(required)_ | Full-text search terms |
 | `oscal_model_type` | str | `None` | Filter results to a specific OSCAL model type (e.g. `"catalog"`, `"system-security-plan"`). When omitted, all model types are searched. |
 | `offset` | int | `0` | Zero-based pagination offset |
-| `limit` | int | `10` | Maximum items to return, 1–100 |
+| `limit` | int | `10` | Maximum items to return, 1–100. A page may hold fewer to fit the response budget |
 
-Returns the standard paginated response. Each item contains: `entity_type`, `entity_id`, `title`, `description`, `model_type`.
+Returns the standard paginated response. Each item contains:
+- `entity_type`: `document` or `child_element`
+- `entity_id`: The Element_ID of a child hit (pass it to `get_child_element`) or the Document_UUID of a document hit (pass it to `query_<model>` with `by_uuid`)
+- `title`, `model_type`
+- `description`: At most 500 characters, then `…`
+- `parentDocumentUuid`: Child hits only; pass it to `get_child_element` as `parent_doc_uuid`
+
+Items carry no file paths or internal row IDs.
 
 ### `get_child_element`
 
@@ -363,7 +403,7 @@ Returns a dict with keys: `id`, `title`, `element_type`, `description`, `parentD
 ## Implementation Details
 
 ### Tool Registration
-Tools are registered in `main.py` using the MCP Python SDK's `MCPServer` (formerly `FastMCP`). Tool functions are collected by `get_tool_list()` in `tools/__init__.py`, which gathers the original tools, query/list tools from `query_oscal_models.py`, and `query_oscal_documentation` (always included). The `about` tool is registered separately in `main.py` as an MCP-server-only tool, with its description from `descriptions.ABOUT_DESCRIPTION`. The server `instructions` (`descriptions.SERVER_INSTRUCTIONS`) end with the Routing_Guide.
+Tools are registered in `main.py` using the MCP Python SDK's `MCPServer` (formerly `FastMCP`). Tool functions are collected by `get_tool_list()` in `tools/__init__.py`, which gathers the original tools, query/list tools from `query_oscal_models.py`, and `query_oscal_documentation` and `get_oscal_documentation` from `query_documentation.py` (always included). The `about` tool is registered separately in `main.py` as an MCP-server-only tool, with its description from `descriptions.ABOUT_DESCRIPTION`. The server `instructions` (`descriptions.SERVER_INSTRUCTIONS`) end with the Routing_Guide.
 
 Every tool that takes the MCP context declares `ctx: Context | None = None` as its last parameter. The MCP SDK hides it from the `inputSchema` by type, and `oscal_agent.agent_tools()` gives the Strands Agent copies of the tools with `ctx` removed from their specs, so both expose the same parameters.
 
@@ -384,10 +424,14 @@ The `utils.py` module provides shared functionality:
 - `ROOT_KEY_TO_MODEL_TYPE`: Reverse mapping from JSON root keys to model types
 - `load_oscal_json_schema()`: Load bundled OSCAL JSON schemas
 - `paginate()`: Build the standard paginated response from a list
+- `paginate_within_budget()`, `budget_page()`: Build a paginated response that fits `RESPONSE_BUDGET`, shortening an oversized single item and marking it `truncated`
+- `check_line_range()`, `lines_within_budget()`: Validate and return a budgeted line range (`get_metaschema_source`, `get_oscal_documentation`)
 - `try_notify_client_error()`: Helper for error notifications
 - `verify_package_integrity()`: Package integrity verification
 
 The `descriptions.py` module holds the shared tool text: `ParamDoc`, the reusable `Annotated` parameter aliases (`Offset`, `Limit`, `ParentDocUuid`, `TargetSelector`, and others), `ABOUT_DESCRIPTION`, and the Routing_Guide. The `tool_budget.py` module holds the description size limits and the pure checks the budget tests run.
+
+The `fts_query.py` module turns caller text into quoted FTS5 phrases with stop words removed, so hyphenated terms such as `ac-2` work. `text_search_oscal`, `query_oscal_documentation`, and the `by_title` full-text fallback all use it.
 
 The `query_oscal_models.py` module provides the query/list tool implementations for all OSCAL model types, including per-model `query_*`/`list_*` pairs, child element list tools, `text_search_oscal`, and `get_child_element`.
 

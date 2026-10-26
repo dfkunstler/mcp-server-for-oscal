@@ -3,6 +3,7 @@ Tests for OscalStore.scan_directory() and _detect_model_type().
 """
 
 import json
+import logging
 import os
 import sqlite3
 import tempfile
@@ -17,8 +18,13 @@ from hypothesis import strategies as st
 from oscal_bindings.models import ComponentDefinition
 
 from mcp_server_for_oscal.config import config
-from mcp_server_for_oscal.tools.oscal_store import VALID_QUERY_TYPES, OscalStore
-from mcp_server_for_oscal.tools.utils import MODEL_MAP, ROOT_KEY_TO_MODEL_TYPE, OSCALModelType
+from mcp_server_for_oscal.tools.oscal_store import VALID_QUERY_TYPES, OscalStore, control_prose
+from mcp_server_for_oscal.tools.utils import (
+    MODEL_MAP,
+    ROOT_KEY_TO_MODEL_TYPE,
+    TRUNCATION_MARK,
+    OSCALModelType,
+)
 
 
 @pytest.fixture
@@ -730,6 +736,41 @@ class TestEnsureIndexed:
         ).fetchone()
         assert total["cnt"] == 4
 
+    def test_reindex_leaves_one_fts_row_per_child_and_document(self, store, tmp_path):
+        """Re-indexing deletes the old FTS rows first: no orphans or duplicates (D3, 7.2)."""
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        (doc_dir / "cdef.json").write_text(json.dumps(_make_component_definition_with_children()))
+        store.scan_directory(doc_dir)
+        doc_id = store._conn.execute("SELECT id FROM documents").fetchone()["id"]
+
+        for _ in range(2):
+            store._conn.execute("UPDATE documents SET indexed = 0 WHERE id = ?", (doc_id,))
+            store._conn.commit()
+            store._ensure_indexed(doc_id)
+
+        child_ids = sorted(
+            str(r["id"])
+            for r in store._conn.execute(
+                "SELECT id FROM child_elements WHERE parent_doc_id = ?", (doc_id,)
+            )
+        )
+        child_fts_ids = sorted(
+            r["entity_id"]
+            for r in store._conn.execute(
+                "SELECT entity_id FROM fts_index WHERE entity_type = 'child_element'"
+            )
+        )
+        doc_fts_ids = [
+            r["entity_id"]
+            for r in store._conn.execute(
+                "SELECT entity_id FROM fts_index WHERE entity_type = 'document'"
+            )
+        ]
+        assert len(child_ids) == 3
+        assert child_fts_ids == child_ids
+        assert doc_fts_ids == [str(doc_id)]
+
     def test_child_elements_have_raw_json(self, store, tmp_path):
         """Child elements store serialized JSON."""
         doc_dir = tmp_path / "docs"
@@ -748,6 +789,129 @@ class TestEnsureIndexed:
             assert child["raw_json"] is not None
             parsed = json.loads(child["raw_json"])
             assert isinstance(parsed, dict)
+
+
+def _prose_catalog() -> dict:
+    """Catalog with Control_Prose at the top level and inside nested groups.
+
+    ``ac-1`` has statement + guidance with nested parts and a non-prose part between
+    them; ``ac-2`` has only a non-prose part; ``ac-3`` sits in a group nested in a
+    group (``CatalogGroupWithGroups`` → ``CatalogGroupWithControls``).
+    """
+    return {
+        "catalog": {
+            "uuid": "c1d2e3f4-5678-4abc-8def-aabbccddeeff",
+            "metadata": {**_COMMON_METADATA, "title": "Prose Catalog"},
+            "controls": [
+                {
+                    "id": "ac-1",
+                    "title": "Policy and Procedures",
+                    "parts": [
+                        {
+                            "id": "ac-1_smt",
+                            "name": "statement",
+                            "prose": "  Develop a policy.  ",
+                            "parts": [
+                                {
+                                    "id": "ac-1_smt.a",
+                                    "name": "item",
+                                    "prose": "Item {{ insert: param, ac-1_prm_1 }}.",
+                                    "parts": [
+                                        {"id": "ac-1_smt.a.1", "name": "item", "prose": "Deep."}
+                                    ],
+                                },
+                                {"id": "ac-1_smt.b", "name": "item", "prose": "   "},
+                            ],
+                        },
+                        {"id": "ac-1_obj", "name": "assessment-objective", "prose": "Skip."},
+                        {"id": "ac-1_gdn", "name": "guidance", "prose": "Guidance text."},
+                    ],
+                },
+                {
+                    "id": "ac-2",
+                    "title": "Account Management",
+                    "parts": [{"id": "ac-2_obj", "name": "assessment-objective", "prose": "No."}],
+                },
+            ],
+            "groups": [
+                {
+                    "id": "outer",
+                    "title": "Outer",
+                    "groups": [
+                        {
+                            "id": "inner",
+                            "title": "Inner",
+                            "controls": [
+                                {
+                                    "id": "ac-3",
+                                    "title": "Access Enforcement",
+                                    "parts": [
+                                        {"id": "ac-3_gdn", "name": "guidance", "prose": "Nested."}
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+
+
+class TestControlProse:
+    """Example tests for control_prose() and catalog control descriptions (Requirement 9)."""
+
+    @staticmethod
+    def _controls(catalog: dict) -> dict:
+        model = MODEL_MAP[OSCALModelType.CATALOG].model_validate(catalog["catalog"])
+        found: dict = {c.id: c for c in getattr(model, "controls", None) or []}
+        stack = list(getattr(model, "groups", None) or [])
+        while stack:
+            grp = stack.pop()
+            found.update({c.id: c for c in getattr(grp, "controls", None) or []})
+            stack.extend(getattr(grp, "groups", None) or [])
+        return found
+
+    def test_statement_and_guidance_in_document_order(self):
+        ctrl = self._controls(_prose_catalog())["ac-1"]
+        assert control_prose(ctrl) == (
+            "Develop a policy.\n\nItem {{ insert: param, ac-1_prm_1 }}.\n\nDeep.\n\nGuidance text."
+        )
+
+    def test_no_prose_parts_returns_empty_string(self):
+        controls = self._controls(_prose_catalog())
+        assert control_prose(controls["ac-2"]) == ""
+        no_parts = self._controls(_make_catalog_with_controls())["ac-1"]
+        assert control_prose(no_parts) == ""
+
+    def test_control_in_nested_groups(self):
+        assert control_prose(self._controls(_prose_catalog())["ac-3"]) == "Nested."
+
+    def test_indexed_descriptions_hold_control_prose(self, store, tmp_path):
+        """child_elements and FTS descriptions hold Control_Prose at every extracted level."""
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        (doc_dir / "catalog.json").write_text(json.dumps(_prose_catalog()))
+        store.scan_directory(doc_dir)
+        doc = store._conn.execute("SELECT id FROM documents").fetchone()["id"]
+        store._ensure_indexed(doc)
+
+        rows = store._conn.execute(
+            "SELECT id, uuid, description FROM child_elements "
+            "WHERE parent_doc_id = ? AND element_type = 'control'",
+            (doc,),
+        ).fetchall()
+        descriptions = {r["uuid"]: r["description"] for r in rows}
+        assert descriptions["ac-1"].startswith("Develop a policy.")
+        assert descriptions["ac-2"] == ""
+        assert descriptions["ac-3"] == "Nested."
+        for r in rows:
+            fts = store._conn.execute(
+                "SELECT description FROM fts_index "
+                "WHERE entity_type = 'child_element' AND entity_id = ?",
+                (str(r["id"]),),
+            ).fetchone()
+            assert fts["description"] == r["description"]
 
 
 class TestExtractChildElements:
@@ -1427,11 +1591,11 @@ class TestQuery:
             "uuid",
             "title",
             "model_type",
-            "file_path",
             "sizeInBytes",
             "childTypeCounts",
         }
         assert set(item.keys()) == expected_keys
+        assert "file_path" not in item
 
     def test_query_page_response_format(self, store):
         """query() returns correct Page_Response keys."""
@@ -1531,6 +1695,74 @@ class TestTextSearch:
         assert "description" in item
         assert "model_type" in item
 
+    def test_search_items_carry_fetchable_ids(self, store, tmp_path):
+        """entity_id is the Element_ID or Document_UUID, never an internal row id."""
+        self._index_component_definition(store, tmp_path)
+        cdef_uuid = "a1b2c3d4-5678-4abc-8def-123456789012"
+
+        result = store.text_search("Component", limit=100)
+        by_type = {i["entity_type"]: i for i in result["items"]}
+        assert set(by_type) == {"document", "child_element"}
+
+        doc_hit = by_type["document"]
+        assert doc_hit["entity_id"] == cdef_uuid
+        assert "parentDocumentUuid" not in doc_hit
+
+        child_ids = {i["entity_id"] for i in result["items"] if i["entity_type"] == "child_element"}
+        assert "b2c3d4e5-6789-4bcd-9efa-234567890123" in child_ids
+        for item in result["items"]:
+            if item["entity_type"] == "child_element":
+                assert item["parentDocumentUuid"] == cdef_uuid
+            assert set(item) <= {
+                "entity_type",
+                "entity_id",
+                "title",
+                "description",
+                "model_type",
+                "parentDocumentUuid",
+            }
+
+    def test_search_excludes_documentation(self, store, tmp_path):
+        """Documentation pages are not text_search hits."""
+        self._index_component_definition(store, tmp_path)
+        md_dir = tmp_path / "md"
+        md_dir.mkdir()
+        (md_dir / "guide.md").write_text("# Sample Guide\n\nSample documentation text.\n")
+        store.scan_directory(md_dir)
+
+        result = store.text_search("Sample", limit=100)
+        assert result["total"] > 0
+        assert {i["entity_type"] for i in result["items"]} <= {"document", "child_element"}
+
+    def test_search_indexes_pending_documents(self, store, tmp_path):
+        """A freshly scanned document is searchable without another call indexing it."""
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        (doc_dir / "catalog.json").write_text(json.dumps(_make_catalog_with_controls()))
+        store.scan_directory(doc_dir)
+
+        # A hyphenated term is one phrase: "account management".
+        result = store.text_search("account-management")
+        assert result["total"] == 1
+        top = result["items"][0]
+        assert top["entity_id"] == "ac-2"
+        assert top["parentDocumentUuid"] == "c1d2e3f4-5678-4abc-8def-aabbccddeeff"
+
+    def test_search_truncates_long_descriptions(self, store, tmp_path):
+        """Descriptions over 500 characters end with the truncation mark."""
+        data = _make_component_definition_with_children()
+        components = data["component-definition"]["components"]
+        components[0]["description"] = "longword " * 100
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        (doc_dir / "cdef.json").write_text(json.dumps(data))
+        store.scan_directory(doc_dir)
+
+        result = store.text_search("longword")
+        assert result["total"] == 1
+        description = result["items"][0]["description"]
+        assert description == ("longword " * 100)[:500] + TRUNCATION_MARK
+
     def test_search_finds_document_title(self, store, tmp_path):
         """Searching for a document title returns the document."""
         self._index_component_definition(store, tmp_path)
@@ -1596,16 +1828,14 @@ class TestTextSearch:
         assert result["items"] == []
         assert result["hasMore"] is False
 
-    def test_fts_fallback_on_bad_syntax(self, store, tmp_path):
-        """Bad FTS5 syntax triggers LIKE fallback without raising."""
+    def test_fts_operator_characters_are_literal(self, store, tmp_path):
+        """FTS5 operator characters in the query are separators, not syntax."""
         self._index_component_definition(store, tmp_path)
 
-        # Unbalanced quotes are invalid FTS5 syntax
-        result = store.text_search('"Sample')
-        # Should not raise — falls back to LIKE
-        assert isinstance(result, dict)
-        assert "items" in result
-        assert "total" in result
+        for query in ('"Sample', "(Sample", "Sample AND (", "NEAR(Sample*"):
+            result = store.text_search(query)
+            assert result["total"] > 0, query
+            assert any("Sample" in i["title"] for i in result["items"]), query
 
     def test_pagination(self, store, tmp_path):
         """Pagination parameters work correctly for text search."""
@@ -1651,17 +1881,28 @@ class TestTextSearch:
         result = store.text_search("sample")
         assert result["total"] > 0
 
-    def test_like_fallback_finds_content(self, store, tmp_path):
-        """LIKE fallback (triggered by bad FTS syntax) still finds content."""
+    def test_like_fallback_finds_content(self, store, tmp_path, monkeypatch, caplog):
+        """If the FTS query raises, the LIKE fallback returns the same item shape."""
         self._index_component_definition(store, tmp_path)
+        expected = store.text_search("Sample Component", limit=100)
 
-        # Use unbalanced parenthesis — invalid FTS5 syntax
-        result = store.text_search("(Sample")
-        # LIKE fallback should find "Sample Component" in title
-        assert isinstance(result, dict)
-        # At minimum, the result should be a valid Page_Response
-        assert "items" in result
-        assert "total" in result
+        def _raise(*_args, **_kwargs):
+            msg = "simulated FTS failure"
+            raise sqlite3.OperationalError(msg)
+
+        monkeypatch.setattr(store, "_fts_search", _raise)
+        with caplog.at_level(logging.WARNING):
+            result = store.text_search("Sample Component", limit=100)
+
+        assert "falling back to LIKE" in caplog.text
+        assert result["total"] == expected["total"]
+        # Entities matching both terms come first.
+        assert result["items"][0]["title"] == "Sample Component"
+        assert {i["entity_id"] for i in result["items"]} == {
+            i["entity_id"] for i in expected["items"]
+        }
+        child = next(i for i in result["items"] if i["entity_type"] == "child_element")
+        assert child["parentDocumentUuid"] == "a1b2c3d4-5678-4abc-8def-123456789012"
 
 
 # ---------------------------------------------------------------------------
@@ -3292,7 +3533,6 @@ class TestPropertyDocumentMetadataRoundTrip:
                 {
                     "uuid": doc_uuid,
                     "title": title,
-                    "file_path": str(file_path),
                     "sizeInBytes": file_path.stat().st_size,
                 }
             )
@@ -3315,9 +3555,7 @@ class TestPropertyDocumentMetadataRoundTrip:
                 assert item["title"] == exp["title"], (
                     f"Title mismatch: {item['title']} != {exp['title']}"
                 )
-                assert item["file_path"] == exp["file_path"], (
-                    f"file_path mismatch: {item['file_path']} != {exp['file_path']}"
-                )
+                assert "file_path" not in item
                 assert item["sizeInBytes"] == exp["sizeInBytes"], (
                     f"sizeInBytes mismatch: {item['sizeInBytes']} != {exp['sizeInBytes']}"
                 )
@@ -3919,9 +4157,7 @@ class TestPropertyChildTypeCounts:
     **Validates: Requirements 6.3, 6.4, 6.5, 6.7**
     """
 
-    _ITEM_KEYS = frozenset(
-        {"uuid", "title", "model_type", "file_path", "sizeInBytes", "childTypeCounts"}
-    )
+    _ITEM_KEYS = frozenset({"uuid", "title", "model_type", "sizeInBytes", "childTypeCounts"})
 
     @staticmethod
     def _build_catalog(
@@ -3997,7 +4233,6 @@ class TestPropertyChildTypeCounts:
                 path.write_text(json.dumps(doc))
                 expected_by_uuid[doc["catalog"]["uuid"]] = {
                     "title": title,
-                    "file_path": str(path),
                     "sizeInBytes": path.stat().st_size,
                     "childTypeCounts": expected_counts,
                 }
@@ -4029,7 +4264,6 @@ class TestPropertyChildTypeCounts:
             assert all(v >= 1 for v in item["childTypeCounts"].values())
             assert item["model_type"] == OSCALModelType.CATALOG.value
             assert item["title"] == want["title"]
-            assert item["file_path"] == want["file_path"]
             assert item["sizeInBytes"] == want["sizeInBytes"]
             doc_summary = listed[item["uuid"]]
             assert item["title"] == doc_summary["title"]
@@ -4038,11 +4272,13 @@ class TestPropertyChildTypeCounts:
             assert sum(item["childTypeCounts"].values()) == doc_summary["childCount"]
 
 
-class TestCountDocumentsUnder:
-    """OscalStore.count_documents_under() counts stored docs by source directory."""
+class TestCountDocumentsAfterRescan:
+    """count_documents(origin=user) keeps unchanged rows from an earlier scan."""
 
-    def _write_docs(self, doc_dir: Path) -> None:
-        doc_dir.mkdir(parents=True)
+    def test_persistent_rescan_keeps_user_count(self, tmp_path):
+        """Persistent DB: a rescan ingests 0 files but the user count stays the same."""
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
         (doc_dir / "a.json").write_text(
             json.dumps(_make_component_definition(str(uuid_mod.uuid4()), "A"))
         )
@@ -4052,26 +4288,6 @@ class TestCountDocumentsUnder:
                 "inner/b.json",
                 json.dumps(_make_component_definition(str(uuid_mod.uuid4()), "B")),
             )
-
-    def test_counts_json_md_and_zip_members(self, store, tmp_path):
-        doc_dir = tmp_path / "docs"
-        self._write_docs(doc_dir)
-        store.scan_directory(doc_dir)
-        assert store.count_documents_under(doc_dir) == 3
-
-    def test_excludes_sibling_with_shared_prefix(self, store, tmp_path):
-        doc_dir = tmp_path / "docs"
-        other_dir = tmp_path / "docs2"
-        self._write_docs(doc_dir)
-        self._write_docs(other_dir)
-        store.scan_directory(doc_dir)
-        store.scan_directory(other_dir)
-        assert store.count_documents_under(doc_dir) == 3
-
-    def test_includes_unchanged_documents_after_rescan(self, tmp_path):
-        """Persistent DB: a rescan ingests 0 files but the count stays the same."""
-        doc_dir = tmp_path / "docs"
-        self._write_docs(doc_dir)
         db_path = str(tmp_path / "persist.db")
         s1 = OscalStore(db_path=db_path, cache_size=10, seed_from_bundled=False)
         try:
@@ -4081,9 +4297,6 @@ class TestCountDocumentsUnder:
         s2 = OscalStore(db_path=db_path, cache_size=10, seed_from_bundled=False)
         try:
             assert s2.scan_directory(doc_dir) == 0
-            assert s2.count_documents_under(doc_dir) == 3
+            assert s2.count_documents(origin="user") == 3
         finally:
             s2.close()
-
-    def test_empty_store_returns_zero(self, store, tmp_path):
-        assert store.count_documents_under(tmp_path / "nowhere") == 0

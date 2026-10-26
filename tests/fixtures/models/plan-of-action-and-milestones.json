@@ -1,0 +1,18 @@
+{
+  "plan-of-action-and-milestones": {
+    "uuid": "5e1f0c2a-0007-4a00-8000-000000000001",
+    "metadata": {
+      "title": "Leak Fixture Remediation Plan",
+      "last-modified": "2024-01-01T00:00:00Z",
+      "version": "1.0",
+      "oscal-version": "1.0.4"
+    },
+    "poam-items": [
+      {
+        "uuid": "5e1f0c2a-0007-4a00-8000-000000000002",
+        "title": "Remove Stale Account",
+        "description": "Remove the account that was not reviewed."
+      }
+    ]
+  }
+}

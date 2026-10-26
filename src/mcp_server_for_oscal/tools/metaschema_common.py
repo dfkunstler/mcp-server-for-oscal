@@ -22,26 +22,19 @@ from mcp_server_for_oscal.tools.metaschema_paths import (
     parse_selector,
     validate_selector,
 )
-from mcp_server_for_oscal.tools.utils import OSCALModelType, paginate
+
+# shown lives in utils (check_line_range needs it); callers still import it from here.
+from mcp_server_for_oscal.tools.utils import OSCALModelType, paginate, shown
 
 # Unknown-definition suggestions (Requirement 5.10, RC-12).
 MAX_SUGGESTIONS = 10
 MAX_SUGGEST_CHARS = 64  # edit distance uses only this many characters of the segment
-MAX_SHOWN_CHARS = 80  # the segment (or model) is named in messages up to this length
-
 MODEL_VALUES = frozenset(m.value for m in OSCALModelType)
 
 
 # --------------------------------------------------------------------------------------
 # Argument checks (Requirements 5.9, 5.11, 5.12, 8.10, 8.11)
 # --------------------------------------------------------------------------------------
-
-
-def shown(text: str) -> str:
-    """``text`` cut to ``MAX_SHOWN_CHARS`` for a message, marked when cut."""
-    if len(text) <= MAX_SHOWN_CHARS:
-        return text
-    return text[:MAX_SHOWN_CHARS] + "..."
 
 
 def check_model(model: object) -> OSCALModelType:

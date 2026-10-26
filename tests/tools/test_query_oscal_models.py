@@ -9,6 +9,7 @@ import pytest
 
 from mcp_server_for_oscal.tools import query_oscal_models, tool_budget
 from mcp_server_for_oscal.tools.descriptions import (
+    BudgetedLimit,
     Limit,
     Offset,
     OptionalModelName,
@@ -299,6 +300,23 @@ class TestTextSearchOscal:
         # Should not raise; returns results across all types
         assert "items" in result
 
+    @pytest.mark.parametrize(
+        ("offset", "limit", "param"),
+        [(-1, 10, "offset"), (0, 0, "limit"), (0, 101, "limit")],
+    )
+    def test_text_search_rejects_out_of_range_page(self, populated_store, offset, limit, param):
+        """Out-of-range offset/limit raise ValueError naming the parameter (BudgetedLimit 1-100)."""
+        with pytest.raises(ValueError, match=param):
+            query_oscal_models.text_search_oscal(
+                ctx=None, query_text="Test", offset=offset, limit=limit
+            )
+
+    @pytest.mark.parametrize("limit", [1, 100])
+    def test_text_search_accepts_limit_bounds(self, populated_store, limit):
+        query_oscal_models.query_catalog(ctx=None, query_type="all")
+        result = query_oscal_models.text_search_oscal(ctx=None, query_text="Test", limit=limit)
+        assert len(result["items"]) <= limit
+
 
 # ---------------------------------------------------------------------------
 # Page_Response structure
@@ -396,6 +414,11 @@ class TestToolSignatures:
         assert list(sig.parameters)[-1] == "ctx"
         assert sig.parameters["query_text"].default is inspect.Parameter.empty
         assert sig.parameters["oscal_model_type"].annotation == OptionalModelName
+        assert sig.parameters["offset"].annotation == Offset
+        assert sig.parameters["offset"].default == 0
+        # Requirement 7.7: shared BudgetedLimit alias, name and default unchanged.
+        assert sig.parameters["limit"].annotation == BudgetedLimit
+        assert sig.parameters["limit"].default == 10
         assert "query_text" in query_oscal_models.text_search_oscal.tool_spec["inputSchema"][
             "json"
         ].get("required", [])
@@ -739,3 +762,230 @@ class TestTextSearchIntegration:
         )
         assert result["total"] == 0
         assert result["items"] == []
+
+
+# ---------------------------------------------------------------------------
+# Per-model query items carry no file paths (search-fetch-pairs, task 10.2)
+# ---------------------------------------------------------------------------
+
+_METADATA = {
+    "title": "",
+    "last-modified": "2024-01-01T00:00:00Z",
+    "version": "1.0",
+    "oscal-version": "1.0.4",
+}
+
+
+def _minimal_doc(root_key: str, uuid: str, title: str, body: dict) -> dict:
+    return {root_key: {"uuid": uuid, "metadata": {**_METADATA, "title": title}, **body}}
+
+
+_SELECTION: dict[str, object] = {"control-selections": [{"include-all": {}}]}
+_RESOURCE = {"type": "catalog", "href": "https://example.com/catalog.json"}
+
+# query tool -> (root key, document body without uuid/metadata) for one valid document per model
+_PER_MODEL_BODIES = {
+    query_oscal_models.query_catalog: ("catalog", {}),
+    query_oscal_models.query_profile: (
+        "profile",
+        {"imports": [{"href": "#catalog", "include-all": {}}]},
+    ),
+    query_oscal_models.query_ssp: (
+        "system-security-plan",
+        {
+            "import-profile": {"href": "#profile"},
+            "system-characteristics": {
+                "system-ids": [{"id": "sys-1"}],
+                "system-name": "Test System",
+                "description": "Test system",
+                "system-information": {
+                    "information-types": [{"title": "Info", "description": "Info type"}]
+                },
+                "status": {"state": "operational"},
+                "authorization-boundary": {"description": "Boundary"},
+            },
+            "system-implementation": {
+                "users": [{"uuid": "11111111-1111-4111-8111-111111111111"}],
+                "components": [
+                    {
+                        "uuid": "22222222-2222-4222-8222-222222222222",
+                        "type": "this-system",
+                        "title": "This System",
+                        "description": "The system",
+                        "status": {"state": "operational"},
+                    }
+                ],
+            },
+            "control-implementation": {
+                "description": "Implementation",
+                "implemented-requirements": [
+                    {"uuid": "33333333-3333-4333-8333-333333333333", "control-id": "ac-1"}
+                ],
+            },
+        },
+    ),
+    query_oscal_models.query_assessment_plan: (
+        "assessment-plan",
+        {"import-ssp": {"href": "#ssp"}, "reviewed-controls": _SELECTION},
+    ),
+    query_oscal_models.query_assessment_results: (
+        "assessment-results",
+        {
+            "import-ap": {"href": "#ap"},
+            "results": [
+                {
+                    "uuid": "44444444-4444-4444-8444-444444444444",
+                    "title": "Result",
+                    "description": "Result",
+                    "start": "2024-01-01T00:00:00Z",
+                    "reviewed-controls": _SELECTION,
+                }
+            ],
+        },
+    ),
+    query_oscal_models.query_poam: (
+        "plan-of-action-and-milestones",
+        {
+            "poam-items": [
+                {
+                    "uuid": "55555555-5555-4555-8555-555555555555",
+                    "title": "Fix",
+                    "description": "Fix it",
+                }
+            ]
+        },
+    ),
+    query_oscal_models.query_mapping_collection: (
+        "mapping-collection",
+        {
+            "provenance": {
+                "method": "human",
+                "matching-rationale": "semantic",
+                "status": "complete",
+                "mapping-description": "Test provenance",
+            },
+            "mappings": [
+                {
+                    "uuid": "66666666-6666-4666-8666-666666666666",
+                    "source-resource": _RESOURCE,
+                    "target-resource": _RESOURCE,
+                    "maps": [
+                        {
+                            "uuid": "77777777-7777-4777-8777-777777777777",
+                            "relationship": "equivalent-to",
+                            "sources": [{"type": "control", "id-ref": "ac-1"}],
+                            "targets": [{"type": "control", "id-ref": "ac-1"}],
+                        }
+                    ],
+                }
+            ],
+        },
+    ),
+}
+
+_ITEM_KEYS = {"uuid", "title", "model_type", "sizeInBytes", "childTypeCounts"}
+
+
+def _doc_uuid(index: int) -> str:
+    return f"{index + 1:08x}-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+
+def _doc_title(root_key: str) -> str:
+    return f"Pathless {root_key} document"
+
+
+def _strings(value):
+    """Yield every string (keys and values) inside a JSON-like value."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield from _strings(k)
+            yield from _strings(v)
+    elif isinstance(value, list | tuple):
+        for v in value:
+            yield from _strings(v)
+
+
+@pytest.fixture
+def all_models_store(tmp_path):
+    """Store with one valid document per per-model query tool, plus a Component Definition.
+
+    Yields ``(store, docs_dir, db_path)`` with the store installed for both tool modules.
+    """
+    from mcp_server_for_oscal.tools import query_component_definition
+
+    db_path = tmp_path / "all-models.db"
+    s = OscalStore(db_path=str(db_path), cache_size=10, seed_from_bundled=False)
+    docs_dir = tmp_path / "scan-root"
+    docs_dir.mkdir()
+    for i, (root_key, body) in enumerate(_PER_MODEL_BODIES.values()):
+        doc = _minimal_doc(root_key, _doc_uuid(i), _doc_title(root_key), body)
+        (docs_dir / f"{root_key}.json").write_text(json.dumps(doc))
+    (docs_dir / "cdef.json").write_text(json.dumps(_make_component_definition()))
+    s.scan_directory(docs_dir)
+    query_oscal_models.init_store(s)
+    query_component_definition.init_store(s)
+    yield s, docs_dir, db_path
+    s.close()
+
+
+def _assert_pathless(result, docs_dir, db_path):
+    forbidden = [str(docs_dir), str(db_path), docs_dir.as_posix(), str(docs_dir.parent)]
+    for text in _strings(result):
+        for path in forbidden:
+            assert path not in text, f"{path!r} leaked in {text!r}"
+
+
+class TestPerModelItemsHaveNoFilePath:
+    """Requirement 3.2: per-model query items have no ``file_path`` and no store paths."""
+
+    @pytest.mark.parametrize("tool_fn", list(_PER_MODEL_BODIES), ids=lambda fn: fn.__name__)
+    @pytest.mark.parametrize("query_type", ["all", "by_uuid", "by_title"])
+    def test_items_have_exact_keys_and_no_paths(self, all_models_store, tool_fn, query_type):
+        _, docs_dir, db_path = all_models_store
+        index = list(_PER_MODEL_BODIES).index(tool_fn)
+        root_key = _PER_MODEL_BODIES[tool_fn][0]
+        query_value = {
+            "all": None,
+            "by_uuid": _doc_uuid(index),
+            "by_title": _doc_title(root_key),
+        }[query_type]
+
+        result = tool_fn(query_type=query_type, query_value=query_value, ctx=None)
+
+        assert len(result["items"]) == 1, result
+        item = result["items"][0]
+        assert set(item) == _ITEM_KEYS
+        assert item["uuid"] == _doc_uuid(index)
+        assert item["model_type"] == root_key
+        _assert_pathless(result, docs_dir, db_path)
+
+    def test_component_definition_query_results_unchanged(self, all_models_store):
+        """``query_component_definition`` keeps its response shape; components are OSCAL JSON."""
+        from mcp_server_for_oscal.tools.query_component_definition import (
+            query_component_definition,
+        )
+
+        _, docs_dir, db_path = all_models_store
+        cdef = _make_component_definition()["component-definition"]
+
+        result = query_component_definition(
+            component_definition_filter=cdef["uuid"], query_type="all", ctx=None
+        )
+
+        assert set(result) == {
+            "components",
+            "total_count",
+            "offset",
+            "limit",
+            "hasMore",
+            "query_type",
+            "component_definitions_searched",
+            "filtered_by",
+        }
+        assert result["total_count"] == 1
+        assert result["component_definitions_searched"] == 1
+        assert result["filtered_by"] == cdef["uuid"]
+        assert result["components"] == cdef["components"]
+        _assert_pathless(result, docs_dir, db_path)

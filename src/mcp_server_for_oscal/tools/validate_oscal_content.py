@@ -5,12 +5,13 @@ Tool for validating OSCAL content through a multi-level validation pipeline.
 import itertools
 import json
 import logging
+import os
+import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import urlparse
 
 import regex
 import requests
@@ -24,6 +25,7 @@ from mcp_server_for_oscal.tools.utils import (
     ROOT_KEY_TO_MODEL_TYPE,
     OSCALModelType,
     load_oscal_json_schema,
+    local_source_path,
     try_notify_client_error,
 )
 
@@ -42,6 +44,53 @@ VALIDATE_MODEL_TYPE_DOC = (
 
 # Levels that run after Level 1 (well-formedness); skipped together on early exit.
 _POST_PARSE_LEVELS = ("json_schema", "model", "oscal_cli")
+
+# Fixed stand-ins for local paths in oscal-cli output (Requirement 4.4).
+OSCAL_CLI_INPUT_PLACEHOLDER = "<input.json>"
+OSCAL_CLI_BINARY_PLACEHOLDER = "oscal-cli"
+OSCAL_CLI_DIR_PLACEHOLDER = "<oscal-cli-dir>"
+
+
+def _path_forms(path: str) -> set[str]:
+    """Return the spellings of ``path`` that tools commonly print.
+
+    Covers the native form, the POSIX form, the resolved form (macOS ``/var`` is a symlink to
+    ``/private/var``), and ``file:`` URIs as Python (``file:///x``) and Java (``file:/x``) write
+    them.
+    """
+    forms: set[str] = set()
+    for base in {path, os.path.realpath(path)}:
+        posix = Path(base).as_posix()
+        rooted = posix if posix.startswith("/") else f"/{posix}"
+        forms.update({base, posix, f"file:{rooted}", f"file://{rooted}"})
+        if Path(base).is_absolute():
+            forms.add(Path(base).as_uri())
+    return {f for f in forms if f}
+
+
+def scrub_cli_output(text: str, tmp_path: str, cli_path: str) -> str:
+    """Replace the temporary input file and the ``oscal-cli`` location in ``text``.
+
+    Every form of ``tmp_path`` becomes ``OSCAL_CLI_INPUT_PLACEHOLDER``, every form of
+    ``cli_path`` becomes ``oscal-cli``, and its directory becomes a fixed placeholder. The rest
+    of the text is kept so validation messages stay useful.
+    """
+    replacements: dict[str, str] = {}
+    for base in {cli_path, os.path.realpath(cli_path)}:
+        directory = Path(base).parent
+        # Skip a filesystem root: replacing "/" would mangle every path in the output.
+        if directory != Path(directory.anchor):
+            for form in _path_forms(str(directory)):
+                replacements[form] = OSCAL_CLI_DIR_PLACEHOLDER
+    for form in _path_forms(cli_path):
+        replacements[form] = OSCAL_CLI_BINARY_PLACEHOLDER
+    for form in _path_forms(tmp_path):
+        replacements[form] = OSCAL_CLI_INPUT_PLACEHOLDER
+
+    # Longest first, so a form that contains another (e.g. /private/var/x vs /var/x) wins.
+    ordered = sorted(replacements, key=len, reverse=True)
+    pattern = re.compile("|".join(re.escape(form) for form in ordered))
+    return pattern.sub(lambda m: replacements[m.group(0)], text)
 
 
 def _pattern_safe(validator: Any, patrn: str, instance: Any, schema: Any) -> Any:  # noqa: ARG001 - jsonschema keyword signature
@@ -128,11 +177,13 @@ def _validate_json_schema(data: dict, model_type: OSCALModelType) -> dict:
 
     try:
         schema = load_oscal_json_schema(model_type)
-    except Exception as exc:
+    except Exception:
+        # The exception text can name a package path; keep it in the log only.
+        logger.exception("Failed to load the bundled JSON schema for %s", model_type)
         return _make_level(
             "json_schema",
             valid=False,
-            errors=[f"Failed to load schema for {model_type}: {exc}"],
+            errors=[f"Failed to load the bundled schema for {model_type}"],
         )
 
     validator = _build_safe_validator()(schema)
@@ -153,11 +204,12 @@ def _validate_model(data: dict, model_type: OSCALModelType) -> dict:
     """Level 3: Semantic validation using OSCAL Pydantic models."""
     try:
         model_cls = MODEL_MAP[model_type]
-    except KeyError as exc:
+    except KeyError:
+        logger.exception("Failed to load the OSCAL model class for %s", model_type)
         return _make_level(
             "model",
             valid=False,
-            errors=[f"Failed to load OSCAL model class for '{model_type}': {exc}"],
+            errors=[f"Failed to load the bundled schema for {model_type}"],
         )
 
     # The OSCAL doc has a root key wrapping the actual model data
@@ -210,10 +262,14 @@ def _validate_oscal_cli(content: str, model_type: OSCALModelType) -> dict:  # no
         stdout = result.stdout.strip()
         output = stderr or stdout or "Validation failed with no output"
         error_lines = output.split("\n")
-        errors = error_lines[:MAX_ERRORS_PER_LEVEL]
+        errors = [
+            scrub_cli_output(line, tmp_file.name, oscal_cli)
+            for line in error_lines[:MAX_ERRORS_PER_LEVEL]
+        ]
         warnings = []
         if len(error_lines) > MAX_ERRORS_PER_LEVEL:
             warnings.append(f"Showing {MAX_ERRORS_PER_LEVEL} of {len(error_lines)} error lines")
+        warnings = [scrub_cli_output(line, tmp_file.name, oscal_cli) for line in warnings]
         return _make_level("oscal_cli", valid=False, errors=errors, warnings=warnings)
 
     except subprocess.TimeoutExpired:
@@ -223,10 +279,17 @@ def _validate_oscal_cli(content: str, model_type: OSCALModelType) -> dict:  # no
             errors=["oscal-cli validation timed out after 60 seconds"],
         )
     except Exception as exc:
+        logger.exception("oscal-cli execution error")
+        if tmp_file is None:
+            # The temporary file was never created, so its path is unknown and cannot be
+            # scrubbed; the exception text may name the temp directory.
+            detail = "could not write the temporary input file"
+        else:
+            detail = scrub_cli_output(str(exc), tmp_file.name, oscal_cli)
         return _make_level(
             "oscal_cli",
             valid=False,
-            errors=[f"oscal-cli execution error: {exc}"],
+            errors=[f"oscal-cli execution error: {detail}"],
         )
     finally:
         if tmp_file is not None:
@@ -242,44 +305,46 @@ def validate_oscal_file(
     """Validate an OSCAL JSON file and return per-level results for JSON syntax, JSON Schema,
     the OSCAL model, and oscal-cli (skipped when not installed). Use when the document is in a
     file; for JSON text use validate_oscal_content."""
-    uri = urlparse(file_uri)
+    lf = local_source_path(file_uri)
 
-    if uri.scheme in ("", "file"):
-        lf = Path(uri.path)
+    if lf is not None:
         if lf.is_dir():
             raise ValueError("URI must point to a file")
 
         try:
             with open(lf, encoding="utf-8") as oftv:
-                return validate_oscal_content(oftv.read(), model_type, ctx=ctx)
-        except Exception:
-            logger.exception("OSCAL validation error.")
-            raise
+                local_content = oftv.read()
+        except OSError as e:
+            # OSError text names the path; keep it in the log only (Requirement 4.6).
+            logger.exception("Cannot read OSCAL file %s", lf)
+            msg = "Cannot read the OSCAL file named by file_uri."
+            try_notify_client_error(msg, ctx)
+            raise ValueError(msg) from e
+        return validate_oscal_content(local_content, model_type, ctx=ctx)
 
     # Remote URI
     if not config.allow_remote_uris:
-        msg = (
-            f"Remote URI loading is not enabled. "
-            f"Set OSCAL_ALLOW_REMOTE_URIS=true to enable. Source: {file_uri}"
-        )
-        logger.error(msg)
+        msg = "Remote URI loading is not enabled. Set OSCAL_ALLOW_REMOTE_URIS=true to enable."
+        logger.error("%s Source: %s", msg, file_uri)
         try_notify_client_error(msg, ctx)
         raise ValueError(msg)
 
     try:
         response = requests.get(file_uri, timeout=config.request_timeout)
         response.raise_for_status()
-        return validate_oscal_content(response.text, model_type, ctx=ctx)
     except requests.Timeout as e:
-        msg = f"Request timeout while fetching remote URI (timeout={config.request_timeout}s): {file_uri}"
-        logger.exception(msg)
+        msg = f"Request timeout while fetching remote URI (timeout={config.request_timeout}s)"
+        logger.exception("%s: %s", msg, file_uri)
         try_notify_client_error(msg, ctx)
         raise ValueError(msg) from e
     except requests.RequestException as e:
-        msg = f"Failed to fetch remote OSCAL file: {e}"
-        logger.exception(msg)
+        msg = "Failed to fetch remote OSCAL file"
+        if e.response is not None:
+            msg = f"{msg} (HTTP status {e.response.status_code})"
+        logger.exception("%s: %s", msg, file_uri)
         try_notify_client_error(msg, ctx)
         raise ValueError(msg) from e
+    return validate_oscal_content(response.text, model_type, ctx=ctx)
 
 
 @tool

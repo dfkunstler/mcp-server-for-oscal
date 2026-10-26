@@ -1,0 +1,38 @@
+{
+  "mapping-collection": {
+    "uuid": "5e1f0c2a-0008-4a00-8000-000000000001",
+    "metadata": {
+      "title": "Leak Fixture Mappings",
+      "last-modified": "2024-01-01T00:00:00Z",
+      "version": "1.0",
+      "oscal-version": "1.0.4"
+    },
+    "provenance": {
+      "method": "human",
+      "matching-rationale": "semantic",
+      "status": "complete",
+      "mapping-description": "Crosswalk between two account control catalogs."
+    },
+    "mappings": [
+      {
+        "uuid": "5e1f0c2a-0008-4a00-8000-000000000002",
+        "source-resource": {
+          "type": "catalog",
+          "href": "https://example.com/oscal/leak-fixture-catalog.json"
+        },
+        "target-resource": {
+          "type": "catalog",
+          "href": "https://example.com/oscal/leak-fixture-catalog.json"
+        },
+        "maps": [
+          {
+            "uuid": "5e1f0c2a-0008-4a00-8000-000000000003",
+            "relationship": "equivalent-to",
+            "sources": [{"type": "control", "id-ref": "ac-1"}],
+            "targets": [{"type": "control", "id-ref": "ac-2"}]
+          }
+        ]
+      }
+    ]
+  }
+}
