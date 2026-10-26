@@ -121,8 +121,8 @@ Rules for every task:
     - Do not push; ask the user for approval before any push or PR
     - _Requirements: 5.1, 5.2, 5.3_
 
-- [ ] 11. Final checkpoint for enum contract tests
-  - [-] 11.1 Run quality gates and commit
+- [x] 11. Final checkpoint for enum contract tests
+  - [x] 11.1 Run quality gates and commit
     - Run `hatch run tests`, `hatch check fmt`, `hatch check code` (use `--fix` only for formatting/lint fixes, then re-run)
     - After user approval, commit `tests/test_oscal_bindings_upgrade.py` and the spec files to branch `42-add-oscal-bindings-regression-guard-tests` with `#42` in the message (state actual test status)
     - Do not stage `.mcp.json` or `mcp_server_oscal_architecture.svg`
