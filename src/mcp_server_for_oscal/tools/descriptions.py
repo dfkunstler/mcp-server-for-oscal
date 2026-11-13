@@ -43,6 +43,8 @@ TARGET_SELECTOR_DOC = (
 )
 QUERY_TYPE_DOC = '"all" (paged), "by_uuid", or "by_title" (exact, then full-text).'
 QUERY_VALUE_DOC = "UUID or title to match. Required for by_uuid and by_title."
+MODEL_TYPE_DOC = "Model type of the loaded documents."
+ELEMENT_TYPE_DOC = "Child element type. Each type belongs to one model, e.g. control to catalog."
 START_LINE_DOC = "1-based first line to return."
 LINE_COUNT_DOC = "Maximum lines to return, 1-500."
 
@@ -58,6 +60,40 @@ OptionalModelName = Annotated[str | None, ParamDoc(OPTIONAL_MODEL_DOC)]
 TargetSelector = Annotated[str, ParamDoc(TARGET_SELECTOR_DOC)]
 PerModelQueryType = Annotated[Literal["all", "by_uuid", "by_title"], ParamDoc(QUERY_TYPE_DOC)]
 QueryValue = Annotated[str | None, ParamDoc(QUERY_VALUE_DOC)]
+# The Literal values are static so this module keeps no import-time dependency on the store.
+# Tests keep them equal to OSCALModelType and CHILD_ELEMENT_TYPES (oscal_store.py).
+DocumentModelType = Annotated[
+    Literal[
+        "catalog",
+        "profile",
+        "component-definition",
+        "system-security-plan",
+        "assessment-plan",
+        "assessment-results",
+        "plan-of-action-and-milestones",
+        "mapping-collection",
+    ],
+    ParamDoc(MODEL_TYPE_DOC),
+]
+ChildElementType = Annotated[
+    Literal[
+        "component",
+        "capability",
+        "control",
+        "group",
+        "import",
+        "modify",
+        "control-implementation",
+        "system-component",
+        "task",
+        "activity",
+        "result",
+        "finding",
+        "poam-item",
+        "mapping",
+    ],
+    ParamDoc(ELEMENT_TYPE_DOC),
+]
 StartLine = Annotated[int, ParamDoc(START_LINE_DOC)]
 LineCount = Annotated[int, ParamDoc(LINE_COUNT_DOC)]
 
@@ -82,16 +118,15 @@ ROUTING_GUIDE = """Pick a tool by task:
 - Metaschema docs for a definition: get_definition; allowed values: get_allowed_values; \
 all constraints: get_constraints; what must reference an assembly: find_references_to; \
 source lines behind their results: get_metaschema_source
-- Loaded OSCAL documents: list_catalogs, list_profiles, list_ssps, list_assessment_plans, \
-list_assessment_results, list_poams, list_mapping_collections; one document: query_catalog, \
-query_profile, query_ssp, query_assessment_plan, query_assessment_results, query_poam, \
-query_mapping_collection; its child elements: the matching list_* child tools, then \
-get_child_element
+- Loaded OSCAL documents of one model_type: list_documents, or query_documents to find one by \
+UUID or title; its child elements (controls, components, findings, and so on): \
+list_child_elements, then get_child_element
 - Full-text search across loaded OSCAL content: text_search_oscal, then get_child_element \
-for child hits or the matching query_* tool (by_uuid) for document hits
+for child hits or query_documents (by_uuid) for document hits
 - Component Definitions: query_component_definition, directly with by_title or by_type when \
-you know the name or type, else after list_component_definitions or list_components; \
-list_capabilities and get_capability only for definitions that contain capabilities
+you know the name or type, else after list_documents (component-definition) or \
+list_child_elements (component); list_child_elements (capability) and get_capability only \
+for definitions that contain capabilities
 - Validate OSCAL JSON: validate_oscal_content (text) or validate_oscal_file (file)
 - OSCAL documentation questions: query_oscal_documentation, then get_oscal_documentation \
 for the full page of a hit with a docId (Knowledge Base hits are snippets only)

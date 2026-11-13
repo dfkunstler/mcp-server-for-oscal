@@ -1,12 +1,15 @@
 """
-Property-based tests for child element tools (Properties 4–6).
+Property-based tests for the Generic_Tools and get_child_element (Properties 4–6).
 
-Property 4: Store dependency enforcement
+Property 4: Store dependency enforcement (list_documents, query_documents, list_child_elements)
 Property 5: Get tool — unambiguous lookup
 Property 6: Get tool — ambiguity detection
 """
 
 import json
+from collections.abc import Callable
+from functools import partial
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,45 +17,85 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from mcp_server_for_oscal.tools import query_oscal_models
-from mcp_server_for_oscal.tools.oscal_store import OscalStore
+from mcp_server_for_oscal.tools.oscal_store import CHILD_ELEMENT_TYPES, OscalStore
+from mcp_server_for_oscal.tools.utils import OSCALModelType
 
 # ---------------------------------------------------------------------------
-# All 12 list tools + get_child_element
+# Generic_Tool calls, one per Model_Type and Element_Type
 # ---------------------------------------------------------------------------
 
-ALL_LIST_TOOLS = [
-    query_oscal_models.list_catalog_controls,
-    query_oscal_models.list_catalog_groups,
-    query_oscal_models.list_ssp_control_implementations,
-    query_oscal_models.list_ssp_system_components,
-    query_oscal_models.list_profile_imports,
-    query_oscal_models.list_profile_modify,
-    query_oscal_models.list_assessment_plan_tasks,
-    query_oscal_models.list_assessment_plan_activities,
-    query_oscal_models.list_assessment_results_results,
-    query_oscal_models.list_assessment_results_findings,
-    query_oscal_models.list_poam_items,
-    query_oscal_models.list_mapping_collection_mappings,
+_STORE_PATH = "mcp_server_for_oscal.tools.query_oscal_models._store"
+
+# The Generic_Tools are also called with deliberately invalid arguments, so type them as Any.
+_generic: Any = query_oscal_models
+
+# One valid call per Generic_Tool and per Model_Type or Element_Type. The enum argument is
+# valid in each case, so only the unset store can make the call fail.
+GENERIC_CALLS: list[tuple[str, Callable[[], object]]] = [
+    *(
+        (f"{name}-{model.value}", partial(getattr(_generic, name), model_type=model.value))
+        for name in ("list_documents", "query_documents")
+        for model in OSCALModelType
+    ),
+    *(
+        (f"list_child_elements-{element}", partial(_generic.list_child_elements, element))
+        for types in CHILD_ELEMENT_TYPES.values()
+        for element in types
+    ),
 ]
 
-ALL_TOOLS = [*ALL_LIST_TOOLS, query_oscal_models.get_child_element]
+# One call per Generic_Tool with an invalid argument.
+INVALID_CALLS: list[tuple[str, Callable[[], object]]] = [
+    ("list_documents", partial(_generic.list_documents, model_type="nope")),
+    ("query_documents", partial(_generic.query_documents, model_type="nope")),
+    ("list_child_elements", partial(_generic.list_child_elements, element_type="nope")),
+    (
+        "query_documents-query_type",
+        partial(_generic.query_documents, model_type="catalog", query_type="nope"),
+    ),
+    (
+        "query_documents-query_value",
+        partial(_generic.query_documents, model_type="catalog", query_type="by_uuid"),
+    ),
+    ("list_documents-offset", partial(_generic.list_documents, "catalog", offset=-1)),
+    ("list_child_elements-limit", partial(_generic.list_child_elements, "control", limit=0)),
+]
 
 
 # ---------------------------------------------------------------------------
 # Property 4: Store dependency enforcement
-# Validates: Requirements 9.6
+# Validates: Requirements 4.4, 9.1
 # ---------------------------------------------------------------------------
 
 
 class TestStoreDependencyEnforcement:
-    """Feature: query-oscal-models, Property 4: Store dependency enforcement"""
+    """Feature: consolidate-tools, Property 4: Store dependency enforcement"""
 
-    @pytest.mark.parametrize("tool_fn", ALL_LIST_TOOLS, ids=lambda f: f.__name__)
-    def test_list_tool_raises_when_store_is_none(self, tool_fn):
-        """Each list tool raises RuntimeError when _store is None."""
-        with patch("mcp_server_for_oscal.tools.query_oscal_models._store", None):
-            with pytest.raises(RuntimeError):
-                tool_fn()
+    @pytest.mark.parametrize(("_name", "call"), GENERIC_CALLS, ids=[n for n, _ in GENERIC_CALLS])
+    def test_generic_tool_raises_when_store_is_none(self, _name, call):
+        """Each Generic_Tool raises RuntimeError naming init_store when _store is None."""
+        with patch(_STORE_PATH, None), pytest.raises(RuntimeError, match="init_store"):
+            call()
+
+    @pytest.mark.parametrize(("_name", "call"), INVALID_CALLS, ids=[n for n, _ in INVALID_CALLS])
+    def test_invalid_arguments_rejected_before_store_is_read(self, _name, call):
+        """An invalid argument raises ValueError, not RuntimeError, when _store is None."""
+        with patch(_STORE_PATH, None), pytest.raises(ValueError):
+            call()
+
+    @settings(max_examples=25, deadline=None)
+    @given(
+        model_type=st.sampled_from([m.value for m in OSCALModelType]),
+        offset=st.integers(min_value=0, max_value=30),
+        limit=st.integers(min_value=1, max_value=100),
+    )
+    def test_valid_pages_reach_the_store_check(self, model_type, offset, limit):
+        """Any valid model type and page passes argument checks, then fails on the unset store."""
+        with patch(_STORE_PATH, None):
+            with pytest.raises(RuntimeError, match="init_store"):
+                query_oscal_models.list_documents(model_type, offset=offset, limit=limit)
+            with pytest.raises(RuntimeError, match="init_store"):
+                query_oscal_models.query_documents(model_type, offset=offset, limit=limit)
 
     def test_get_child_element_raises_when_store_is_none(self):
         """get_child_element raises RuntimeError when _store is None."""

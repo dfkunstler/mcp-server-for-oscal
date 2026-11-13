@@ -21,56 +21,32 @@ from mcp_server_for_oscal.tools import get_tool_list
 from mcp_server_for_oscal.tools.list_models import list_oscal_models
 from mcp_server_for_oscal.tools.utils import MODEL_MAP, OSCALModelType
 
-# All tools that should always be present (query_oscal_documentation is
-# unconditionally registered regardless of knowledge_base_id config).
+from .removed_tools import GENERIC_TOOLS
+
+# The Tool_Registry after consolidate-tools (#40): 19 tools, all unconditionally registered
+# (query_oscal_documentation does not depend on knowledge_base_id). The server adds `about`.
 BASE_TOOL_NAMES = {
     "list_oscal_models",
     "get_oscal_schema",
-    # Metaschema constraint tools (unconditionally registered, no AWS dependency)
+    # Metaschema constraint tools (no AWS dependency)
     "get_allowed_values",
     "get_constraints",
     "find_references_to",
     "get_definition",
     "get_metaschema_source",
     "list_oscal_resources",
+    # Component Definition tools
     "query_component_definition",
-    "list_component_definitions",
-    "list_components",
-    "list_capabilities",
     "get_capability",
     "validate_oscal_content",
     "validate_oscal_file",
-    # New OSCAL model tools
-    "query_catalog",
-    "list_catalogs",
-    "query_ssp",
-    "list_ssps",
-    "query_profile",
-    "list_profiles",
-    "query_assessment_plan",
-    "list_assessment_plans",
-    "query_assessment_results",
-    "list_assessment_results",
-    "query_poam",
-    "list_poams",
-    "query_mapping_collection",
-    "list_mapping_collections",
     "text_search_oscal",
-    # Child element tools
-    "list_catalog_controls",
-    "list_catalog_groups",
-    "list_ssp_control_implementations",
-    "list_ssp_system_components",
-    "list_profile_imports",
-    "list_profile_modify",
-    "list_assessment_plan_tasks",
-    "list_assessment_plan_activities",
-    "list_assessment_results_results",
-    "list_assessment_results_findings",
-    "list_poam_items",
-    "list_mapping_collection_mappings",
     "get_child_element",
-    # Documentation tools (unconditionally registered)
+    # Generic_Tools
+    "list_documents",
+    "query_documents",
+    "list_child_elements",
+    # Documentation tools
     "query_oscal_documentation",
     "get_oscal_documentation",
 }
@@ -84,8 +60,8 @@ class TestGetToolListUnit:
         tools = get_tool_list()
         tool_names = {t.__name__ for t in tools}
         assert tool_names == BASE_TOOL_NAMES
-        # 45 here; the server adds `about` for 46 (get_oscal_documentation joined in #45).
-        assert len(tools) == len(BASE_TOOL_NAMES) == 45
+        # 19 registry tools; the server adds `about` for 20.
+        assert len(tools) == len(BASE_TOOL_NAMES) == 19
 
     def test_excludes_about(self):
         """get_tool_list() never includes the 'about' tool."""
@@ -160,9 +136,9 @@ class TestProperty1UnconditionalToolInclusion:
 # names. Captured by building the server (build_server + _setup_tools) from a worktree of
 # main at commit 25f949d75e2f068b6b04022a8ec9e13547da4de7. Do not regenerate it from the
 # current code; it records what clients could rely on before the feature.
+# consolidate-tools (#40) pruned it to the retained tools: the 29 Removed_Tools are gone and
+# tests/removed_tools.py maps each to its Generic_Tool replacement.
 _PAGED = frozenset({"offset", "limit"})
-_QUERY = frozenset({"query_type", "query_value"}) | _PAGED
-_CHILD = frozenset({"parent_doc_uuid"}) | _PAGED
 PRE_FEATURE_TOOLS: dict[str, frozenset[str]] = {
     "about": frozenset(),
     "list_oscal_models": frozenset(),
@@ -177,39 +153,10 @@ PRE_FEATURE_TOOLS: dict[str, frozenset[str]] = {
         {"component_definition_filter", "query_type", "query_value", "return_format"}
     )
     | _PAGED,
-    "list_component_definitions": _PAGED,
-    "list_components": _PAGED,
-    "list_capabilities": _PAGED,
     "get_capability": frozenset({"uuid"}),
     "validate_oscal_content": frozenset({"content", "model_type"}),
     "validate_oscal_file": frozenset({"file_uri", "model_type"}),
-    "query_catalog": _QUERY,
-    "list_catalogs": _PAGED,
-    "query_ssp": _QUERY,
-    "list_ssps": _PAGED,
-    "query_profile": _QUERY,
-    "list_profiles": _PAGED,
-    "query_assessment_plan": _QUERY,
-    "list_assessment_plans": _PAGED,
-    "query_assessment_results": _QUERY,
-    "list_assessment_results": _PAGED,
-    "query_poam": _QUERY,
-    "list_poams": _PAGED,
-    "query_mapping_collection": _QUERY,
-    "list_mapping_collections": _PAGED,
     "text_search_oscal": frozenset({"query_text", "oscal_model_type"}) | _PAGED,
-    "list_catalog_controls": _CHILD,
-    "list_catalog_groups": _CHILD,
-    "list_ssp_control_implementations": _CHILD,
-    "list_ssp_system_components": _CHILD,
-    "list_profile_imports": _CHILD,
-    "list_profile_modify": _CHILD,
-    "list_assessment_plan_tasks": _CHILD,
-    "list_assessment_plan_activities": _CHILD,
-    "list_assessment_results_results": _CHILD,
-    "list_assessment_results_findings": _CHILD,
-    "list_poam_items": _CHILD,
-    "list_mapping_collection_mappings": _CHILD,
     "get_child_element": frozenset({"element_id", "parent_doc_uuid"}),
     "query_oscal_documentation": frozenset({"query"}),
 }
@@ -254,8 +201,16 @@ class TestExistingToolsKept:
     """Validates: search-fetch-pairs Requirement 13.3."""
 
     def test_snapshot_matches_registry_minus_new_tool(self):
-        # Guards the snapshot itself: the only tool added since main is get_oscal_documentation.
-        assert set(PRE_FEATURE_TOOLS) == (BASE_TOOL_NAMES - {"get_oscal_documentation"}) | {"about"}
+        # Guards the snapshot itself: the tools added since main are get_oscal_documentation
+        # and the three Generic_Tools; the snapshot holds the retained tools plus `about`.
+        assert set(PRE_FEATURE_TOOLS) == (
+            BASE_TOOL_NAMES - GENERIC_TOOLS - {"get_oscal_documentation"}
+        ) | {"about"}
+
+    def test_server_lists_registry_plus_about(self, live_tools):
+        # 19 registry tools plus the server-only `about`.
+        assert set(live_tools) == BASE_TOOL_NAMES | {"about"}
+        assert len(live_tools) == 20
 
     @pytest.mark.parametrize("name", sorted(PRE_FEATURE_TOOLS))
     def test_tool_and_params_still_present(self, live_tools, name):

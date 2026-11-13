@@ -12,6 +12,7 @@ import sqlite3
 import uuid as uuid_mod
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -412,16 +413,11 @@ def resolvability_documents() -> dict[str, dict]:
     }
 
 
-# The per-model query tool for each model type other than Component Definition, which
-# resolves a document through ``query_component_definition``'s filter instead.
+# ``query_documents`` bound to each model type. Component Definition documents are also
+# resolved through ``query_component_definition``'s filter (see ``_assert_document_resolves``).
 PER_MODEL_QUERY: dict[OSCALModelType, Callable[..., dict]] = {
-    OSCALModelType.CATALOG: qom.query_catalog,
-    OSCALModelType.PROFILE: qom.query_profile,
-    OSCALModelType.SYSTEM_SECURITY_PLAN: qom.query_ssp,
-    OSCALModelType.ASSESSMENT_PLAN: qom.query_assessment_plan,
-    OSCALModelType.ASSESSMENT_RESULTS: qom.query_assessment_results,
-    OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES: qom.query_poam,
-    OSCALModelType.MAPPING: qom.query_mapping_collection,
+    model_type: partial(qom.query_documents, model_type=model_type.value)
+    for model_type in OSCALModelType
 }
 
 
@@ -503,9 +499,8 @@ def _assert_document_resolves(store: OscalStore, hit: dict) -> None:
     if model_type is OSCALModelType.COMPONENT_DEFINITION:
         scoped = qcd.query_component_definition(component_definition_filter=hit["entity_id"])
         assert scoped["component_definitions_searched"] == 1, hit
-        listed = qcd.list_component_definitions(limit=100)["items"]
+        listed = qom.list_documents(model_type="component-definition", limit=100)["items"]
         assert (hit["entity_id"], hit["title"]) in [(i["uuid"], i["title"]) for i in listed]
-        return
     page = PER_MODEL_QUERY[model_type](query_type="by_uuid", query_value=hit["entity_id"])
     assert page["total"] == 1, hit
     assert [(i["uuid"], i["title"]) for i in page["items"]] == [(hit["entity_id"], hit["title"])]

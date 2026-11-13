@@ -45,6 +45,7 @@ from mcp_server_for_oscal.tools import (
     validate_oscal_content,
 )
 from mcp_server_for_oscal.tools.metaschema_index import get_index
+from mcp_server_for_oscal.tools.oscal_store import CHILD_ELEMENT_TYPES
 from mcp_server_for_oscal.tools.utils import OSCALModelType
 
 from .fixture_store import LeakFixture, build_leak_store
@@ -165,21 +166,35 @@ _no_args = _fixed()
 
 
 def _query_model_calls(model_type: OSCALModelType) -> tuple[Call, ...]:
-    """ok: all and by_uuid; unknown: by_uuid and by_title with unknown values."""
+    """query_documents for one model type. ok: all and by_uuid; unknown: by_uuid and by_title."""
+    model = model_type.value
     return (
-        Call(_no_args, "ok"),
-        Call(lambda f: {"query_type": "by_uuid", "query_value": f.doc_uuids[model_type]}, "ok"),
-        Call(_fixed(query_type="by_uuid", query_value=UNKNOWN_UUID), "unknown"),
-        Call(_fixed(query_type="by_title", query_value=UNKNOWN_NAME), "unknown"),
+        Call(_fixed(model_type=model), "ok"),
+        Call(
+            lambda f: {
+                "model_type": model,
+                "query_type": "by_uuid",
+                "query_value": f.doc_uuids[model_type],
+            },
+            "ok",
+        ),
+        Call(_fixed(model_type=model, query_type="by_uuid", query_value=UNKNOWN_UUID), "unknown"),
+        Call(_fixed(model_type=model, query_type="by_title", query_value=UNKNOWN_NAME), "unknown"),
     )
 
 
 def _child_list_calls(element_type: str) -> tuple[Call, ...]:
-    """ok: all parents and the fixture parent; unknown: an unknown parent UUID."""
+    """list_child_elements for one type. ok: all parents, one parent; unknown: unknown parent."""
     return (
-        Call(_no_args, "ok"),
-        Call(lambda f: {"parent_doc_uuid": f.children[element_type].parent_doc_uuid}, "ok"),
-        Call(_fixed(parent_doc_uuid=UNKNOWN_UUID), "unknown"),
+        Call(_fixed(element_type=element_type), "ok"),
+        Call(
+            lambda f: {
+                "element_type": element_type,
+                "parent_doc_uuid": f.children[element_type].parent_doc_uuid,
+            },
+            "ok",
+        ),
+        Call(_fixed(element_type=element_type, parent_doc_uuid=UNKNOWN_UUID), "unknown"),
     )
 
 
@@ -228,9 +243,6 @@ CALLS: dict[str, tuple[Call, ...]] = {
         Call(_fixed(query_type="by_uuid", query_value=UNKNOWN_UUID), "unknown"),
         Call(_fixed(component_definition_filter=UNKNOWN_UUID), "unknown"),
     ),
-    "list_component_definitions": (Call(_no_args, "ok"),),
-    "list_components": (Call(_no_args, "ok"),),
-    "list_capabilities": (Call(_no_args, "ok"),),
     "get_capability": (
         Call(lambda f: {"uuid": f.capability_uuid}, "ok"),
         Call(_fixed(uuid=UNKNOWN_UUID), "unknown"),
@@ -248,20 +260,6 @@ CALLS: dict[str, tuple[Call, ...]] = {
         Call(lambda f: {"file_uri": str(f.root)}, "unknown"),
         Call(_fixed(file_uri="s3://bucket/key.json"), "unknown"),
     ),
-    "query_catalog": _query_model_calls(OSCALModelType.CATALOG),
-    "list_catalogs": (Call(_no_args, "ok"),),
-    "query_ssp": _query_model_calls(OSCALModelType.SYSTEM_SECURITY_PLAN),
-    "list_ssps": (Call(_no_args, "ok"),),
-    "query_profile": _query_model_calls(OSCALModelType.PROFILE),
-    "list_profiles": (Call(_no_args, "ok"),),
-    "query_assessment_plan": _query_model_calls(OSCALModelType.ASSESSMENT_PLAN),
-    "list_assessment_plans": (Call(_no_args, "ok"),),
-    "query_assessment_results": _query_model_calls(OSCALModelType.ASSESSMENT_RESULTS),
-    "list_assessment_results": (Call(_no_args, "ok"),),
-    "query_poam": _query_model_calls(OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES),
-    "list_poams": (Call(_no_args, "ok"),),
-    "query_mapping_collection": _query_model_calls(OSCALModelType.MAPPING),
-    "list_mapping_collections": (Call(_no_args, "ok"),),
     "text_search_oscal": (
         Call(lambda f: {"query_text": f.text_query}, "ok"),
         Call(lambda f: {"query_text": f.control.element_id}, "ok"),
@@ -269,18 +267,19 @@ CALLS: dict[str, tuple[Call, ...]] = {
         Call(_fixed(query_text=UNKNOWN_TEXT), "unknown"),
         Call(lambda f: {"query_text": str(f.root)}, "unknown"),
     ),
-    "list_catalog_controls": _child_list_calls("control"),
-    "list_catalog_groups": _child_list_calls("group"),
-    "list_ssp_control_implementations": _child_list_calls("control-implementation"),
-    "list_ssp_system_components": _child_list_calls("system-component"),
-    "list_profile_imports": _child_list_calls("import"),
-    "list_profile_modify": _child_list_calls("modify"),
-    "list_assessment_plan_tasks": _child_list_calls("task"),
-    "list_assessment_plan_activities": _child_list_calls("activity"),
-    "list_assessment_results_results": _child_list_calls("result"),
-    "list_assessment_results_findings": _child_list_calls("finding"),
-    "list_poam_items": _child_list_calls("poam-item"),
-    "list_mapping_collection_mappings": _child_list_calls("mapping"),
+    "list_documents": (
+        *(Call(_fixed(model_type=mt.value), "ok") for mt in OSCALModelType),
+        # An offset past the end yields an empty page; an invalid enum value would be rejected by
+        # the SDK's schema validation before the tool runs, so no tool message would be recorded.
+        Call(_fixed(model_type="catalog", offset=1000), "unknown"),
+    ),
+    "query_documents": tuple(call for mt in OSCALModelType for call in _query_model_calls(mt)),
+    "list_child_elements": tuple(
+        call
+        for element_types in CHILD_ELEMENT_TYPES.values()
+        for et in element_types
+        for call in _child_list_calls(et)
+    ),
     "get_child_element": (
         Call(
             lambda f: {

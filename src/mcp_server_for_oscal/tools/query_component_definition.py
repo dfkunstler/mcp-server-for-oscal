@@ -1,8 +1,11 @@
 """
 Tools for querying OSCAL Component Definition documents.
 
-All tools read from the module-level ``OscalStore`` set by ``init_store()``;
-they raise ``RuntimeError`` until a store has been initialised.
+``query_component_definition`` and ``get_capability`` read from the
+module-level ``OscalStore`` set by ``init_store()``; they raise
+``RuntimeError`` until a store has been initialised. Listing Component
+Definitions, Components, and Capabilities is done by the generic tools
+``list_documents`` and ``list_child_elements`` in ``query_oscal_models``.
 
 OSCAL Component Definitions follow a hierarchy:
   Component Definition  →  Capability  →  Component
@@ -149,8 +152,8 @@ def _resolve_scope(
     msg = f"No Component Definition found with UUID or title matching: `{cdef_filter}`."
     logger.debug(msg)
     safe_log_mcp(
-        msg + " Try again without a filter or lookup the filter value with "
-        "the tool list_component_definitions.",
+        msg + " Try again without a filter or look up the filter value with "
+        "the tool list_documents (model_type component-definition).",
         ctx,
         "info",
     )
@@ -404,80 +407,6 @@ def _query_component_definition(
     }
 
 
-def _child_summary(item: dict, name_key: str) -> dict:
-    """Map a ``list_child_elements`` item to a list-tool summary item.
-
-    ``sizeInBytes`` is the UTF-8 length of the child's ``raw_json``, or 0
-    when the store could not serialize the child at index time.
-    """
-    raw_json = item.get("raw_json")
-    return {
-        "uuid": item["id"],
-        name_key: item["title"],
-        "parentComponentDefinitionTitle": item.get("parentDocumentTitle", ""),
-        "parentComponentDefinitionUuid": item.get("parentDocumentUuid", ""),
-        "sizeInBytes": len(raw_json.encode("utf-8")) if raw_json is not None else 0,
-    }
-
-
-def _child_page(
-    store: OscalStore,
-    ctx: Context | None,
-    element_type: str,
-    name_key: str,
-    offset: int,
-    limit: int,
-) -> dict:
-    """Return a Page_Response of child summaries of *element_type*."""
-    result = store.list_child_elements(
-        ctx=ctx,
-        element_type=element_type,
-        offset=offset,
-        limit=limit,
-        include_raw_json=True,
-    )
-    return {
-        "items": [_child_summary(item, name_key) for item in result["items"]],
-        "total": result["total"],
-        "offset": result["offset"],
-        "limit": result["limit"],
-        "hasMore": result["hasMore"],
-    }
-
-
-def _list_components(
-    store: OscalStore,
-    ctx: Context | None,
-    offset: int,
-    limit: int,
-) -> dict:
-    """Return a Page_Response of Component summaries.
-
-    Raises:
-        RuntimeError: If the store contains no Components.
-    """
-    page = _child_page(store, ctx, "component", "title", offset, limit)
-    if page["total"] == 0:
-        msg = "No Components loaded"
-        try_notify_client_error(msg, ctx)
-        raise RuntimeError(msg)
-    return page
-
-
-def _list_capabilities(
-    store: OscalStore,
-    ctx: Context | None,
-    offset: int,
-    limit: int,
-) -> dict:
-    """Return a Page_Response of Capability summaries.
-
-    Capabilities are optional in OSCAL, so an empty store yields an empty
-    page rather than an error.
-    """
-    return _child_page(store, ctx, "capability", "name", offset, limit)
-
-
 def _get_capability(store: OscalStore, uuid: str) -> dict | None:
     """Return the stored OSCAL JSON of the Capability with *uuid*, or ``None``.
 
@@ -487,47 +416,6 @@ def _get_capability(store: OscalStore, uuid: str) -> dict | None:
     if not uuid:
         return None
     return _find_capability(store, _Scope(None, 0), "by_uuid", uuid)
-
-
-def _list_component_definitions(
-    store: OscalStore,
-    ctx: Context | None,
-    offset: int,
-    limit: int,
-) -> dict:
-    """Return a Page_Response of Component Definition summaries.
-
-    Raises:
-        RuntimeError: If the store contains no Component Definitions.
-    """
-    result = store.list_documents(
-        ctx=ctx,
-        oscal_model_type=OSCALModelType.COMPONENT_DEFINITION,
-        offset=offset,
-        limit=limit,
-    )
-    if result["total"] == 0:
-        msg = "No Component Definitions loaded"
-        try_notify_client_error(msg, ctx)
-        raise RuntimeError(msg)
-
-    items = [
-        {
-            "uuid": item["uuid"],
-            "title": item["title"],
-            "componentCount": item.get("childCount", 0),
-            "importedComponentDefinitionsCount": 0,
-            "sizeInBytes": item.get("sizeInBytes", 0),
-        }
-        for item in result["items"]
-    ]
-    return {
-        "items": items,
-        "total": result["total"],
-        "offset": result["offset"],
-        "limit": result["limit"],
-        "hasMore": result["hasMore"],
-    }
 
 
 # ------------------------------------------------------------------
@@ -564,10 +452,10 @@ def query_component_definition(
     ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Return OSCAL Components from loaded Component Definitions as OSCAL JSON, or one
-    Capability when a by_uuid or by_title query matches a Capability. Use when you need
-    component details: call it directly with by_title or by_type when you know the name or
-    type, else find UUIDs and titles first with list_components; use list_capabilities or
-    get_capability only for Component Definitions that contain capabilities. Results are paged.
+    Capability when a by_uuid or by_title query matches one. Use when you need component
+    details: call it directly with by_title or by_type when you know the name or type, else
+    look them up with list_child_elements (component or capability) or list_documents
+    (component-definition), and fetch a Capability with get_capability. Results are paged.
     """
     store = _require_store()
     # return_format has a single supported value ("raw"); it is kept in the
@@ -584,38 +472,11 @@ def query_component_definition(
 
 
 @tool()
-def list_component_definitions(
-    offset: Offset = 0, limit: Limit = 10, ctx: Context | None = None
-) -> dict:
-    """List loaded Component Definitions with UUID, title, component count, and size. Use when
-    picking a `component_definition_filter` for query_component_definition. Results are paged.
-    """
-    store = _require_store()
-    return _list_component_definitions(store, ctx, offset, limit)
-
-
-@tool()
-def list_components(offset: Offset = 0, limit: Limit = 10, ctx: Context | None = None) -> dict:
-    """List loaded Components with UUID, title, and parent Component Definition. Use when
-    picking a `query_value` for query_component_definition. Results are paged.
-    """
-    store = _require_store()
-    return _list_components(store, ctx, offset, limit)
-
-
-@tool()
-def list_capabilities(offset: Offset = 0, limit: Limit = 10, ctx: Context | None = None) -> dict:
-    """List loaded Capabilities with UUID, name, and parent Component Definition. Use when
-    working with Component Definitions that contain capabilities; the list is empty when none
-    do. Results are paged.
-    """
-    store = _require_store()
-    return _list_capabilities(store, ctx, offset, limit)
-
-
-@tool()
 def get_capability(
-    uuid: Annotated[str, ParamDoc("UUID of the Capability, from list_capabilities.")],
+    uuid: Annotated[
+        str,
+        ParamDoc("UUID of the Capability, from list_child_elements with element_type capability."),
+    ],
     ctx: Context | None = None,  # noqa: ARG001 - injected by MCP; kept for API
 ) -> dict | None:
     """Get one Capability by UUID as OSCAL JSON, or null when no Capability has that UUID. Use

@@ -486,9 +486,11 @@ For any Element_Type and any child in the store (including children whose JSON h
 
 ### Property 5: Paging a Generic_Tool visits every item once, in order
 
-For any Generic_Tool, any argument set that selects a result list, and any `limit` from 1 to 100, calling the tool with `offset` 0, `limit`, `2 * limit`, and so on until `hasMore` is false returns items whose concatenation equals the items of one call that is large enough to hold the whole list, with no repeats, and the sequence is ordered by (ASCII-lowercased title, identifier).
+For any Generic_Tool, any argument set that selects a result list, and any `limit` from 1 to 100, calling the tool with `offset` 0, `limit`, `2 * limit`, and so on until `hasMore` is false returns items whose concatenation equals the items of one call that is large enough to hold the whole list, with no repeats. The sequence order depends on the tool: (a) for `list_documents` and `list_child_elements` it is ordered by (ASCII-lowercased title, identifier); (b) for `query_documents` it is the same order as one `OscalStore.query` call, which is insertion order and not title order.
 
-**Validates: Requirements 1.3, 3.4**
+`query_documents` keeps the store's insertion order, matching the removed `query_*` tools.
+
+**Validates: Requirements 1.3, 2.4, 3.4**
 
 ### Property 6: Out-of-range pages are rejected before the store is read
 
@@ -554,7 +556,7 @@ For any Generic_Tool, the MCP_Server `inputSchema` and the Agent tool spec have 
 - Invalid enum text from `text().filter(lambda s: s not in VALUES)`.
 - Property 4 needs non-ASCII child titles; the fixture store or an extra document supplies one. The `raw_json is None` case is an example test that patches one store row.
 
-**Oracles.** Properties 1 to 3 compare to the store API, which is what each removed tool called (checked once against the live removed tools, see the sequence in the migration plan). Property 10 compares to `tests/removed_tools_reference.py`. Property 5 uses an ASCII-only lowercase key because SQLite `NOCASE` folds ASCII only.
+**Oracles.** Properties 1 to 3 compare to the store API, which is what each removed tool called (checked once against the live removed tools, see the sequence in the migration plan). Property 10 compares to `tests/removed_tools_reference.py`. Property 5 checks title order only for `list_documents` and `list_child_elements`, using an ASCII-only lowercase key because SQLite `NOCASE` folds ASCII only; for `query_documents` its oracle is the order of one `OscalStore.query` call (insertion order).
 
 **Example and integration tests.**
 

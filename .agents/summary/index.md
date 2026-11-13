@@ -59,6 +59,6 @@ graph LR
 ## Example queries this index supports
 
 - "Which file handles nested catalog groups?" → components.md → `oscal_store.py::_extract_controls_from_groups`.
-- "What keys does `list_catalog_controls` return?" → data_models.md (child item).
+- "What keys does `list_child_elements` return for controls?" → data_models.md (child item).
 - "Can the server fetch remote OSCAL files?" → interfaces.md (`OSCAL_ALLOW_REMOTE_URIS`).
 - "What runs in CI on a PR?" → workflows.md (build and release).

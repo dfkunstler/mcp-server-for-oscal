@@ -19,20 +19,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from oscal_bindings.models import ComponentDefinition
 
 from mcp_server_for_oscal.tools import query_component_definition as _qcd_module
+from mcp_server_for_oscal.tools import query_oscal_models as _qom_module
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 from mcp_server_for_oscal.tools.query_component_definition import (
     get_capability,
     init_store,
-    list_capabilities,
-    list_components,
     query_component_definition,
 )
+from mcp_server_for_oscal.tools.query_oscal_models import list_child_elements, list_documents
 from mcp_server_for_oscal.tools.utils import OSCALModelType, paginate
 from mcp_server_for_oscal.tools.validate_oscal_content import _validate_json_schema
 
@@ -240,13 +239,16 @@ def installed_store(cdefs: list[dict]) -> Iterator[OscalStore]:
     the temp directory removed, and the prior singleton restored on exit.
     """
     saved = _qcd_module._oscal_store
+    saved_models = _qom_module._store
     with tempfile.TemporaryDirectory() as tmp:
         store = build_fixture_store(Path(tmp), cdefs)
         try:
             init_store(store)
+            _qom_module.init_store(store)
             yield store
         finally:
             _qcd_module._oscal_store = saved
+            _qom_module._store = saved_models
             store.close()
 
 
@@ -281,8 +283,15 @@ def collect_pages(
         assert len(responses) <= 1000, "pagination did not terminate"
 
 
-def collect_list_pages(list_fn: Callable[..., dict], limit: int) -> tuple[list[dict], list[dict]]:
-    """Page a ``list_*`` helper until ``hasMore`` is false.
+def collect_list_pages(
+    list_fn: Callable[..., dict], limit: int, **kwargs: str
+) -> tuple[list[dict], list[dict]]:
+    """Page a ``list_*`` tool until ``hasMore`` is false.
+
+    Args:
+        list_fn: ``list_documents`` or ``list_child_elements``.
+        limit: Page size.
+        **kwargs: The tool's selector, ``model_type=...`` or ``element_type=...``.
 
     Returns:
         ``(items, responses)``: concatenated items and every page.
@@ -291,7 +300,7 @@ def collect_list_pages(list_fn: Callable[..., dict], limit: int) -> tuple[list[d
     responses: list[dict] = []
     offset = 0
     while True:
-        resp = list_fn(ctx=None, offset=offset, limit=limit)
+        resp = list_fn(ctx=None, offset=offset, limit=limit, **kwargs)
         responses.append(resp)
         items.extend(resp["items"])
         if not resp["hasMore"]:
@@ -677,30 +686,30 @@ class TestRemoveLegacyCdefStoreProperties:
         """Feature: remove-legacy-cdef-store, Property 7: List helpers are
         complete and correctly keyed.
 
-        Paging ``list_components`` (resp. ``list_capabilities``) yields items
-        with exactly the required keys, and the multiset of
-        ``(uuid, parentComponentDefinitionUuid)`` equals the multiset of
-        ``(component.uuid, cdef.uuid)`` (resp. capabilities) in the source.
+        Paging ``list_child_elements`` for ``component`` (resp. ``capability``)
+        yields Child_Summary items with exactly the required keys, and the
+        multiset of ``(id, title, parentDocumentUuid, parentDocumentTitle)``
+        equals the source Components (resp. Capabilities). Paging
+        ``list_documents`` for ``component-definition`` yields Document_Summary
+        items with exactly the required keys, one per source cdef, whose
+        ``childCount`` is its Components plus Capabilities. Every page respects
+        the limit and reports the true total, also for an empty result.
 
-        **Validates: Requirements 5.1, 5.2**
+        **Validates: Requirements 7.1, 7.2, 7.3, 14.6**
         """
         models = parse_cdefs(cdefs)
         limit = data.draw(st.integers(1, 10), label="limit")
 
-        component_keys = {
-            "uuid",
+        child_keys = {
+            "id",
             "title",
-            "parentComponentDefinitionTitle",
-            "parentComponentDefinitionUuid",
+            "element_type",
+            "description",
+            "parentDocumentTitle",
+            "parentDocumentUuid",
             "sizeInBytes",
         }
-        capability_keys = {
-            "uuid",
-            "name",
-            "parentComponentDefinitionTitle",
-            "parentComponentDefinitionUuid",
-            "sizeInBytes",
-        }
+        document_keys = {"uuid", "title", "model_type", "childCount", "sizeInBytes"}
 
         expected_components = Counter(
             (str(c.uuid), c.title, str(m.uuid), m.metadata.title)
@@ -712,62 +721,69 @@ class TestRemoveLegacyCdefStoreProperties:
             for m in models
             for k in m.capabilities or []
         )
+        expected_documents = Counter(
+            (
+                str(m.uuid),
+                m.metadata.title,
+                len(m.components or []) + len(m.capabilities or []),
+            )
+            for m in models
+        )
 
         with installed_store(cdefs):
-            if expected_components:
-                comp_items, comp_pages = collect_list_pages(list_components, limit)
-            else:
-                with pytest.raises(RuntimeError, match="No Components loaded"):
-                    list_components(ctx=None, offset=0, limit=limit)
-                comp_items, comp_pages = [], []
-            cap_items, cap_pages = collect_list_pages(list_capabilities, limit)
+            comp_items, comp_pages = collect_list_pages(
+                list_child_elements, limit, element_type="component"
+            )
+            cap_items, cap_pages = collect_list_pages(
+                list_child_elements, limit, element_type="capability"
+            )
+            doc_items, doc_pages = collect_list_pages(
+                list_documents, limit, model_type="component-definition"
+            )
 
         # Every page respects the requested limit and reports the true total.
         for pages, expected in (
             (comp_pages, expected_components),
             (cap_pages, expected_capabilities),
+            (doc_pages, expected_documents),
         ):
             for page in pages:
                 assert len(page["items"]) <= limit
                 assert page["total"] == sum(expected.values())
 
         for item in comp_items:
-            assert set(item) == component_keys
+            assert set(item) == child_keys
+            assert item["element_type"] == "component"
         for item in cap_items:
-            assert set(item) == capability_keys
+            assert set(item) == child_keys
+            assert item["element_type"] == "capability"
+        for item in doc_items:
+            assert set(item) == document_keys
+            assert item["model_type"] == "component-definition"
 
-        # Multiset of (uuid, parent uuid) matches the source exactly.
-        assert Counter(
-            (i["uuid"], i["parentComponentDefinitionUuid"]) for i in comp_items
-        ) == Counter((u, p) for (u, _, p, _) in expected_components.elements())
-        assert Counter(
-            (i["uuid"], i["parentComponentDefinitionUuid"]) for i in cap_items
-        ) == Counter((u, p) for (u, _, p, _) in expected_capabilities.elements())
+        # Multiset of (id, parent uuid) matches the source exactly.
+        assert Counter((i["id"], i["parentDocumentUuid"]) for i in comp_items) == Counter(
+            (u, p) for (u, _, p, _) in expected_components.elements()
+        )
+        assert Counter((i["id"], i["parentDocumentUuid"]) for i in cap_items) == Counter(
+            (u, p) for (u, _, p, _) in expected_capabilities.elements()
+        )
 
         # Titles/names and parent titles match the source too.
-        assert (
-            Counter(
-                (
-                    i["uuid"],
-                    i["title"],
-                    i["parentComponentDefinitionUuid"],
-                    i["parentComponentDefinitionTitle"],
+        for items, expected in (
+            (comp_items, expected_components),
+            (cap_items, expected_capabilities),
+        ):
+            assert (
+                Counter(
+                    (i["id"], i["title"], i["parentDocumentUuid"], i["parentDocumentTitle"])
+                    for i in items
                 )
-                for i in comp_items
+                == expected
             )
-            == expected_components
-        )
         assert (
-            Counter(
-                (
-                    i["uuid"],
-                    i["name"],
-                    i["parentComponentDefinitionUuid"],
-                    i["parentComponentDefinitionTitle"],
-                )
-                for i in cap_items
-            )
-            == expected_capabilities
+            Counter((i["uuid"], i["title"], i["childCount"]) for i in doc_items)
+            == expected_documents
         )
 
     @given(cdefs=cdef_stores(), data=st.data())

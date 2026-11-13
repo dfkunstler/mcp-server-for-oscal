@@ -36,9 +36,6 @@ from mcp_server_for_oscal.tools.query_component_definition import _raw as raw_ch
 from mcp_server_for_oscal.tools.query_component_definition import (
     get_capability,
     init_store,
-    list_capabilities,
-    list_component_definitions,
-    list_components,
     query_component_definition,
 )
 from mcp_server_for_oscal.tools.utils import OSCALModelType
@@ -47,7 +44,6 @@ from mcp_server_for_oscal.tools.validate_oscal_content import _validate_json_sch
 from ..fixture_store import (
     CAPABILITIES_CDEF_FILE,
     MULTI_CDEF_FILE,
-    SAMPLE_CDEF_FILE,
     VALID_CDEF_FILES,
     build_fixture_store,
     load_fixture_cdef,
@@ -105,23 +101,11 @@ CAPABILITY_QUERY_KEYS = {
     "component_definitions_searched",
     "filtered_by",
 }
-PAGE_KEYS = {"items", "total", "offset", "limit", "hasMore"}
-CHILD_PARENT_KEYS = {
-    "uuid",
-    "parentComponentDefinitionTitle",
-    "parentComponentDefinitionUuid",
-    "sizeInBytes",
-}
 
 
 # ---------------------------------------------------------------------------
 # Helpers: expected values computed from the source fixture JSON
 # ---------------------------------------------------------------------------
-
-
-def _parse_fixture(filename: str) -> ComponentDefinition:
-    data = load_fixture_cdef(filename)
-    return ComponentDefinition.model_validate(data["component-definition"])
 
 
 def _raw_cdef(filename: str) -> dict[str, Any]:
@@ -177,86 +161,9 @@ class TestWrappersAgainstFixtureStore:
         assert set(result) == COMPONENT_QUERY_KEYS
         assert result["total_count"] == len(ALL_COMPONENT_UUIDS)
 
-    def test_list_component_definitions(self):
-        result = list_component_definitions(ctx=None)
-        assert set(result) == PAGE_KEYS
-        assert result["total"] == TOTAL_CDEFS
-        assert result["hasMore"] is False
-        assert {i["uuid"] for i in result["items"]} == {
-            SAMPLE_CDEF_UUID,
-            MULTI_CDEF_UUID,
-            CAPS_CDEF_UUID,
-        }
-
-    def test_list_component_definitions_item_keys(self):
-        """Items keep the existing summary keys (5.8)."""
-        result = list_component_definitions(ctx=None)
-        titles = {
-            str(_parse_fixture(f).uuid): _parse_fixture(f).metadata.title for f in VALID_CDEF_FILES
-        }
-        for item in result["items"]:
-            assert set(item) == {
-                "uuid",
-                "title",
-                "componentCount",
-                "importedComponentDefinitionsCount",
-                "sizeInBytes",
-            }
-            assert item["title"] == titles[item["uuid"]]
-
-    def test_list_components(self):
-        result = list_components(ctx=None)
-        assert set(result) == PAGE_KEYS
-        assert result["total"] == len(ALL_COMPONENT_UUIDS)
-        assert {i["uuid"] for i in result["items"]} == ALL_COMPONENT_UUIDS
-
-    def test_list_capabilities(self):
-        result = list_capabilities(ctx=None)
-        assert set(result) == PAGE_KEYS
-        assert result["total"] == 1
-        assert [i["uuid"] for i in result["items"]] == [CAPABILITY_UUID]
-
     def test_get_capability(self):
         result = get_capability(ctx=None, uuid=CAPABILITY_UUID)
         assert result == _expected_capability()
-
-
-# ---------------------------------------------------------------------------
-# list_components / list_capabilities item shape (5.1, 5.2)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.usefixtures("fixture_store")
-class TestListChildElements:
-    """Summary items carry the documented keys; ``uuid`` is the child's id."""
-
-    def test_list_components_items(self):
-        result = list_components(ctx=None)
-        parents = {
-            str(comp.uuid): (str(cd.uuid), cd.metadata.title, comp.title)
-            for cd in (_parse_fixture(f) for f in VALID_CDEF_FILES)
-            for comp in cd.components or []
-        }
-        for item in result["items"]:
-            assert set(item) == CHILD_PARENT_KEYS | {"title"}
-            parent_uuid, parent_title, title = parents[item["uuid"]]
-            assert item["title"] == title
-            assert item["parentComponentDefinitionUuid"] == parent_uuid
-            assert item["parentComponentDefinitionTitle"] == parent_title
-            assert item["sizeInBytes"] > 0
-
-    def test_list_capabilities_items(self):
-        result = list_capabilities(ctx=None)
-        (item,) = result["items"]
-        assert set(item) == CHILD_PARENT_KEYS | {"name"}
-        assert item["uuid"] == CAPABILITY_UUID
-        assert item["name"] == CAPABILITY_NAME
-        assert item["parentComponentDefinitionUuid"] == CAPS_CDEF_UUID
-        assert (
-            item["parentComponentDefinitionTitle"]
-            == _parse_fixture(CAPABILITIES_CDEF_FILE).metadata.title
-        )
-        assert item["sizeInBytes"] > 0
 
 
 # ---------------------------------------------------------------------------
@@ -392,23 +299,6 @@ class TestQueryCapabilityFirst:
 # Error and edge cases (2.2, 4.3-4.6, 5.3-5.7, 7.4, 7.5)
 # ---------------------------------------------------------------------------
 
-NO_COMPONENTS_CDEF_UUID = "0a0a0a0a-0000-4000-8000-000000000001"
-
-
-def _no_components_cdef() -> dict:
-    """A minimal schema-valid Component Definition with no components."""
-    return {
-        "component-definition": {
-            "uuid": NO_COMPONENTS_CDEF_UUID,
-            "metadata": {
-                "title": "No Components Definition",
-                "last-modified": "2024-01-01T00:00:00+00:00",
-                "version": "1.0",
-                "oscal-version": "1.0.4",
-            },
-        }
-    }
-
 
 @pytest.fixture
 def store_factory(tmp_path):
@@ -428,9 +318,6 @@ def store_factory(tmp_path):
 
 WRAPPER_CALLS = [
     pytest.param(lambda: query_component_definition(ctx=None), id="query"),
-    pytest.param(lambda: list_component_definitions(ctx=None), id="list_cdefs"),
-    pytest.param(lambda: list_components(ctx=None), id="list_components"),
-    pytest.param(lambda: list_capabilities(ctx=None), id="list_capabilities"),
     pytest.param(lambda: get_capability(ctx=None, uuid=CAPABILITY_UUID), id="get_capability"),
 ]
 
@@ -487,35 +374,47 @@ class TestQueryErrorsAndEdgeCases:
         assert result["capability"] == _expected_capability()
 
 
-class TestEmptyStores:
-    """Stores with no cdefs, no components or no capabilities (4.4, 5.3-5.7)."""
+class TestRoutingToGenericTools:
+    """Retained-tool text points callers to the Generic_Tools (9.2, 9.3, 9.4)."""
+
+    @pytest.mark.usefixtures("fixture_store")
+    def test_filter_miss_info_message_names_list_documents(self):
+        with patch.object(qcd_module, "safe_log_mcp") as log:
+            result = query_component_definition(
+                ctx=None, component_definition_filter="no-such-cdef"
+            )
+        assert result["components"] == []
+        (call,) = log.call_args_list
+        message, _ctx, level = call.args
+        assert level == "info"
+        assert "`no-such-cdef`" in message
+        assert "list_documents" in message
+        assert "component-definition" in message
+
+    def test_query_component_definition_description_names_generic_tools(self):
+        description = query_component_definition.tool_spec["description"]
+        assert "list_child_elements" in description
+        assert "list_documents" in description
+
+    def test_get_capability_uuid_description_names_list_child_elements(self):
+        schema = get_capability.tool_spec["inputSchema"]["json"]
+        description = schema["properties"]["uuid"]["description"]
+        assert "list_child_elements" in description
+        assert "capability" in description
+
+
+class TestEmptyStore:
+    """A store with no Component Definitions (4.4).
+
+    The listing scenarios of the removed listers (empty store, no capabilities, no components)
+    are covered by ``TestEmptyResults`` in ``test_generic_tools.py`` and by
+    ``test_removed_tools_equivalence.py``.
+    """
 
     def test_query_on_empty_store(self, store_factory):
         store_factory([])
         with pytest.raises(ValueError, match="No Component Definitions loaded"):
             query_component_definition(ctx=None)
-
-    def test_list_component_definitions_on_empty_store(self, store_factory):
-        store_factory([])
-        with pytest.raises(RuntimeError, match="No Component Definitions loaded"):
-            list_component_definitions(ctx=None)
-
-    def test_list_capabilities_without_capabilities(self, store_factory):
-        store_factory([load_fixture_cdef(SAMPLE_CDEF_FILE)])
-        result = list_capabilities(ctx=None)
-        assert result == {
-            "items": [],
-            "total": 0,
-            "offset": 0,
-            "limit": 10,
-            "hasMore": False,
-        }
-
-    def test_list_components_without_components(self, store_factory):
-        store_factory([_no_components_cdef()])
-        assert list_component_definitions(ctx=None)["total"] == 1
-        with pytest.raises(RuntimeError, match="No Components loaded"):
-            list_components(ctx=None)
 
 
 class TestManyCapabilities:
@@ -548,6 +447,57 @@ class TestManyCapabilities:
     @pytest.mark.usefixtures("many_capabilities_store")
     def test_get_capability_not_found(self, uuid):
         assert get_capability(ctx=None, uuid=uuid) is None
+
+
+class TestHelperErrorPaths:
+    """Error and paging paths of the helpers behind ``query_component_definition`` (16.3)."""
+
+    @pytest.mark.usefixtures("fixture_store")
+    def test_children_are_paged_across_store_pages(self):
+        """A page size of one makes ``_iter_children`` fetch every component page."""
+        with patch.object(qcd_module, "_CHILD_PAGE", 1):
+            result = query_component_definition(ctx=None, query_type="all", limit=100)
+        assert _component_uuids(result) == ALL_COMPONENT_UUIDS
+        assert result["total_count"] == len(ALL_COMPONENT_UUIDS)
+
+    def test_raw_fallback_unknown_parent_is_empty(self, fixture_store):
+        child = {
+            "raw_json": None,
+            "parentDocumentUuid": "00000000-0000-4000-8000-000000000000",
+            "element_type": "component",
+            "id": DATABASE_UUID,
+        }
+        assert raw_child_json(fixture_store, child) == {}
+
+    def test_raw_fallback_missing_child_warns_and_is_empty(self, fixture_store, caplog):
+        child = {
+            "raw_json": None,
+            "parentDocumentUuid": MULTI_CDEF_UUID,
+            "element_type": "component",
+            "id": "00000000-0000-4000-8000-000000000000",
+        }
+        with caplog.at_level("WARNING", logger=qcd_module.logger.name):
+            assert raw_child_json(fixture_store, child) == {}
+        assert "missing from parent" in caplog.text
+
+    def test_select_candidates_rejects_unsupported_query_type(self, fixture_store):
+        with pytest.raises(ValueError, match="Invalid query_type: bogus"):
+            qcd_module._select_component_candidates(
+                fixture_store, qcd_module._Scope(None, TOTAL_CDEFS), "bogus", "x"
+            )
+
+    @pytest.mark.usefixtures("fixture_store")
+    def test_capability_search_failure_falls_back_to_components(self, caplog):
+        """A failure while searching capabilities is logged and components are searched."""
+        with (
+            patch.object(qcd_module, "_find_capability", side_effect=RuntimeError("boom")),
+            caplog.at_level("ERROR", logger=qcd_module.logger.name),
+        ):
+            result = query_component_definition(
+                ctx=None, query_type="by_title", query_value="API Gateway"
+            )
+        assert "Failure while searching capabilities" in caplog.text
+        assert _component_uuids(result) == {API_GATEWAY_UUID}
 
 
 # ---------------------------------------------------------------------------

@@ -72,7 +72,7 @@ erDiagram
 |---|---|---|
 | Page response | `items`, `total`, `offset`, `limit`, `hasMore` | `utils.paginate`, `OscalStore._page_response`; every list/query tool |
 | Query item | `uuid`, `title`, `model_type`, `sizeInBytes`, `childTypeCounts` (no `file_path`; no tool result contains a filesystem path) | `OscalStore.query` |
-| Child item | `id`, `title`, `element_type`, `description`, `parentDocumentTitle`, `parentDocumentUuid` (+ `raw_json` for `get_child_element`) | child listers, `get_child_element` |
+| Child item | `id`, `title`, `element_type`, `description`, `parentDocumentTitle`, `parentDocumentUuid`, `sizeInBytes` (`list_child_elements`); `get_child_element` returns `raw_json` instead of `sizeInBytes` | `list_child_elements`, `get_child_element` |
 | Search item | `entity_type`, `entity_id` (Element_ID or Document_UUID), `title`, `description`, `model_type`, plus `parentDocumentUuid` on child hits | `text_search_oscal` |
 | Doc result item | `title`, `snippet`, `docId` (local docs only) | `query_oscal_documentation` |
 | Doc page | `docId`, `title`, `start-line`, `end-line`, `total-lines`, `has-more`, `text` | `get_oscal_documentation` |

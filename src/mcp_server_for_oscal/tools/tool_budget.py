@@ -12,8 +12,24 @@ from dataclasses import dataclass
 from typing import Any
 
 # Measured on main at c973674 (45 tools, Python 3.14, mcp 2.1.1) with tools_list_size().
+# History only: it no longer drives TOTAL_BUDGET.
 BASELINE_SIZE = 55_685
-TOTAL_BUDGET = BASELINE_SIZE * 70 // 100  # 38_979 (Req 1.2: at most 70%)
+
+# Before the consolidate-tools change (issue #40): 46 tools/list entries (45 tools plus `about`).
+# Measured on a worktree of main at 599a41d with
+# `hatch run python bin/export_tools_list.py <out.json>` (PYTHONPATH=<worktree>/src), field
+# `toolsListChars`, with Python 3.14.8 and mcp 2.1.1.
+BEFORE_CONSOLIDATION_SIZE = 34_938
+BEFORE_CONSOLIDATION_TOOLS = 46
+
+# After the consolidate-tools change: 20 tools/list entries (19 tools plus `about`). Measured on
+# main at 599a41d plus the consolidate-tools working tree (branch 40-consolidate-tools) with
+# `hatch run python bin/export_tools_list.py <out.json>`, field `toolsListChars`, with
+# Python 3.14.8 and mcp 2.1.1.
+AFTER_CONSOLIDATION_SIZE = 18_391
+AFTER_CONSOLIDATION_TOOLS = 20
+
+TOTAL_BUDGET = AFTER_CONSOLIDATION_SIZE * 110 // 100  # 20_230 (After_Size plus 10% headroom)
 TOOL_DESCRIPTION_CAP = 1_200
 PARAMETER_DESCRIPTION_CAP = 250
 ROUTING_GUIDE_CAP = 3_000  # design addition, keeps the savings from moving into instructions

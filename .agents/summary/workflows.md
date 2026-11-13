@@ -7,11 +7,11 @@
 ```mermaid
 sequenceDiagram
     participant C as MCP client
-    participant T as query_catalog (tool)
+    participant T as query_documents (tool)
     participant S as OscalStore
     participant DB as SQLite (thread-local conn)
     participant P as oscal-bindings (LRU cached)
-    C->>T: query_type=by_title, query_value="NIST 800-53"
+    C->>T: model_type=catalog, query_type=by_title, query_value="NIST 800-53"
     T->>S: query(model_type=catalog, ...)
     S->>DB: SELECT documents (NOCASE title; FTS fallback)
     S->>S: _ensure_indexed(doc_id) if indexed=0
