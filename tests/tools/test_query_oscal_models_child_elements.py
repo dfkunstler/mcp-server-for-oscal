@@ -1,10 +1,10 @@
 """
-Unit tests for child element tools in query_oscal_models.py.
+Unit tests for the child element tools in query_oscal_models.py.
 
 Covers:
-- Task 6.1: list child element tools against real OscalStore data
-- Task 6.2: get_child_element tool (UUID, token ID, ambiguity, not found)
-- Task 6.3: tool registration in get_tool_list()
+- list_child_elements(element_type=...) against real OscalStore data, including sizeInBytes
+- get_child_element tool (UUID, token ID, ambiguity, not found)
+- tool registration: the module's 5 tools and the registry's 19 (consolidate-tools, #40)
 """
 
 import json
@@ -12,6 +12,7 @@ import json
 import pytest
 
 from mcp_server_for_oscal.tools import query_oscal_models
+from mcp_server_for_oscal.tools.descriptions import ChildElementType
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
 # ---------------------------------------------------------------------------
@@ -129,131 +130,147 @@ ITEM_REQUIRED_KEYS = {
     "description",
     "parentDocumentTitle",
     "parentDocumentUuid",
+    "sizeInBytes",
 }
+
+
+def _list(element_type: ChildElementType, **kwargs) -> dict:
+    """Call list_child_elements for ``element_type`` with the test store installed."""
+    return query_oscal_models.list_child_elements(element_type=element_type, ctx=None, **kwargs)
 
 
 @pytest.mark.unit
 class TestListCatalogControls:
-    """list_catalog_controls returns controls from the catalog."""
+    """list_child_elements(element_type="control") returns controls from the catalog."""
 
     def test_returns_controls(self, multi_type_store):
-        result = query_oscal_models.list_catalog_controls(ctx=None)
+        result = _list("control")
         assert result["total"] == 2
         titles = {item["title"] for item in result["items"]}
         assert titles == {"Access Control Policy", "Account Management"}
 
     def test_response_has_page_response_keys(self, multi_type_store):
-        result = query_oscal_models.list_catalog_controls(ctx=None)
+        result = _list("control")
         assert set(result.keys()) == PAGE_RESPONSE_KEYS
 
     def test_items_use_id_key_not_uuid(self, multi_type_store):
-        result = query_oscal_models.list_catalog_controls(ctx=None)
+        result = _list("control")
         for item in result["items"]:
             assert "id" in item
             assert "uuid" not in item
 
     def test_items_include_all_required_keys(self, multi_type_store):
-        result = query_oscal_models.list_catalog_controls(ctx=None)
+        result = _list("control")
         for item in result["items"]:
             assert set(item.keys()) == ITEM_REQUIRED_KEYS
 
+    def test_items_have_no_raw_json(self, multi_type_store):
+        result = _list("control")
+        for item in result["items"]:
+            assert "raw_json" not in item
+
     def test_items_have_correct_element_type(self, multi_type_store):
-        result = query_oscal_models.list_catalog_controls(ctx=None)
+        result = _list("control")
         for item in result["items"]:
             assert item["element_type"] == "control"
 
     def test_items_have_parent_document_info(self, multi_type_store):
-        result = query_oscal_models.list_catalog_controls(ctx=None)
+        result = _list("control")
         for item in result["items"]:
             assert item["parentDocumentTitle"] == "Security Controls Catalog"
             assert item["parentDocumentUuid"] == "d2e3f4a5-6789-4bcd-9ef0-bbccddeeff00"
 
+    def test_size_in_bytes_is_utf8_length_of_stored_json(self, multi_type_store):
+        for item in _list("control")["items"]:
+            full = query_oscal_models.get_child_element(
+                ctx=None,
+                element_id=item["id"],
+                parent_doc_uuid=item["parentDocumentUuid"],
+            )
+            assert item["sizeInBytes"] > 0
+            assert item["sizeInBytes"] == len(full["raw_json"].encode("utf-8"))
+
+    def test_parent_doc_uuid_scopes_the_listing(self, multi_type_store):
+        scoped = _list("control", parent_doc_uuid="d2e3f4a5-6789-4bcd-9ef0-bbccddeeff00")
+        assert scoped["total"] == 2
+        other = _list("control", parent_doc_uuid="e5f6a7b8-9abc-4ef0-a1ab-567890123456")
+        assert other["total"] == 0
+        assert other["items"] == []
+
 
 @pytest.mark.unit
 class TestListCatalogGroups:
-    """list_catalog_groups returns groups from the catalog."""
+    """list_child_elements(element_type="group") returns groups from the catalog."""
 
     def test_returns_groups(self, multi_type_store):
-        result = query_oscal_models.list_catalog_groups(ctx=None)
+        result = _list("group")
         assert result["total"] == 1
         assert result["items"][0]["title"] == "Access Control"
         assert result["items"][0]["id"] == "ac"
 
     def test_items_have_correct_element_type(self, multi_type_store):
-        result = query_oscal_models.list_catalog_groups(ctx=None)
+        result = _list("group")
         for item in result["items"]:
             assert item["element_type"] == "group"
+
+    def test_items_include_all_required_keys(self, multi_type_store):
+        for item in _list("group")["items"]:
+            assert set(item.keys()) == ITEM_REQUIRED_KEYS
+            assert item["sizeInBytes"] > 0
 
 
 @pytest.mark.unit
 class TestListPoamItems:
-    """list_poam_items returns POA&M items."""
+    """list_child_elements(element_type="poam-item") returns POA&M items."""
 
     def test_returns_poam_items(self, multi_type_store):
-        result = query_oscal_models.list_poam_items(ctx=None)
+        result = _list("poam-item")
         assert result["total"] == 1
         assert result["items"][0]["title"] == "Fix vulnerability"
 
     def test_items_have_correct_element_type(self, multi_type_store):
-        result = query_oscal_models.list_poam_items(ctx=None)
+        result = _list("poam-item")
         for item in result["items"]:
             assert item["element_type"] == "poam-item"
 
     def test_items_include_all_required_keys(self, multi_type_store):
-        result = query_oscal_models.list_poam_items(ctx=None)
+        result = _list("poam-item")
         for item in result["items"]:
             assert set(item.keys()) == ITEM_REQUIRED_KEYS
+            assert item["sizeInBytes"] > 0
 
 
 @pytest.mark.unit
 class TestListChildElementToolsEmptyResults:
-    """Tools return empty Page_Response when no matching data exists."""
+    """list_child_elements returns an empty Page_Response when no matching data exists."""
 
     def test_ssp_control_implementations_empty(self, multi_type_store):
-        result = query_oscal_models.list_ssp_control_implementations(ctx=None)
+        result = _list("control-implementation")
         assert result["total"] == 0
         assert result["items"] == []
         assert set(result.keys()) == PAGE_RESPONSE_KEYS
 
-    def test_ssp_system_components_empty(self, multi_type_store):
-        result = query_oscal_models.list_ssp_system_components(ctx=None)
+    @pytest.mark.parametrize(
+        "element_type",
+        [
+            "system-component",
+            "import",
+            "modify",
+            "task",
+            "activity",
+            "result",
+            "finding",
+            "mapping",
+            "component",
+            "capability",
+        ],
+    )
+    def test_element_type_without_documents_is_empty(self, multi_type_store, element_type):
+        result = _list(element_type)
         assert result["total"] == 0
         assert result["items"] == []
-
-    def test_profile_imports_empty(self, multi_type_store):
-        result = query_oscal_models.list_profile_imports(ctx=None)
-        assert result["total"] == 0
-        assert result["items"] == []
-
-    def test_profile_modify_empty(self, multi_type_store):
-        result = query_oscal_models.list_profile_modify(ctx=None)
-        assert result["total"] == 0
-        assert result["items"] == []
-
-    def test_assessment_plan_tasks_empty(self, multi_type_store):
-        result = query_oscal_models.list_assessment_plan_tasks(ctx=None)
-        assert result["total"] == 0
-        assert result["items"] == []
-
-    def test_assessment_plan_activities_empty(self, multi_type_store):
-        result = query_oscal_models.list_assessment_plan_activities(ctx=None)
-        assert result["total"] == 0
-        assert result["items"] == []
-
-    def test_assessment_results_results_empty(self, multi_type_store):
-        result = query_oscal_models.list_assessment_results_results(ctx=None)
-        assert result["total"] == 0
-        assert result["items"] == []
-
-    def test_assessment_results_findings_empty(self, multi_type_store):
-        result = query_oscal_models.list_assessment_results_findings(ctx=None)
-        assert result["total"] == 0
-        assert result["items"] == []
-
-    def test_mapping_collection_mappings_empty(self, multi_type_store):
-        result = query_oscal_models.list_mapping_collection_mappings(ctx=None)
-        assert result["total"] == 0
-        assert result["items"] == []
+        assert result["hasMore"] is False
+        assert set(result.keys()) == PAGE_RESPONSE_KEYS
 
 
 # ---------------------------------------------------------------------------
@@ -387,42 +404,38 @@ class TestGetChildElement:
 # Task 6.3: Unit test for tool registration
 # ---------------------------------------------------------------------------
 
-CHILD_ELEMENT_TOOL_NAMES = [
-    "list_catalog_controls",
-    "list_catalog_groups",
-    "list_ssp_control_implementations",
-    "list_ssp_system_components",
-    "list_profile_imports",
-    "list_profile_modify",
-    "list_assessment_plan_tasks",
-    "list_assessment_plan_activities",
-    "list_assessment_results_results",
-    "list_assessment_results_findings",
-    "list_poam_items",
-    "list_mapping_collection_mappings",
-    "get_child_element",
-]
+GENERIC_TOOL_NAMES = {"list_documents", "query_documents", "list_child_elements"}
+MODULE_TOOL_NAMES = GENERIC_TOOL_NAMES | {"text_search_oscal", "get_child_element"}
+REGISTRY_TOOL_COUNT = 19  # 20 with the server's `about`
 
 
 @pytest.mark.unit
 class TestToolRegistration:
-    """Verify all 13 child element tools are registered in get_tool_list()."""
+    """Verify the module defines exactly 5 tools and the registry exactly 19."""
 
-    def test_all_child_element_tools_registered(self):
+    def test_module_defines_exactly_the_five_tools(self):
+        defined = {
+            name
+            for name, obj in vars(query_oscal_models).items()
+            if hasattr(obj, "tool_spec")
+            and getattr(obj, "__module__", None) == query_oscal_models.__name__
+        }
+        assert defined == MODULE_TOOL_NAMES
+
+    def test_all_module_tools_registered(self):
         from mcp_server_for_oscal.tools import get_tool_list
 
-        tool_list = get_tool_list()
-        tool_names = [fn.__name__ for fn in tool_list]
-        for name in CHILD_ELEMENT_TOOL_NAMES:
+        tool_names = [fn.__name__ for fn in get_tool_list()]
+        for name in sorted(MODULE_TOOL_NAMES):
             assert name in tool_names, f"{name} not found in get_tool_list()"
 
-    def test_exactly_13_child_element_tools(self):
+    def test_registry_has_exactly_19_tools(self):
         from mcp_server_for_oscal.tools import get_tool_list
 
         tool_list = get_tool_list()
         tool_names = {fn.__name__ for fn in tool_list}
-        registered = tool_names & set(CHILD_ELEMENT_TOOL_NAMES)
-        assert len(registered) == 13
-        # 45 registry tools (46 with the server's `about`); get_oscal_documentation joined
-        # in search-fetch-pairs (#45).
-        assert len(tool_list) == len(tool_names) == 45
+        registered_here = {
+            fn.__name__ for fn in tool_list if fn.__module__ == query_oscal_models.__name__
+        }
+        assert registered_here == MODULE_TOOL_NAMES
+        assert len(tool_list) == len(tool_names) == REGISTRY_TOOL_COUNT

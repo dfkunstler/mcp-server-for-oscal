@@ -7,6 +7,10 @@ Layout, one class per concern so later tasks can append classes:
 - Property tests for the checkers (tasks 2.5-2.7).
 - Live-registry tests against ``tools/list`` (task 9.1).
 - Steering file sync tests (task 10.3).
+
+The consolidate-tools change (issue #40) replaced the 29 per-model and Component Definition
+tools with three Generic_Tools, so the size constants and the content checks below describe the
+consolidated registry.
 """
 
 import asyncio
@@ -37,6 +41,12 @@ from mcp_server_for_oscal.tools.tool_budget import (
     tools_list_size,
 )
 
+from .removed_tools import GENERIC_TOOLS, REMOVED_TOOLS
+
+# Req 10.2: the Generic_Tools, and the Description_Shape size-plan target for their descriptions.
+GENERIC_TOOL_DESCRIPTION_TARGET = 180
+GENERIC_TOOL_LIST = tuple(sorted(GENERIC_TOOLS))
+
 # Req 4.1: old tool names that must not appear in any description (word-bounded).
 OLD_TOOL_NAMES = re.compile(r"\b(list_models|get_schema)\b")
 
@@ -45,14 +55,30 @@ OLD_TOOL_NAMES = re.compile(r"\b(list_models|get_schema)\b")
 
 
 class TestBudgetConstants:
-    """Req 1.1, 1.2, 1.8: the budget constants are the documented values."""
+    """Req 12.2, 12.3, 12.4: the budget constants are the documented values."""
 
-    def test_total_budget_at_most_70_percent_of_baseline(self):
-        assert tool_budget.BASELINE_SIZE * 0.7 >= tool_budget.TOTAL_BUDGET
+    def test_baseline_history_value(self):
+        # BASELINE_SIZE is history only (main at c973674); it no longer drives TOTAL_BUDGET.
+        assert tool_budget.BASELINE_SIZE == 55_685
+
+    def test_before_consolidation_measurement(self):
+        assert tool_budget.BEFORE_CONSOLIDATION_SIZE == 34_938
+        assert tool_budget.BEFORE_CONSOLIDATION_TOOLS == 46
+
+    def test_after_consolidation_measurement(self):
+        assert tool_budget.AFTER_CONSOLIDATION_SIZE == 18_391
+        assert tool_budget.AFTER_CONSOLIDATION_TOOLS == 20
+
+    def test_consolidation_shrinks_tools_list(self):
+        assert tool_budget.AFTER_CONSOLIDATION_SIZE < tool_budget.BEFORE_CONSOLIDATION_SIZE
+        assert tool_budget.AFTER_CONSOLIDATION_TOOLS < tool_budget.BEFORE_CONSOLIDATION_TOOLS
+
+    def test_total_budget_is_after_size_plus_at_most_ten_percent(self):
+        after = tool_budget.AFTER_CONSOLIDATION_SIZE
+        assert after <= tool_budget.TOTAL_BUDGET <= after * 1.10
 
     def test_documented_values(self):
-        assert tool_budget.BASELINE_SIZE == 55_685
-        assert tool_budget.TOTAL_BUDGET == 38_979
+        assert tool_budget.TOTAL_BUDGET == 20_230
         assert tool_budget.TOOL_DESCRIPTION_CAP == 1_200
         assert tool_budget.PARAMETER_DESCRIPTION_CAP == 250
         assert tool_budget.ROUTING_GUIDE_CAP == 3_000
@@ -483,20 +509,8 @@ def _assert_no_violations(violations: list[Violation]) -> None:
     assert violations == [], "\n".join(v.message() for v in violations)
 
 
-PER_MODEL_QUERY_TOOLS = (
-    "query_catalog",
-    "query_ssp",
-    "query_profile",
-    "query_assessment_plan",
-    "query_assessment_results",
-    "query_poam",
-    "query_mapping_collection",
-)
 CDEF_TOOLS = (
     "query_component_definition",
-    "list_component_definitions",
-    "list_components",
-    "list_capabilities",
     "get_capability",
 )
 CAPABILITY_FIRST_PHRASES = re.compile(
@@ -516,6 +530,20 @@ class TestLiveBudget:
 
     def test_total_budget(self, live_tools):
         _assert_no_violations(check_total(live_tools))
+
+    def test_live_size_matches_after_consolidation(self, live_tools):
+        """Req 12.2: the live size is the recorded After_Size, within the headroom."""
+        size = tools_list_size(live_tools)
+        assert len(live_tools) == tool_budget.AFTER_CONSOLIDATION_TOOLS
+        assert size <= tool_budget.TOTAL_BUDGET
+        assert size <= tool_budget.AFTER_CONSOLIDATION_SIZE * 1.10
+        assert size < tool_budget.BEFORE_CONSOLIDATION_SIZE
+
+    @pytest.mark.parametrize("name", GENERIC_TOOL_LIST)
+    def test_generic_tool_description_at_most_180(self, live_tools, name):
+        """Req 10.2: each Generic_Tool description fits the size-plan target."""
+        description = _by_name(live_tools)[name]["description"]
+        assert len(description) <= GENERIC_TOOL_DESCRIPTION_TARGET, len(description)
 
 
 class TestLiveShape:
@@ -564,9 +592,16 @@ class TestLiveContent:
 
     def test_cdef_main_route_and_capability_scope(self, live_tools):
         tools = _by_name(live_tools)
-        assert "list_components" in tools["query_component_definition"]["description"]
-        for name in ("list_capabilities", "get_capability"):
-            assert "contain capabilities" in " ".join(tools[name]["description"].split()), name
+        description = " ".join(tools["query_component_definition"]["description"].split())
+        # The main route names the Generic_Tools that list Component Definitions and Components.
+        assert "list_child_elements" in description
+        assert "list_documents" in description
+        assert "component-definition" in description
+        # Capabilities are scoped to definitions that contain them.
+        assert "contain capabilities" in " ".join(tools["get_capability"]["description"].split())
+        uuid_doc = _props(tools["get_capability"])["uuid"]["description"]
+        assert "list_child_elements" in uuid_doc
+        assert "capability" in uuid_doc
 
     def test_validate_file_remote_uri_text(self, live_tools):
         tool = _by_name(live_tools)["validate_oscal_file"]
@@ -576,10 +611,10 @@ class TestLiveContent:
         assert "Remote URIs are rejected" in file_uri
         assert "server operator enables" in file_uri
 
-    @pytest.mark.parametrize("name", PER_MODEL_QUERY_TOOLS)
-    def test_per_model_query_points_to_children(self, live_tools, name):
-        description = _by_name(live_tools)[name]["description"]
+    def test_query_documents_points_to_children(self, live_tools):
+        description = _by_name(live_tools)["query_documents"]["description"]
         assert "childTypeCounts" in description
+        assert "list_child_elements" in description
         assert "get_child_element" in description
 
 
@@ -605,9 +640,8 @@ class TestLiveSchemaFacts:
             _enum_values(_props(tools["get_definition"])["kind"])
         )
 
-    @pytest.mark.parametrize("name", PER_MODEL_QUERY_TOOLS)
-    def test_per_model_query_type_enum(self, live_tools, name):
-        prop = _props(_by_name(live_tools)[name])["query_type"]
+    def test_query_documents_query_type_enum(self, live_tools):
+        prop = _props(_by_name(live_tools)["query_documents"])["query_type"]
         assert _enum_values(prop) == ["all", "by_uuid", "by_title"]
 
     def test_list_oscal_resources_paging(self, live_tools):
@@ -622,11 +656,15 @@ class TestLiveCallPath:
         [
             ("get_oscal_schema", {"model_name": "catalog", "schema_type": "yaml"}, ("json", "xsd")),
             ("get_definition", {"name": "uuid", "kind": "module"}, ("assembly", "field", "flag")),
-            ("query_catalog", {"query_type": "by_type"}, ("all", "by_uuid", "by_title")),
+            (
+                "query_documents",
+                {"model_type": "catalog", "query_type": "by_type"},
+                ("all", "by_uuid", "by_title"),
+            ),
         ],
     )
     def test_invalid_literal_lists_valid_values(self, live_server, name, args, valid):
-        # query_catalog runs without an initialized store here, so the error can only come
+        # query_documents runs without an initialized store here, so the error can only come
         # from argument validation, which runs before the function body.
         with pytest.raises(ToolError) as exc_info:
             asyncio.run(live_server.call_tool(name, args))
@@ -649,19 +687,7 @@ class TestLiveCallPath:
 class TestRoutingGuide:
     """Req 8.1-8.5: instructions hold the Routing_Guide, which names a tool per task."""
 
-    ROUTED_TOOLS = (
-        "list_oscal_models",
-        "get_oscal_schema",
-        "get_definition",
-        "get_constraints",
-        "get_allowed_values",
-        "query_catalog",
-        "text_search_oscal",
-        "query_component_definition",
-        "validate_oscal_content",
-        "list_oscal_resources",
-        "query_oscal_documentation",
-    )
+    ROUTED_TOOLS = GENERIC_TOOL_LIST
 
     def test_instructions_contain_guide(self, live_server):
         assert ROUTING_GUIDE in (live_server.instructions or "")
@@ -672,6 +698,11 @@ class TestRoutingGuide:
 
     def test_guide_within_cap(self):
         assert len(SERVER_INSTRUCTIONS) <= tool_budget.ROUTING_GUIDE_CAP
+
+    @pytest.mark.parametrize("name", sorted(REMOVED_TOOLS))
+    def test_instructions_name_no_removed_tool(self, live_server, name):
+        """Req 8.6, 11.4: no Removed_Tool name appears in the server instructions."""
+        assert not re.search(rf"\b{re.escape(name)}\b", live_server.instructions or ""), name
 
 
 # --- Steering and AGENTS.md sync tests (task 10.3) -------------------------------------------
@@ -725,6 +756,44 @@ class TestSteeringSync:
     def test_steering_states_limit(self, steering, name):
         value = f"{getattr(tool_budget, name):,}"
         assert value in steering, f"{STEERING_PATH} does not state {name} = {value}"
+
+    @pytest.mark.parametrize(
+        "name",
+        ["TOTAL_BUDGET", "TOOL_DESCRIPTION_CAP", "PARAMETER_DESCRIPTION_CAP", "ROUTING_GUIDE_CAP"],
+    )
+    def test_steering_limits_table_row_matches_constant(self, steering, name):
+        """Req 12.4: the Limits table row that names the constant states its exact value."""
+        rows = [
+            line
+            for line in _section_body(steering, "## Limits").splitlines()
+            if line.startswith("|") and f"`{name}`" in line
+        ]
+        assert len(rows) == 1, (name, rows)
+        cells = [c.strip() for c in rows[0].strip().strip("|").split("|")]
+        assert cells[-1] == f"{getattr(tool_budget, name):,} characters", (name, cells)
+
+    def test_steering_limits_table_has_only_known_rows(self, steering):
+        rows = [
+            line
+            for line in _section_body(steering, "## Limits").splitlines()
+            if line.startswith("|") and not line.startswith(("| Limit", "|---"))
+        ]
+        assert len(rows) == 4, rows
+
+    def test_steering_size_plan_names_generic_tools_at_180(self, steering):
+        """Req 12.4: the size-plan list gives the Generic_Tools the 180-character target."""
+        lines = [
+            line
+            for line in steering.splitlines()
+            if line.startswith("- ") and f"≤ {GENERIC_TOOL_DESCRIPTION_TARGET}" in line
+        ]
+        assert len(lines) == 1, lines
+        for name in (*GENERIC_TOOL_LIST, "get_child_element", "text_search_oscal"):
+            assert f"`{name}`" in lines[0], name
+
+    @pytest.mark.parametrize("name", sorted(REMOVED_TOOLS))
+    def test_steering_names_no_removed_tool(self, steering, name):
+        assert not re.search(rf"\b{re.escape(name)}\b", steering), name
 
     @pytest.mark.parametrize(
         "path", ["src/mcp_server_for_oscal/tools/tool_budget.py", "tests/test_tool_budget.py"]

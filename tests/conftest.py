@@ -10,6 +10,7 @@ import pytest
 
 from mcp_server_for_oscal.tools import metaschema_index as _msi_module
 from mcp_server_for_oscal.tools import query_component_definition as _qcd_module
+from mcp_server_for_oscal.tools import query_oscal_models as _qom_module
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
 from .fixture_store import (
@@ -21,18 +22,22 @@ from .fixture_store import (
 
 @pytest.fixture(autouse=True)
 def reset_oscal_store():
-    """Isolate the ``query_component_definition._oscal_store`` singleton per test.
+    """Isolate the store singletons of the cdef and model tool modules per test.
 
-    Sets ``_oscal_store`` to ``None`` before each test and restores the prior
-    value afterward, so a store installed via ``init_store`` (by a test or a
-    fixture such as ``fixture_store``) never leaks into another test. Tests
-    that exercise the unset-store path rely on ``_oscal_store`` being ``None``
-    when they start.
+    Sets ``query_component_definition._oscal_store`` and
+    ``query_oscal_models._store`` to ``None`` before each test and restores
+    the prior values afterward, so a store installed via ``init_store`` (by a
+    test or a fixture such as ``fixture_store``) never leaks into another
+    test. Tests that exercise the unset-store path rely on the singletons
+    being ``None`` when they start.
     """
     saved = _qcd_module._oscal_store
+    saved_models = _qom_module._store
     _qcd_module._oscal_store = None
+    _qom_module._store = None
     yield
     _qcd_module._oscal_store = saved
+    _qom_module._store = saved_models
 
 
 @pytest.fixture
@@ -58,6 +63,7 @@ def fixture_store(tmp_path):
     """
     store = build_fixture_store(tmp_path, load_valid_fixture_cdefs())
     _qcd_module.init_store(store)
+    _qom_module.init_store(store)
     yield store
     store.close()
 
@@ -80,6 +86,7 @@ def many_capabilities_store(tmp_path):
     cdef, target = make_many_capabilities_cdef()
     store = build_fixture_store(tmp_path, [cdef])
     _qcd_module.init_store(store)
+    _qom_module.init_store(store)
     yield ManyCapabilitiesStore(store=store, target=target)
     store.close()
 

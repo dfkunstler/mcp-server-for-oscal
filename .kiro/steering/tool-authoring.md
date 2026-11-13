@@ -42,14 +42,14 @@ Source of truth: `src/mcp_server_for_oscal/tools/tool_budget.py`. The Budget_Tes
 
 | Limit | Value |
 |---|---|
-| Total_Budget (compact JSON of the `tools` array, `TOTAL_BUDGET`) | 38,979 characters |
+| Total_Budget (compact JSON of the `tools` array, `TOTAL_BUDGET`) | 20,230 characters |
 | Tool_Description_Cap (`TOOL_DESCRIPTION_CAP`) | 1,200 characters |
 | Parameter_Description_Cap (`PARAMETER_DESCRIPTION_CAP`) | 250 characters |
 | Server instructions with Routing_Guide (`ROUTING_GUIDE_CAP`) | 3,000 characters |
 
 Size-plan targets for descriptions (guidance; only the caps are tested):
 
-- Per-model `query_*`, document `list_*`, child `list_*`, `get_child_element`, `text_search_oscal`: ≤ 180
+- `query_documents`, `list_documents`, `list_child_elements`, `get_child_element`, `text_search_oscal`: ≤ 180
 - Component Definition tools: ≤ 300 (`query_component_definition` ≤ 450)
 - Metaschema tools: ≤ 500
 - Schema, models, validate, resources, documentation, `about`: ≤ 250

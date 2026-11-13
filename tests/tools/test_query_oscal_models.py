@@ -1,5 +1,9 @@
 """
-Tests for the new OSCAL model type MCP tools in query_oscal_models.py.
+Tests for the MCP tools in query_oscal_models.py.
+
+The per-model query and list tools were consolidated into ``query_documents`` and
+``list_documents`` (GitHub issue #40); each former per-model case is now one
+``model_type`` case of the parametrized tests here.
 """
 
 import inspect
@@ -10,6 +14,7 @@ import pytest
 from mcp_server_for_oscal.tools import query_oscal_models, tool_budget
 from mcp_server_for_oscal.tools.descriptions import (
     BudgetedLimit,
+    DocumentModelType,
     Limit,
     Offset,
     OptionalModelName,
@@ -19,6 +24,32 @@ from mcp_server_for_oscal.tools.descriptions import (
 )
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 from mcp_server_for_oscal.tools.utils import OSCALModelType
+
+# The seven model types the former per-model tools covered (everything but component-definition).
+_PER_MODEL_TYPES = [
+    OSCALModelType.CATALOG,
+    OSCALModelType.PROFILE,
+    OSCALModelType.SYSTEM_SECURITY_PLAN,
+    OSCALModelType.ASSESSMENT_PLAN,
+    OSCALModelType.ASSESSMENT_RESULTS,
+    OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES,
+    OSCALModelType.MAPPING,
+]
+# The six that hold no document in ``populated_store`` and ``multi_type_store``.
+_EMPTY_MODEL_TYPES = [
+    OSCALModelType.SYSTEM_SECURITY_PLAN,
+    OSCALModelType.PROFILE,
+    OSCALModelType.ASSESSMENT_PLAN,
+    OSCALModelType.ASSESSMENT_RESULTS,
+    OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES,
+    OSCALModelType.MAPPING,
+]
+_PAGE_KEYS = {"items", "total", "offset", "limit", "hasMore"}
+
+
+def _model_id(model_type: OSCALModelType) -> str:
+    return model_type.value
+
 
 # ---------------------------------------------------------------------------
 # Helpers — minimal valid OSCAL documents
@@ -124,19 +155,22 @@ class TestInitStore:
 
 
 class TestCatalogTools:
-    def test_list_catalogs_returns_page_response(self, populated_store):
-        result = query_oscal_models.list_catalogs(ctx=None)
+    def test_list_documents_catalog_returns_page_response(self, populated_store):
+        result = query_oscal_models.list_documents(model_type="catalog", ctx=None)
         assert "items" in result
         assert "total" in result
         assert result["total"] == 1
         assert result["items"][0]["title"] == "Test Catalog"
 
-    def test_query_catalog_all(self, populated_store):
-        result = query_oscal_models.query_catalog(ctx=None, query_type="all")
+    def test_query_documents_catalog_all(self, populated_store):
+        result = query_oscal_models.query_documents(
+            model_type="catalog", query_type="all", ctx=None
+        )
         assert result["total"] == 1
 
-    def test_query_catalog_by_uuid(self, populated_store):
-        result = query_oscal_models.query_catalog(
+    def test_query_documents_catalog_by_uuid(self, populated_store):
+        result = query_oscal_models.query_documents(
+            model_type="catalog",
             ctx=None,
             query_type="by_uuid",
             query_value="c1d2e3f4-5678-4abc-8def-aabbccddeeff",
@@ -144,115 +178,54 @@ class TestCatalogTools:
         assert result["total"] == 1
         assert result["items"][0]["uuid"] == "c1d2e3f4-5678-4abc-8def-aabbccddeeff"
 
-    def test_query_catalog_by_title(self, populated_store):
-        result = query_oscal_models.query_catalog(
+    def test_query_documents_catalog_by_title(self, populated_store):
+        result = query_oscal_models.query_documents(
+            model_type="catalog",
             ctx=None,
             query_type="by_title",
             query_value="Test Catalog",
         )
         assert result["total"] == 1
 
-    def test_list_catalogs_empty(self, store):
-        """list_catalogs returns empty when no catalogs are loaded."""
+    def test_list_documents_catalog_empty(self, store):
+        """list_documents returns empty when no catalogs are loaded."""
         query_oscal_models.init_store(store)
-        result = query_oscal_models.list_catalogs(ctx=None)
+        result = query_oscal_models.list_documents(model_type="catalog", ctx=None)
         assert result["total"] == 0
         assert result["items"] == []
 
-    def test_query_catalog_does_not_return_cdef(self, populated_store):
+    def test_query_documents_catalog_does_not_return_cdef(self, populated_store):
         """Catalog query should not return component-definition docs."""
-        result = query_oscal_models.query_catalog(ctx=None, query_type="all")
+        result = query_oscal_models.query_documents(
+            model_type="catalog", query_type="all", ctx=None
+        )
         for item in result["items"]:
             assert item["model_type"] == "catalog"
 
+    def test_query_documents_component_definition_all(self, populated_store):
+        """component-definition is accepted by the document tools and returns only cdefs."""
+        result = query_oscal_models.query_documents(
+            model_type="component-definition", query_type="all", ctx=None
+        )
+        assert result["total"] == 1
+        assert result["items"][0]["model_type"] == "component-definition"
+
 
 # ---------------------------------------------------------------------------
-# SSP tools
+# Empty models: SSP, profile, assessment plan, assessment results, POA&M, mapping collection
 # ---------------------------------------------------------------------------
 
 
-class TestSSPTools:
-    def test_list_ssps_empty(self, populated_store):
-        result = query_oscal_models.list_ssps(ctx=None)
+@pytest.mark.parametrize("model_type", _EMPTY_MODEL_TYPES, ids=_model_id)
+class TestEmptyModelTools:
+    def test_list_documents_empty(self, populated_store, model_type):
+        result = query_oscal_models.list_documents(model_type=model_type.value, ctx=None)
         assert result["total"] == 0
 
-    def test_query_ssp_all_empty(self, populated_store):
-        result = query_oscal_models.query_ssp(ctx=None, query_type="all")
-        assert result["total"] == 0
-
-
-# ---------------------------------------------------------------------------
-# Profile tools
-# ---------------------------------------------------------------------------
-
-
-class TestProfileTools:
-    def test_list_profiles_empty(self, populated_store):
-        result = query_oscal_models.list_profiles(ctx=None)
-        assert result["total"] == 0
-
-    def test_query_profile_all_empty(self, populated_store):
-        result = query_oscal_models.query_profile(ctx=None, query_type="all")
-        assert result["total"] == 0
-
-
-# ---------------------------------------------------------------------------
-# Assessment Plan tools
-# ---------------------------------------------------------------------------
-
-
-class TestAssessmentPlanTools:
-    def test_list_assessment_plans_empty(self, populated_store):
-        result = query_oscal_models.list_assessment_plans(ctx=None)
-        assert result["total"] == 0
-
-    def test_query_assessment_plan_all_empty(self, populated_store):
-        result = query_oscal_models.query_assessment_plan(ctx=None, query_type="all")
-        assert result["total"] == 0
-
-
-# ---------------------------------------------------------------------------
-# Assessment Results tools
-# ---------------------------------------------------------------------------
-
-
-class TestAssessmentResultsTools:
-    def test_list_assessment_results_empty(self, populated_store):
-        result = query_oscal_models.list_assessment_results(ctx=None)
-        assert result["total"] == 0
-
-    def test_query_assessment_results_all_empty(self, populated_store):
-        result = query_oscal_models.query_assessment_results(ctx=None, query_type="all")
-        assert result["total"] == 0
-
-
-# ---------------------------------------------------------------------------
-# POA&M tools
-# ---------------------------------------------------------------------------
-
-
-class TestPOAMTools:
-    def test_list_poams_empty(self, populated_store):
-        result = query_oscal_models.list_poams(ctx=None)
-        assert result["total"] == 0
-
-    def test_query_poam_all_empty(self, populated_store):
-        result = query_oscal_models.query_poam(ctx=None, query_type="all")
-        assert result["total"] == 0
-
-
-# ---------------------------------------------------------------------------
-# Mapping Collection tools
-# ---------------------------------------------------------------------------
-
-
-class TestMappingCollectionTools:
-    def test_list_mapping_collections_empty(self, populated_store):
-        result = query_oscal_models.list_mapping_collections(ctx=None)
-        assert result["total"] == 0
-
-    def test_query_mapping_collection_all_empty(self, populated_store):
-        result = query_oscal_models.query_mapping_collection(ctx=None, query_type="all")
+    def test_query_documents_all_empty(self, populated_store, model_type):
+        result = query_oscal_models.query_documents(
+            model_type=model_type.value, query_type="all", ctx=None
+        )
         assert result["total"] == 0
 
 
@@ -269,14 +242,14 @@ class TestTextSearchOscal:
     def test_text_search_finds_catalog(self, populated_store):
         """After indexing, the catalog title should be searchable."""
         # Trigger indexing by querying the catalog
-        query_oscal_models.query_catalog(ctx=None, query_type="all")
+        query_oscal_models.query_documents(model_type="catalog", query_type="all", ctx=None)
         result = query_oscal_models.text_search_oscal(ctx=None, query_text="Test Catalog")
         assert result["total"] >= 1
 
     def test_text_search_scoped_to_model_type(self, populated_store):
         """Scoping to catalog should exclude component-definition results."""
         # Trigger indexing for both
-        query_oscal_models.query_catalog(ctx=None, query_type="all")
+        query_oscal_models.query_documents(model_type="catalog", query_type="all", ctx=None)
         populated_store.query(
             oscal_model_type=OSCALModelType.COMPONENT_DEFINITION,
             query_type="all",
@@ -291,7 +264,7 @@ class TestTextSearchOscal:
 
     def test_text_search_invalid_model_type_searches_all(self, populated_store):
         """An invalid model type string falls back to searching all types."""
-        query_oscal_models.query_catalog(ctx=None, query_type="all")
+        query_oscal_models.query_documents(model_type="catalog", query_type="all", ctx=None)
         result = query_oscal_models.text_search_oscal(
             ctx=None,
             query_text="Test",
@@ -313,7 +286,7 @@ class TestTextSearchOscal:
 
     @pytest.mark.parametrize("limit", [1, 100])
     def test_text_search_accepts_limit_bounds(self, populated_store, limit):
-        query_oscal_models.query_catalog(ctx=None, query_type="all")
+        query_oscal_models.query_documents(model_type="catalog", query_type="all", ctx=None)
         result = query_oscal_models.text_search_oscal(ctx=None, query_text="Test", limit=limit)
         assert len(result["items"]) <= limit
 
@@ -326,63 +299,34 @@ class TestTextSearchOscal:
 class TestPageResponseFormat:
     """All tools should return the standard Page_Response envelope."""
 
-    @pytest.mark.parametrize(
-        "tool_fn",
-        [
-            query_oscal_models.list_catalogs,
-            query_oscal_models.list_ssps,
-            query_oscal_models.list_profiles,
-            query_oscal_models.list_assessment_plans,
-            query_oscal_models.list_assessment_results,
-            query_oscal_models.list_poams,
-            query_oscal_models.list_mapping_collections,
-        ],
-    )
-    def test_list_tools_return_page_response_keys(self, populated_store, tool_fn):
-        result = tool_fn(ctx=None)
-        assert set(result.keys()) == {"items", "total", "offset", "limit", "hasMore"}
+    @pytest.mark.parametrize("model_type", _PER_MODEL_TYPES, ids=_model_id)
+    def test_list_documents_returns_page_response_keys(self, populated_store, model_type):
+        result = query_oscal_models.list_documents(model_type=model_type.value, ctx=None)
+        assert set(result.keys()) == _PAGE_KEYS
 
-    @pytest.mark.parametrize(
-        "tool_fn",
-        [
-            query_oscal_models.query_catalog,
-            query_oscal_models.query_ssp,
-            query_oscal_models.query_profile,
-            query_oscal_models.query_assessment_plan,
-            query_oscal_models.query_assessment_results,
-            query_oscal_models.query_poam,
-            query_oscal_models.query_mapping_collection,
-        ],
-    )
-    def test_query_tools_return_page_response_keys(self, populated_store, tool_fn):
-        result = tool_fn(ctx=None, query_type="all")
-        assert set(result.keys()) == {"items", "total", "offset", "limit", "hasMore"}
+    @pytest.mark.parametrize("model_type", _PER_MODEL_TYPES, ids=_model_id)
+    def test_query_documents_returns_page_response_keys(self, populated_store, model_type):
+        result = query_oscal_models.query_documents(
+            model_type=model_type.value, query_type="all", ctx=None
+        )
+        assert set(result.keys()) == _PAGE_KEYS
 
 
 # ---------------------------------------------------------------------------
 # Signatures, schemas, and descriptions (tool-context-optimization, task 5.4)
 # ---------------------------------------------------------------------------
 
-# Per_Model_Query_Tool -> child list tools its description must name
-QUERY_TOOLS_AND_CHILD_TOOLS = [
-    (query_oscal_models.query_catalog, ["list_catalog_controls", "list_catalog_groups"]),
-    (
-        query_oscal_models.query_ssp,
-        ["list_ssp_control_implementations", "list_ssp_system_components"],
-    ),
-    (query_oscal_models.query_profile, ["list_profile_imports", "list_profile_modify"]),
-    (
-        query_oscal_models.query_assessment_plan,
-        ["list_assessment_plan_tasks", "list_assessment_plan_activities"],
-    ),
-    (
-        query_oscal_models.query_assessment_results,
-        ["list_assessment_results_results", "list_assessment_results_findings"],
-    ),
-    (query_oscal_models.query_poam, ["list_poam_items"]),
-    (query_oscal_models.query_mapping_collection, ["list_mapping_collection_mappings"]),
+# Child-listing tools that a document query description must name.
+_QUERY_DESCRIPTION_REFERENCES = ["`childTypeCounts`", "list_child_elements", "get_child_element"]
+
+# The tools this module defines, in registry order.
+_MODULE_TOOL_NAMES = [
+    "list_documents",
+    "query_documents",
+    "list_child_elements",
+    "text_search_oscal",
+    "get_child_element",
 ]
-QUERY_TOOLS = [fn for fn, _ in QUERY_TOOLS_AND_CHILD_TOOLS]
 
 
 def _module_tools() -> list:
@@ -392,10 +336,19 @@ def _module_tools() -> list:
 
 
 class TestToolSignatures:
-    @pytest.mark.parametrize("tool_fn", QUERY_TOOLS, ids=lambda fn: fn.__name__)
-    def test_query_tool_signature(self, tool_fn):
+    def test_query_documents_signature(self):
+        tool_fn = query_oscal_models.query_documents
         sig = inspect.signature(tool_fn)
-        assert list(sig.parameters) == ["query_type", "query_value", "offset", "limit", "ctx"]
+        assert list(sig.parameters) == [
+            "model_type",
+            "query_type",
+            "query_value",
+            "offset",
+            "limit",
+            "ctx",
+        ]
+        assert sig.parameters["model_type"].annotation == DocumentModelType
+        assert sig.parameters["model_type"].default is inspect.Parameter.empty
         assert sig.parameters["query_type"].annotation == PerModelQueryType
         assert sig.parameters["query_type"].default == "all"
         assert sig.parameters["query_value"].annotation == QueryValue
@@ -403,10 +356,24 @@ class TestToolSignatures:
         assert sig.parameters["limit"].annotation == Limit
         assert sig.parameters["limit"].default == 10
 
-    @pytest.mark.parametrize("tool_fn", QUERY_TOOLS, ids=lambda fn: fn.__name__)
-    def test_query_type_enum_excludes_by_type(self, tool_fn):
-        schema = tool_fn.tool_spec["inputSchema"]["json"]
+    def test_list_documents_signature(self):
+        sig = inspect.signature(query_oscal_models.list_documents)
+        assert list(sig.parameters) == ["model_type", "offset", "limit", "ctx"]
+        assert sig.parameters["model_type"].annotation == DocumentModelType
+        assert sig.parameters["offset"].annotation == Offset
+        assert sig.parameters["limit"].annotation == Limit
+        assert sig.parameters["limit"].default == 10
+
+    def test_query_type_enum_excludes_by_type(self):
+        schema = query_oscal_models.query_documents.tool_spec["inputSchema"]["json"]
         assert schema["properties"]["query_type"]["enum"] == ["all", "by_uuid", "by_title"]
+
+    @pytest.mark.parametrize("tool_name", ["list_documents", "query_documents"])
+    def test_model_type_enum_has_every_model_type(self, tool_name):
+        tool_fn = getattr(query_oscal_models, tool_name)
+        schema = tool_fn.tool_spec["inputSchema"]["json"]
+        assert set(schema["properties"]["model_type"]["enum"]) == {m.value for m in OSCALModelType}
+        assert "model_type" in schema["required"]
 
     def test_text_search_signature(self):
         sig = inspect.signature(query_oscal_models.text_search_oscal)
@@ -431,7 +398,7 @@ class TestToolSignatures:
 
     def test_ctx_last_and_every_parameter_described(self):
         tools = _module_tools()
-        assert len(tools) == 28
+        assert [fn.tool_name for fn in tools] == _MODULE_TOOL_NAMES
         for fn in tools:
             params = list(inspect.signature(fn).parameters)
             assert params[-1] == "ctx", fn.__name__
@@ -449,17 +416,10 @@ class TestToolDescriptions:
             assert tool_budget.description_shape_problems(doc) == [], fn.__name__
             assert len(" ".join(doc.split())) <= 180, fn.__name__
 
-    @pytest.mark.parametrize(
-        ("tool_fn", "child_tools"),
-        QUERY_TOOLS_AND_CHILD_TOOLS,
-        ids=[fn.tool_name for fn in QUERY_TOOLS],
-    )
-    def test_query_descriptions_direct_to_child_tools(self, tool_fn, child_tools):
-        doc = inspect.getdoc(tool_fn) or ""
-        assert "`childTypeCounts`" in doc
-        assert "get_child_element" in doc
-        for name in child_tools:
-            assert name in doc
+    def test_query_documents_description_directs_to_child_tools(self):
+        doc = inspect.getdoc(query_oscal_models.query_documents) or ""
+        for reference in _QUERY_DESCRIPTION_REFERENCES:
+            assert reference in doc
 
 
 # ---------------------------------------------------------------------------
@@ -580,16 +540,17 @@ class TestMultiTypeIntegration:
 
     # -- Catalog tools with real data --
 
-    def test_list_catalogs_returns_both(self, multi_type_store):
-        """list_catalogs returns exactly the two ingested catalogs."""
-        result = query_oscal_models.list_catalogs(ctx=None)
+    def test_list_documents_catalog_returns_both(self, multi_type_store):
+        """list_documents returns exactly the two ingested catalogs."""
+        result = query_oscal_models.list_documents(model_type="catalog", ctx=None)
         assert result["total"] == 2
         titles = {item["title"] for item in result["items"]}
         assert titles == {"Test Catalog", "Security Controls Catalog"}
 
-    def test_query_catalog_by_uuid(self, multi_type_store):
-        """query_catalog by_uuid returns the correct catalog."""
-        result = query_oscal_models.query_catalog(
+    def test_query_documents_catalog_by_uuid(self, multi_type_store):
+        """query_documents by_uuid returns the correct catalog."""
+        result = query_oscal_models.query_documents(
+            model_type="catalog",
             ctx=None,
             query_type="by_uuid",
             query_value="d2e3f4a5-6789-4bcd-9ef0-bbccddeeff00",
@@ -597,9 +558,10 @@ class TestMultiTypeIntegration:
         assert result["total"] == 1
         assert result["items"][0]["title"] == "Security Controls Catalog"
 
-    def test_query_catalog_by_title(self, multi_type_store):
-        """query_catalog by_title finds the right catalog."""
-        result = query_oscal_models.query_catalog(
+    def test_query_documents_catalog_by_title(self, multi_type_store):
+        """query_documents by_title finds the right catalog."""
+        result = query_oscal_models.query_documents(
+            model_type="catalog",
             ctx=None,
             query_type="by_title",
             query_value="Test Catalog",
@@ -607,24 +569,29 @@ class TestMultiTypeIntegration:
         assert result["total"] == 1
         assert result["items"][0]["uuid"] == "c1d2e3f4-5678-4abc-8def-aabbccddeeff"
 
-    def test_query_catalog_all_excludes_other_types(self, multi_type_store):
-        """query_catalog all returns only catalogs, not cdefs or poams."""
-        result = query_oscal_models.query_catalog(ctx=None, query_type="all")
+    def test_query_documents_catalog_all_excludes_other_types(self, multi_type_store):
+        """query_documents all returns only catalogs, not cdefs or poams."""
+        result = query_oscal_models.query_documents(
+            model_type="catalog", query_type="all", ctx=None
+        )
         assert result["total"] == 2
         for item in result["items"]:
             assert item["model_type"] == "catalog"
 
     # -- POA&M tools with real data --
 
-    def test_list_poams_returns_one(self, multi_type_store):
-        """list_poams returns the single ingested POA&M."""
-        result = query_oscal_models.list_poams(ctx=None)
+    def test_list_documents_poam_returns_one(self, multi_type_store):
+        """list_documents returns the single ingested POA&M."""
+        result = query_oscal_models.list_documents(
+            model_type="plan-of-action-and-milestones", ctx=None
+        )
         assert result["total"] == 1
         assert result["items"][0]["title"] == "Test POA&M"
 
-    def test_query_poam_by_uuid(self, multi_type_store):
-        """query_poam by_uuid returns the correct POA&M."""
-        result = query_oscal_models.query_poam(
+    def test_query_documents_poam_by_uuid(self, multi_type_store):
+        """query_documents by_uuid returns the correct POA&M."""
+        result = query_oscal_models.query_documents(
+            model_type="plan-of-action-and-milestones",
             ctx=None,
             query_type="by_uuid",
             query_value="e5f6a7b8-9abc-4ef0-a1ab-567890123456",
@@ -634,36 +601,33 @@ class TestMultiTypeIntegration:
 
     # -- Empty-type queries return empty results --
 
-    def test_query_ssp_empty_with_multi_type_store(self, multi_type_store):
+    def test_query_documents_ssp_empty_with_multi_type_store(self, multi_type_store):
         """SSP queries return empty when no SSPs are loaded."""
-        result = query_oscal_models.query_ssp(ctx=None, query_type="all")
+        result = query_oscal_models.query_documents(
+            model_type="system-security-plan", query_type="all", ctx=None
+        )
         assert result["total"] == 0
         assert result["items"] == []
 
-    def test_list_ssps_empty_with_multi_type_store(self, multi_type_store):
-        """list_ssps returns empty when no SSPs are loaded."""
-        result = query_oscal_models.list_ssps(ctx=None)
+    def test_list_documents_ssp_empty_with_multi_type_store(self, multi_type_store):
+        """list_documents returns empty when no SSPs are loaded."""
+        result = query_oscal_models.list_documents(model_type="system-security-plan", ctx=None)
         assert result["total"] == 0
         assert result["items"] == []
 
-    def test_list_profiles_empty_with_multi_type_store(self, multi_type_store):
-        """list_profiles returns empty when no profiles are loaded."""
-        result = query_oscal_models.list_profiles(ctx=None)
-        assert result["total"] == 0
-
-    def test_list_assessment_plans_empty_with_multi_type_store(self, multi_type_store):
-        """list_assessment_plans returns empty when none loaded."""
-        result = query_oscal_models.list_assessment_plans(ctx=None)
-        assert result["total"] == 0
-
-    def test_list_assessment_results_empty_with_multi_type_store(self, multi_type_store):
-        """list_assessment_results returns empty when none loaded."""
-        result = query_oscal_models.list_assessment_results(ctx=None)
-        assert result["total"] == 0
-
-    def test_list_mapping_collections_empty_with_multi_type_store(self, multi_type_store):
-        """list_mapping_collections returns empty when none loaded."""
-        result = query_oscal_models.list_mapping_collections(ctx=None)
+    @pytest.mark.parametrize(
+        "model_type",
+        [
+            OSCALModelType.PROFILE,
+            OSCALModelType.ASSESSMENT_PLAN,
+            OSCALModelType.ASSESSMENT_RESULTS,
+            OSCALModelType.MAPPING,
+        ],
+        ids=_model_id,
+    )
+    def test_list_documents_empty_with_multi_type_store(self, multi_type_store, model_type):
+        """list_documents returns empty when none of the model type are loaded."""
+        result = query_oscal_models.list_documents(model_type=model_type.value, ctx=None)
         assert result["total"] == 0
 
 
@@ -678,12 +642,14 @@ class TestTextSearchIntegration:
     def test_text_search_finds_results_across_types(self, multi_type_store):
         """text_search_oscal returns results from multiple model types."""
         # Trigger indexing for all document types
-        query_oscal_models.query_catalog(ctx=None, query_type="all")
+        query_oscal_models.query_documents(model_type="catalog", query_type="all", ctx=None)
         multi_type_store.query(
             oscal_model_type=OSCALModelType.COMPONENT_DEFINITION,
             query_type="all",
         )
-        query_oscal_models.query_poam(ctx=None, query_type="all")
+        query_oscal_models.query_documents(
+            model_type="plan-of-action-and-milestones", query_type="all", ctx=None
+        )
 
         # "Test" appears in titles across catalogs, cdef, and poam
         result = query_oscal_models.text_search_oscal(ctx=None, query_text="Test")
@@ -695,12 +661,14 @@ class TestTextSearchIntegration:
     def test_text_search_scoped_to_catalog(self, multi_type_store):
         """text_search_oscal scoped to catalog excludes other types."""
         # Trigger indexing
-        query_oscal_models.query_catalog(ctx=None, query_type="all")
+        query_oscal_models.query_documents(model_type="catalog", query_type="all", ctx=None)
         multi_type_store.query(
             oscal_model_type=OSCALModelType.COMPONENT_DEFINITION,
             query_type="all",
         )
-        query_oscal_models.query_poam(ctx=None, query_type="all")
+        query_oscal_models.query_documents(
+            model_type="plan-of-action-and-milestones", query_type="all", ctx=None
+        )
 
         result = query_oscal_models.text_search_oscal(
             ctx=None,
@@ -714,7 +682,9 @@ class TestTextSearchIntegration:
     def test_text_search_scoped_to_poam(self, multi_type_store):
         """text_search_oscal scoped to POA&M returns only POA&M results."""
         # Trigger indexing
-        query_oscal_models.query_poam(ctx=None, query_type="all")
+        query_oscal_models.query_documents(
+            model_type="plan-of-action-and-milestones", query_type="all", ctx=None
+        )
 
         result = query_oscal_models.text_search_oscal(
             ctx=None,
@@ -745,7 +715,7 @@ class TestTextSearchIntegration:
     def test_text_search_child_elements_indexed(self, multi_type_store):
         """text_search finds child element content (e.g. control titles)."""
         # Trigger indexing for the catalog with controls
-        query_oscal_models.query_catalog(ctx=None, query_type="all")
+        query_oscal_models.query_documents(model_type="catalog", query_type="all", ctx=None)
 
         result = query_oscal_models.text_search_oscal(ctx=None, query_text="Access Control")
         assert result["total"] >= 1
@@ -755,7 +725,7 @@ class TestTextSearchIntegration:
 
     def test_text_search_no_match_returns_empty(self, multi_type_store):
         """text_search with a term that matches nothing returns empty."""
-        query_oscal_models.query_catalog(ctx=None, query_type="all")
+        query_oscal_models.query_documents(model_type="catalog", query_type="all", ctx=None)
 
         result = query_oscal_models.text_search_oscal(
             ctx=None, query_text="zzzznonexistenttermzzzz"
@@ -783,14 +753,14 @@ def _minimal_doc(root_key: str, uuid: str, title: str, body: dict) -> dict:
 _SELECTION: dict[str, object] = {"control-selections": [{"include-all": {}}]}
 _RESOURCE = {"type": "catalog", "href": "https://example.com/catalog.json"}
 
-# query tool -> (root key, document body without uuid/metadata) for one valid document per model
-_PER_MODEL_BODIES = {
-    query_oscal_models.query_catalog: ("catalog", {}),
-    query_oscal_models.query_profile: (
+# model type -> (root key, document body without uuid/metadata) for one valid document per model
+_PER_MODEL_BODIES: dict[OSCALModelType, tuple[str, dict]] = {
+    OSCALModelType.CATALOG: ("catalog", {}),
+    OSCALModelType.PROFILE: (
         "profile",
         {"imports": [{"href": "#catalog", "include-all": {}}]},
     ),
-    query_oscal_models.query_ssp: (
+    OSCALModelType.SYSTEM_SECURITY_PLAN: (
         "system-security-plan",
         {
             "import-profile": {"href": "#profile"},
@@ -824,11 +794,11 @@ _PER_MODEL_BODIES = {
             },
         },
     ),
-    query_oscal_models.query_assessment_plan: (
+    OSCALModelType.ASSESSMENT_PLAN: (
         "assessment-plan",
         {"import-ssp": {"href": "#ssp"}, "reviewed-controls": _SELECTION},
     ),
-    query_oscal_models.query_assessment_results: (
+    OSCALModelType.ASSESSMENT_RESULTS: (
         "assessment-results",
         {
             "import-ap": {"href": "#ap"},
@@ -843,7 +813,7 @@ _PER_MODEL_BODIES = {
             ],
         },
     ),
-    query_oscal_models.query_poam: (
+    OSCALModelType.PLAN_OF_ACTION_AND_MILESTONES: (
         "plan-of-action-and-milestones",
         {
             "poam-items": [
@@ -855,7 +825,7 @@ _PER_MODEL_BODIES = {
             ]
         },
     ),
-    query_oscal_models.query_mapping_collection: (
+    OSCALModelType.MAPPING: (
         "mapping-collection",
         {
             "provenance": {
@@ -909,7 +879,7 @@ def _strings(value):
 
 @pytest.fixture
 def all_models_store(tmp_path):
-    """Store with one valid document per per-model query tool, plus a Component Definition.
+    """Store with one valid document per per-model type, plus a Component Definition.
 
     Yields ``(store, docs_dir, db_path)`` with the store installed for both tool modules.
     """
@@ -940,25 +910,41 @@ def _assert_pathless(result, docs_dir, db_path):
 class TestPerModelItemsHaveNoFilePath:
     """Requirement 3.2: per-model query items have no ``file_path`` and no store paths."""
 
-    @pytest.mark.parametrize("tool_fn", list(_PER_MODEL_BODIES), ids=lambda fn: fn.__name__)
+    @pytest.mark.parametrize("model_type", list(_PER_MODEL_BODIES), ids=_model_id)
     @pytest.mark.parametrize("query_type", ["all", "by_uuid", "by_title"])
-    def test_items_have_exact_keys_and_no_paths(self, all_models_store, tool_fn, query_type):
+    def test_items_have_exact_keys_and_no_paths(self, all_models_store, model_type, query_type):
         _, docs_dir, db_path = all_models_store
-        index = list(_PER_MODEL_BODIES).index(tool_fn)
-        root_key = _PER_MODEL_BODIES[tool_fn][0]
+        index = list(_PER_MODEL_BODIES).index(model_type)
+        root_key = _PER_MODEL_BODIES[model_type][0]
         query_value = {
             "all": None,
             "by_uuid": _doc_uuid(index),
             "by_title": _doc_title(root_key),
         }[query_type]
 
-        result = tool_fn(query_type=query_type, query_value=query_value, ctx=None)
+        result = query_oscal_models.query_documents(
+            model_type=model_type.value, query_type=query_type, query_value=query_value, ctx=None
+        )
 
         assert len(result["items"]) == 1, result
         item = result["items"][0]
         assert set(item) == _ITEM_KEYS
         assert item["uuid"] == _doc_uuid(index)
         assert item["model_type"] == root_key
+        _assert_pathless(result, docs_dir, db_path)
+
+    @pytest.mark.parametrize("model_type", list(_PER_MODEL_BODIES), ids=_model_id)
+    def test_list_documents_items_have_no_paths(self, all_models_store, model_type):
+        _, docs_dir, db_path = all_models_store
+        index = list(_PER_MODEL_BODIES).index(model_type)
+
+        result = query_oscal_models.list_documents(model_type=model_type.value, ctx=None)
+
+        assert len(result["items"]) == 1, result
+        item = result["items"][0]
+        assert "file_path" not in item
+        assert item["uuid"] == _doc_uuid(index)
+        assert item["model_type"] == model_type.value
         _assert_pathless(result, docs_dir, db_path)
 
     def test_component_definition_query_results_unchanged(self, all_models_store):

@@ -18,11 +18,20 @@ Most LLMs produce inconsistent OSCAL output due to limited public examples. This
 
 ## Tools Provided
 
+The live list is `get_tool_list()` in `tools/__init__.py` (19 tools) plus `about`, which only the server registers.
+
 - `list_oscal_models` — list available OSCAL model types
 - `get_oscal_schema` — retrieve JSON/XSD schemas for any OSCAL model
+- `get_allowed_values`, `get_constraints`, `find_references_to`, `get_definition`, `get_metaschema_source` — look up Metaschema definitions, constraints, and references from the bundled modules
 - `list_oscal_resources` — list bundled OSCAL resources
-- `query_component_definition` — query AWS component definitions
-- `list_component_definitions`, `list_components`, `list_capabilities`, `get_capability` — navigate component definition content
+- `list_documents` — list the loaded documents of one model type (all eight models, including component definitions)
+- `query_documents` — query the documents of one model type by UUID, title, type, or all
+- `list_child_elements` — list child elements (controls, groups, components, capabilities, and so on) of one element type, optionally scoped to a parent document
+- `get_child_element` — fetch one child element by ID
+- `text_search_oscal` — full-text search across documents and child elements
+- `query_component_definition` — query AWS component definitions by capability
+- `get_capability` — fetch one capability by UUID
 - `validate_oscal_content` / `validate_oscal_file` — validate OSCAL JSON against schemas and oscal-bindings models
-- `query_oscal_documentation` — RAG-based doc query (requires AWS Bedrock Knowledge Base, conditionally registered)
+- `query_oscal_documentation` — search OSCAL documentation (AWS Bedrock Knowledge Base when `OSCAL_KB_ID` is set, merged with user docs; otherwise local full-text search)
+- `get_oscal_documentation` — read a documentation page by `docId` as a line range
 - `about` — server metadata

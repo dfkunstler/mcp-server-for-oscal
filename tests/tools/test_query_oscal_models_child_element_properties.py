@@ -1,91 +1,60 @@
 """
-Property-based tests for the 12 list child element tools in query_oscal_models.py.
+Property-based tests for the ``list_child_elements`` tool in query_oscal_models.py.
 
-Feature: query-oscal-models
+Feature: query-oscal-models, migrated by consolidate-tools (GitHub issue #40). The 12 per-model
+child listers were replaced by one tool whose ``element_type`` argument takes the 14 Element_Type
+values, so each property is stated over those values.
 """
 
 import inspect
 import json
+from collections.abc import Iterator
 from unittest.mock import patch
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from mcp_server_for_oscal.tools import query_oscal_models
-from mcp_server_for_oscal.tools.descriptions import Limit, Offset, ParentDocUuid
-from mcp_server_for_oscal.tools.oscal_store import OscalStore
+from mcp_server_for_oscal.tools.descriptions import (
+    ChildElementType,
+    Limit,
+    Offset,
+    ParentDocUuid,
+)
+from mcp_server_for_oscal.tools.oscal_store import CHILD_ELEMENT_TYPES, OscalStore
+
+from ..fixture_store import build_leak_store
 
 # ---------------------------------------------------------------------------
-# Tool → expected element_type mapping
+# The 14 Element_Type values
 # ---------------------------------------------------------------------------
 
-LIST_TOOLS_AND_ELEMENT_TYPES: list[tuple] = [
-    (query_oscal_models.list_catalog_controls, "control"),
-    (query_oscal_models.list_catalog_groups, "group"),
-    (query_oscal_models.list_ssp_control_implementations, "control-implementation"),
-    (query_oscal_models.list_ssp_system_components, "system-component"),
-    (query_oscal_models.list_profile_imports, "import"),
-    (query_oscal_models.list_profile_modify, "modify"),
-    (query_oscal_models.list_assessment_plan_tasks, "task"),
-    (query_oscal_models.list_assessment_plan_activities, "activity"),
-    (query_oscal_models.list_assessment_results_results, "result"),
-    (query_oscal_models.list_assessment_results_findings, "finding"),
-    (query_oscal_models.list_poam_items, "poam-item"),
-    (query_oscal_models.list_mapping_collection_mappings, "mapping"),
+ELEMENT_TYPES: list[str] = [
+    "component",
+    "capability",
+    "control",
+    "group",
+    "import",
+    "modify",
+    "control-implementation",
+    "system-component",
+    "task",
+    "activity",
+    "result",
+    "finding",
+    "poam-item",
+    "mapping",
 ]
 
-
-# ---------------------------------------------------------------------------
-# Helpers — minimal valid OSCAL documents
-# ---------------------------------------------------------------------------
+TOOL = query_oscal_models.list_child_elements
 
 
-def _make_catalog_with_controls(
-    uuid="d2e3f4a5-6789-4bcd-9ef0-bbccddeeff00",
-    title="Security Controls Catalog",
-):
-    return {
-        "catalog": {
-            "uuid": uuid,
-            "metadata": {
-                "title": title,
-                "last-modified": "2024-01-01T00:00:00Z",
-                "version": "1.0",
-                "oscal-version": "1.0.4",
-            },
-            "controls": [
-                {"id": "ac-1", "title": "Access Control Policy"},
-            ],
-            "groups": [
-                {"id": "ac", "title": "Access Control"},
-            ],
-        },
-    }
-
-
-def _make_poam(
-    uuid="e5f6a7b8-9abc-4ef0-a1ab-567890123456",
-    title="Test POA&M",
-):
-    return {
-        "plan-of-action-and-milestones": {
-            "uuid": uuid,
-            "metadata": {
-                "title": title,
-                "last-modified": "2024-01-01T00:00:00Z",
-                "version": "1.0",
-                "oscal-version": "1.0.4",
-            },
-            "poam-items": [
-                {
-                    "uuid": "f6a7b8c9-abcd-4f01-a2ab-678901234567",
-                    "title": "Fix vulnerability",
-                    "description": "Remediate CVE-2024-0001",
-                },
-            ],
-        },
-    }
+def test_element_types_match_the_store_constants():
+    """The literal list above equals the store's Element_Types (14 values, none repeated)."""
+    from_store = [t for types in CHILD_ELEMENT_TYPES.values() for t in types]
+    assert len(ELEMENT_TYPES) == 14
+    assert sorted(ELEMENT_TYPES) == sorted(from_store)
 
 
 # ---------------------------------------------------------------------------
@@ -93,114 +62,128 @@ def _make_poam(
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def fixture_store(tmp_path_factory: pytest.TempPathFactory) -> Iterator[OscalStore]:
+    """Read-only store with a document of every model type and a child of every Element_Type."""
+    leak = build_leak_store(tmp_path_factory.mktemp("child-element-properties"))
+    try:
+        leak.store.text_search(leak.text_query)  # indexes pending documents (child elements)
+        yield leak.store
+    finally:
+        leak.store.close()
+
+
 @pytest.fixture
-def multi_type_store(tmp_path):
-    """OscalStore populated with a catalog (controls + groups) and a POA&M."""
-    db_path = str(tmp_path / "prop.db")
-    s = OscalStore(db_path=db_path, cache_size=10, seed_from_bundled=False)
+def installed_store(reset_oscal_store: None, fixture_store: OscalStore) -> OscalStore:
+    """Install the shared store into ``query_oscal_models`` for one test.
 
-    docs_dir = tmp_path / "docs"
-    docs_dir.mkdir()
-
-    cat = _make_catalog_with_controls()
-    (docs_dir / "catalog.json").write_text(json.dumps(cat))
-
-    poam = _make_poam()
-    (docs_dir / "poam.json").write_text(json.dumps(poam))
-
-    s.scan_directory(docs_dir)
-    query_oscal_models.init_store(s)
-    yield s
-    s.close()
+    ``reset_oscal_store`` (autouse, function-scoped) clears the singleton again afterwards.
+    """
+    query_oscal_models.init_store(fixture_store)
+    return fixture_store
 
 
 # ---------------------------------------------------------------------------
-# Property 1: Correct delegation (list tools)
+# Property 1: Correct delegation
 # Tag: Feature: query-oscal-models, Property 1: Correct delegation
-# Validates: Requirements 1.1–1.4, 2.1–2.3, 3.1–3.3, 4.1–4.3, 5.1–5.3,
-#            6.1–6.2, 7.1–7.2
+# Validates: Requirements 3.6 (consolidate-tools)
 # ---------------------------------------------------------------------------
 
 
 class TestProperty1CorrectDelegation:
-    """For each list tool, verify it delegates to list_child_elements with
-    the correct fixed element_type and passes all params through unchanged.
+    """``list_child_elements`` delegates to ``OscalStore.list_child_elements`` with the given
+    element_type and passes every other parameter through unchanged.
 
-    **Validates: Requirements 1.1–1.4, 2.1–2.3, 3.1–3.3, 4.1–4.3,
-    5.1–5.3, 6.1–6.2, 7.1–7.2**
+    **Validates: Requirements 3.6**
     """
 
-    @pytest.mark.parametrize(
-        ("tool_fn", "expected_element_type"),
-        LIST_TOOLS_AND_ELEMENT_TYPES,
-        ids=[fn.__name__ for fn, _ in LIST_TOOLS_AND_ELEMENT_TYPES],
-    )
-    @settings(max_examples=100)
+    @settings(max_examples=100, deadline=None)
     @given(
+        element_type=st.sampled_from(ELEMENT_TYPES),
         parent_doc_uuid=st.one_of(st.none(), st.uuids().map(str)),
         offset=st.integers(min_value=0, max_value=1000),
         limit=st.integers(min_value=1, max_value=100),
     )
-    def test_delegates_with_correct_element_type(
-        self,
-        tool_fn,
-        expected_element_type,
-        parent_doc_uuid,
-        offset,
-        limit,
-    ):
-        sentinel = {"items": [], "total": 0, "offset": 0, "limit": 10, "hasMore": False}
+    def test_delegates_with_given_element_type(self, element_type, parent_doc_uuid, offset, limit):
+        sentinel = {"items": [], "total": 0, "offset": offset, "limit": limit, "hasMore": False}
         with patch.object(OscalStore, "list_child_elements", return_value=sentinel) as mock_lce:
-            # Ensure _get_store() returns a real-ish object
             saved = query_oscal_models._store
             try:
                 query_oscal_models._store = OscalStore.__new__(OscalStore)
-                result = tool_fn(
-                    ctx=None,
+                result = TOOL(
+                    element_type=element_type,
                     parent_doc_uuid=parent_doc_uuid,
                     offset=offset,
                     limit=limit,
+                    ctx=None,
                 )
             finally:
                 query_oscal_models._store = saved
 
+            # The tool asks the store for raw_json so it can compute sizeInBytes.
             mock_lce.assert_called_once_with(
                 ctx=None,
                 parent_doc_uuid=parent_doc_uuid,
-                element_type=expected_element_type,
+                element_type=element_type,
                 offset=offset,
                 limit=limit,
+                include_raw_json=True,
             )
-            assert result is sentinel
+            assert result == sentinel
+
+    @settings(max_examples=50, deadline=None)
+    @given(
+        element_type=st.sampled_from(ELEMENT_TYPES),
+        raw_jsons=st.lists(st.one_of(st.none(), st.text(max_size=20)), max_size=5),
+    )
+    def test_items_are_the_store_items_without_raw_json(self, element_type, raw_jsons):
+        items = [
+            {"id": f"id-{i}", "title": f"T{i}", "element_type": element_type, "raw_json": raw}
+            for i, raw in enumerate(raw_jsons)
+        ]
+        page = {"items": items, "total": len(items), "offset": 0, "limit": 10, "hasMore": False}
+        with patch.object(OscalStore, "list_child_elements", return_value=page):
+            saved = query_oscal_models._store
+            try:
+                query_oscal_models._store = OscalStore.__new__(OscalStore)
+                result = TOOL(element_type=element_type, ctx=None)
+            finally:
+                query_oscal_models._store = saved
+
+        assert {k: v for k, v in result.items() if k != "items"} == {
+            k: v for k, v in page.items() if k != "items"
+        }
+        assert [{k: v for k, v in i.items() if k != "sizeInBytes"} for i in result["items"]] == [
+            {k: v for k, v in i.items() if k != "raw_json"} for i in items
+        ]
+        assert all("raw_json" not in i for i in result["items"])
 
 
 # ---------------------------------------------------------------------------
-# Property 2: Consistent interface signature (list tools)
+# Property 2: Consistent interface signature
 # Tag: Feature: query-oscal-models, Property 2: Consistent interface signature
-# Validates: Requirements 9.1, 9.2, 9.3, 9.5
+# Validates: Requirements 3.6 (consolidate-tools)
 # ---------------------------------------------------------------------------
 
 
 class TestProperty2ConsistentInterfaceSignature:
-    """Verify every list tool has the expected parameter names, types, and
-    defaults using inspect.signature().
+    """Verify the tool has the expected parameter names, types, and defaults using
+    inspect.signature().
 
-    **Validates: Requirements 9.1, 9.2, 9.3, 9.5**
+    **Validates: Requirements 3.6**
     """
 
-    @pytest.mark.parametrize(
-        "tool_fn",
-        [fn for fn, _ in LIST_TOOLS_AND_ELEMENT_TYPES],
-        ids=[fn.__name__ for fn, _ in LIST_TOOLS_AND_ELEMENT_TYPES],
-    )
-    def test_signature_params(self, tool_fn):
-        sig = inspect.signature(tool_fn)
-        param_names = list(sig.parameters.keys())
-        assert param_names == ["parent_doc_uuid", "offset", "limit", "ctx"]
+    def test_signature_params(self):
+        sig = inspect.signature(TOOL)
+        assert list(sig.parameters) == ["element_type", "parent_doc_uuid", "offset", "limit", "ctx"]
+
+        # element_type: ChildElementType, required (identifies what to list)
+        p_element = sig.parameters["element_type"]
+        assert p_element.default is inspect.Parameter.empty
+        assert p_element.annotation == ChildElementType
 
         # ctx: Context | None = None, last
-        p_ctx = sig.parameters["ctx"]
-        assert p_ctx.default is None
+        assert sig.parameters["ctx"].default is None
 
         # parent_doc_uuid: ParentDocUuid = None
         p_parent = sig.parameters["parent_doc_uuid"]
@@ -217,20 +200,15 @@ class TestProperty2ConsistentInterfaceSignature:
         assert p_limit.default == 10
         assert p_limit.annotation == Limit
 
-    @pytest.mark.parametrize(
-        "tool_fn",
-        [fn for fn, _ in LIST_TOOLS_AND_ELEMENT_TYPES],
-        ids=[fn.__name__ for fn, _ in LIST_TOOLS_AND_ELEMENT_TYPES],
-    )
-    def test_has_docstring(self, tool_fn):
-        assert tool_fn.__doc__ is not None
-        assert len(tool_fn.__doc__.strip()) > 0
+    def test_has_docstring(self):
+        assert TOOL.__doc__ is not None
+        assert len(TOOL.__doc__.strip()) > 0
 
 
 # ---------------------------------------------------------------------------
-# Property 3: Response format contract (list tools)
+# Property 3: Response format contract
 # Tag: Feature: query-oscal-models, Property 3: Response format contract
-# Validates: Requirements 9.4, 10.1, 10.2, 10.3, 10.4
+# Validates: Requirements 3.6 (consolidate-tools)
 # ---------------------------------------------------------------------------
 
 EXPECTED_PAGE_KEYS = {"items", "total", "offset", "limit", "hasMore"}
@@ -241,38 +219,59 @@ EXPECTED_ITEM_KEYS = {
     "description",
     "parentDocumentTitle",
     "parentDocumentUuid",
+    "sizeInBytes",
 }
 
 
-class TestProperty3ResponseFormatContract:
-    """Call each list tool against a real OscalStore with sample data and
-    verify the response envelope and item keys.
+def _assert_response_format(result: dict, element_type: str) -> None:
+    """Check the envelope, the item keys, and that the result is plain JSON."""
+    assert set(result) == EXPECTED_PAGE_KEYS
+    assert isinstance(result["items"], list)
+    assert isinstance(result["total"], int)
+    assert isinstance(result["offset"], int)
+    assert isinstance(result["limit"], int)
+    assert isinstance(result["hasMore"], bool)
+    assert result["hasMore"] == (result["offset"] + result["limit"] < result["total"])
+    assert len(result["items"]) <= result["limit"]
+    for item in result["items"]:
+        assert set(item) == EXPECTED_ITEM_KEYS
+        assert item["element_type"] == element_type
+        assert isinstance(item["id"], str)
+        assert isinstance(item["parentDocumentUuid"], str)
+        assert isinstance(item["sizeInBytes"], int)
+        assert item["sizeInBytes"] > 0
+    assert result == json.loads(json.dumps(result))
 
-    **Validates: Requirements 9.4, 10.1, 10.2, 10.3, 10.4**
+
+class TestProperty3ResponseFormatContract:
+    """Call the tool against a real OscalStore with sample data and verify the response
+    envelope and item keys for every Element_Type.
+
+    **Validates: Requirements 3.6**
     """
 
-    @pytest.mark.parametrize(
-        ("tool_fn", "expected_element_type"),
-        LIST_TOOLS_AND_ELEMENT_TYPES,
-        ids=[fn.__name__ for fn, _ in LIST_TOOLS_AND_ELEMENT_TYPES],
+    @pytest.mark.parametrize("element_type", ELEMENT_TYPES)
+    def test_response_keys(self, installed_store, element_type):
+        result = TOOL(element_type=element_type, ctx=None)
+
+        _assert_response_format(result, element_type)
+        # The fixture store holds a child of every Element_Type, so the item checks ran.
+        assert result["total"] >= 1
+        assert result["items"]
+
+    @settings(
+        max_examples=100,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-    def test_response_keys(self, multi_type_store, tool_fn, expected_element_type):
-        result = tool_fn(ctx=None)
+    @given(
+        element_type=st.sampled_from(ELEMENT_TYPES),
+        offset=st.integers(min_value=0, max_value=5),
+        limit=st.integers(min_value=1, max_value=100),
+    )
+    def test_response_keys_for_any_page(self, installed_store, element_type, offset, limit):
+        result = TOOL(element_type=element_type, offset=offset, limit=limit, ctx=None)
 
-        # Page_Response envelope keys
-        assert set(result.keys()) == EXPECTED_PAGE_KEYS
-
-        # Type checks on envelope values
-        assert isinstance(result["items"], list)
-        assert isinstance(result["total"], int)
-        assert isinstance(result["offset"], int)
-        assert isinstance(result["limit"], int)
-        assert isinstance(result["hasMore"], bool)
-
-        # If there are items, verify each item's keys
-        for item in result["items"]:
-            assert set(item.keys()) == EXPECTED_ITEM_KEYS
-            # description key must be present (value can be None)
-            assert "description" in item
-            assert isinstance(item["id"], str)
-            assert isinstance(item["parentDocumentUuid"], str)
+        _assert_response_format(result, element_type)
+        assert result["offset"] == offset
+        assert result["limit"] == limit

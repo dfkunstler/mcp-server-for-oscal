@@ -8,15 +8,17 @@ mcp-server-for-oscal/
 │   ├── main.py                     # MCP server setup, CLI arg parsing, startup integrity checks
 │   ├── config.py                   # Config class — loads env vars, CLI overrides, singleton `config`
 │   ├── oscal_agent.py              # Strands agent integration
-│   ├── tools/                      # MCP tool implementations (one tool per file)
-│   │   ├── __init__.py
+│   ├── tools/                      # MCP tool implementations (a module holds one or more related tools)
+│   │   ├── __init__.py             # get_tool_list(): the tool registry
 │   │   ├── utils.py                # Shared: OSCALModelType enum, schema loading, hash verification
 │   │   ├── get_schema.py
 │   │   ├── list_models.py
 │   │   ├── list_oscal_resources.py
-│   │   ├── query_component_definition.py
-│   │   ├── query_documentation.py
-│   │   └── validate_oscal_content.py
+│   │   ├── query_component_definition.py  # 2 tools: query_component_definition, get_capability
+│   │   ├── query_documentation.py  # query_oscal_documentation, get_oscal_documentation
+│   │   ├── query_oscal_models.py   # 5 tools: list_documents, query_documents, list_child_elements, text_search_oscal, get_child_element
+│   │   ├── validate_oscal_content.py  # validate_oscal_content, validate_oscal_file
+│   │   └── ...                     # Metaschema tools, store, and helpers; see AGENTS.md code map
 │   ├── oscal_schemas/              # Bundled OSCAL JSON & XSD schemas + hashes.json manifest
 │   ├── oscal_docs/                 # Bundled OSCAL documentation + hashes.json manifest
 │   └── component_definitions/      # Bundled AWS component definitions (zip) + hashes.json
@@ -37,8 +39,8 @@ mcp-server-for-oscal/
 
 ## Conventions
 
-- Each MCP tool lives in its own file under `tools/`
-- Tools are registered in `main.py::_setup_tools()` via `mcp.add_tool()`
+- Each file under `tools/` holds one tool or a few related tools (for example `query_oscal_models.py` has five); group tools by subject, not one per file
+- Tools are listed in `get_tool_list()` in `tools/__init__.py`; `main.py::_setup_tools()` registers that list via `mcp.add_tool()`
 - Bundled content directories each contain a `hashes.json` manifest for integrity verification at startup
 - Tests use `pytest` markers: `unit`, `integration`, `slow`; async tests auto-detected and marked with `pytest.mark.asyncio`
 - Test fixtures are JSON files in `tests/fixtures/`

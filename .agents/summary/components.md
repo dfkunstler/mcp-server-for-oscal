@@ -43,15 +43,13 @@ classDiagram
     }
     class query_component_definition {
         query_component_definition
-        list_component_definitions
-        list_components
-        list_capabilities
         get_capability
         init_store()
     }
     class query_oscal_models {
-        query_X / list_X  (7 model types)
-        list_X_child  (13 tools)
+        list_documents
+        query_documents
+        list_child_elements
         text_search_oscal
         get_child_element
         init_store()
@@ -89,7 +87,7 @@ classDiagram
 | `oscal_store.py` | `OscalStore`: DB mode resolution and integrity, schema and migrations, scanning (`.json`, `.zip`, `.md`), oscal-bindings model validation on ingest, lazy child extraction (including nested catalog groups/controls), query/list/search with FTS5 (queries built by `fts_query.py`) and a LIKE fallback, document Origin/Relative_Name/Doc_ID, `user_version` schema upgrade | By far the largest module. Dynamic SQL is limited to internal fragments (`# nosec B608`, ruff `S608` ignored for this file) |
 | `fts_query.py` | Pure FTS5 query normalization: Search_Terms, quoted column-scoped phrases, `LIKE` patterns | No SQLite import; no caller character reaches FTS5 as syntax |
 | `query_component_definition.py` | Component Definition tools over `OscalStore`; `_Scope` resolves a cdef filter (exact UUID, or case-insensitive exact title); capability-first matching; only parses the cdefs it needs | Tests forbid legacy names and private store access (`TestLegacyStoreRemoved`, `TestPublicStoreApiOnly`) |
-| `query_oscal_models.py` | Thin `@tool()` wrappers: `query_*`/`list_*` per model type, child-element listers, `text_search_oscal`, `get_child_element` | Component Definition has no `query_*`/`list_*` pair here; those tools live in `query_component_definition.py` |
+| `query_oscal_models.py` | Thin `@tool()` wrappers: the generic `list_documents`, `query_documents`, and `list_child_elements` (selected by `model_type` / `element_type` enum arguments), plus `text_search_oscal` and `get_child_element` | `list_documents` and `list_child_elements` also cover Component Definitions; `query_component_definition` and `get_capability` live in `query_component_definition.py` |
 | `query_documentation.py` | `query_oscal_documentation`: paged `{title, snippet, docId?}` from Bedrock KB `retrieve` interleaved with `user`-Origin docs, or local FTS over all `documentation` rows (also the fallback on KB failure). `get_oscal_documentation`: verbatim line range of a doc by Doc_ID | KB path only when `knowledge_base_id` has non-whitespace characters; otherwise local search with no AWS call. KB hits have no `docId` and their titles never contain a storage location (full-text KB fetch: #47) |
 | `list_oscal_resources.py` | Returns `awesome-oscal.md`, read from the store DB (`model_type='documentation'`) or, in dev, from `data/oscal_docs` | Reads `_store._conn` directly (`noqa: SLF001`) |
 | `validate_oscal_content.py` | Four-level validation pipeline; `validate_oscal_file` reads a local path, `file://` URI, or (opt-in) an http(s) URI with `requests` | Uses the `regex` module for ECMA-262 `\p{..}` patterns in the schemas |
