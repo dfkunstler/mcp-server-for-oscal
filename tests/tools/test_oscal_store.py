@@ -2,6 +2,7 @@
 Tests for OscalStore.scan_directory() and _detect_model_type().
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ import uuid as uuid_mod
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from hypothesis import HealthCheck, example, given, settings
@@ -4300,3 +4302,228 @@ class TestCountDocumentsAfterRescan:
             assert s2.count_documents(origin="user") == 3
         finally:
             s2.close()
+
+
+# Truthy values that are not `str`. A MagicMock implements os.PathLike, so `Path()` accepts it
+# and its path form `MagicMock/<mock-name>/<id>` is relative to the working directory.
+_truthy_non_str = st.one_of(
+    st.builds(MagicMock),
+    st.integers(min_value=1),
+    st.binary(min_size=1),
+    st.lists(st.text(min_size=1), min_size=1),
+)
+
+
+class TestRejectsNonStrDbPath:
+    """Bug condition for issue #17: a truthy non-`str` database path must be rejected.
+
+    Every test runs with the working directory set to a temporary directory, so a leak
+    on unfixed code lands there and not in the checkout.
+
+    **Validates: Requirements 1.1, 2.1, 2.2**
+    """
+
+    def test_magicmock_db_path_raises_and_creates_nothing(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(TypeError):
+            OscalStore(db_path=MagicMock())
+
+        assert list(tmp_path.iterdir()) == []
+
+    def test_magicmock_config_fallback_raises_and_creates_nothing(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(config, "oscal_store_db_path", MagicMock())
+
+        with pytest.raises(TypeError):
+            OscalStore(db_path=None)
+
+        assert list(tmp_path.iterdir()) == []
+
+    @settings(
+        max_examples=25,
+        suppress_health_check=[HealthCheck.too_slow],
+        deadline=None,
+    )
+    @given(value=_truthy_non_str)
+    def test_truthy_non_str_db_path_raises_and_creates_nothing(self, value, tmp_path_factory):
+        """**Validates: Requirements 2.1, 2.2**"""
+        work_dir = tmp_path_factory.mktemp("nonstr")
+        with contextlib.chdir(work_dir), pytest.raises(TypeError):
+            OscalStore(db_path=value)
+
+        assert list(work_dir.iterdir()) == []
+
+
+# ---------------------------------------------------------------------------
+# Preservation for issue #17: inputs the non-`str` check must not change
+# ---------------------------------------------------------------------------
+
+_path_segment = st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789_-", min_size=1, max_size=12)
+_relative_db_path = st.lists(_path_segment, min_size=1, max_size=3).map(
+    lambda parts: "/".join(parts) + ".db"
+)
+
+
+class TestPreservationStrAndEmptyDbPath:
+    """Preservation for issue #17: `str`, `""`, and `None` paths resolve as before.
+
+    **Validates: Requirements 3.1, 3.2**
+    """
+
+    @settings(
+        max_examples=25,
+        suppress_health_check=[HealthCheck.too_slow],
+        deadline=None,
+    )
+    @given(rel_path=_relative_db_path, existing=st.booleans())
+    def test_str_path_resolves_to_persistent_and_is_unchanged(
+        self, rel_path, existing, tmp_path_factory
+    ):
+        """A `str` path under a fresh temp dir is persistent and returned unchanged.
+
+        The file either exists (an empty SQLite database) or is missing, and then
+        ``seed_from_bundled=False`` gives a fresh database.
+
+        **Validates: Requirements 3.1**
+        """
+        root = tmp_path_factory.mktemp("preserve_str")
+        db_file = root / rel_path
+        db_path = str(db_file)
+
+        if existing:
+            db_file.parent.mkdir(parents=True, exist_ok=True)
+            sqlite3.connect(str(db_file)).close()
+
+        orig_cfg = config.oscal_store_db_path
+        try:
+            config.oscal_store_db_path = ""
+            store = OscalStore(db_path=db_path, cache_size=5, seed_from_bundled=False)
+            try:
+                assert store.db_mode == "persistent"
+                assert store.db_path == db_path
+                assert db_file.exists()
+            finally:
+                store.close()
+        finally:
+            config.oscal_store_db_path = orig_cfg
+
+    @settings(
+        max_examples=25,
+        suppress_health_check=[HealthCheck.too_slow],
+        deadline=None,
+    )
+    @given(rel_path=_relative_db_path)
+    def test_config_str_path_resolves_to_persistent(self, rel_path, tmp_path_factory):
+        """With ``db_path=None``, a non-empty `str` in config is used as a persistent path.
+
+        **Validates: Requirements 3.1**
+        """
+        root = tmp_path_factory.mktemp("preserve_cfg")
+        db_path = str(root / rel_path)
+
+        orig_cfg = config.oscal_store_db_path
+        try:
+            config.oscal_store_db_path = db_path
+            store = OscalStore(db_path=None, cache_size=5, seed_from_bundled=False)
+            try:
+                assert store.db_mode == "persistent"
+                assert store.db_path == db_path
+            finally:
+                store.close()
+        finally:
+            config.oscal_store_db_path = orig_cfg
+
+    @settings(
+        max_examples=20,
+        suppress_health_check=[HealthCheck.too_slow],
+        deadline=None,
+    )
+    @given(bundled_exists=st.booleans(), explicit_empty=st.booleans())
+    def test_empty_and_none_paths_resolve_like_unset(
+        self, bundled_exists, explicit_empty, tmp_path_factory
+    ):
+        """`""` and `None` with an empty config give bundled mode when a verified
+        bundled database exists, and ephemeral mode otherwise.
+
+        **Validates: Requirements 3.2**
+        """
+        import hashlib
+
+        import mcp_server_for_oscal.tools.oscal_store as mod
+
+        root = tmp_path_factory.mktemp("preserve_empty")
+        bundled_db_path = root / "oscal_store.db"
+        hashes_file = root / "hashes.json"
+        if bundled_exists:
+            conn = sqlite3.connect(str(bundled_db_path))
+            conn.execute("CREATE TABLE bundled_marker (id INTEGER)")
+            conn.close()
+            db_hash = hashlib.sha256(bundled_db_path.read_bytes()).hexdigest()
+            hashes_file.write_text(json.dumps({"file_hashes": {"oscal_store.db": db_hash}}))
+
+        expected_mode = "bundled" if bundled_exists else "ephemeral"
+        db_path_arg = "" if explicit_empty else None
+
+        orig_bundled = mod.BUNDLED_DB_PATH
+        orig_hashes = mod.BUNDLED_HASHES_PATH
+        orig_cfg = config.oscal_store_db_path
+        try:
+            mod.BUNDLED_DB_PATH = bundled_db_path
+            mod.BUNDLED_HASHES_PATH = hashes_file
+            config.oscal_store_db_path = ""
+            store = OscalStore(db_path=db_path_arg, cache_size=5)
+            try:
+                assert store.db_mode == expected_mode
+                # Never a path the caller supplied: the database lives in the store's temp dir.
+                assert Path(store.db_path).name == "oscal_store.db"
+                assert Path(store.db_path).parent != root
+            finally:
+                store.close()
+        finally:
+            mod.BUNDLED_DB_PATH = orig_bundled
+            mod.BUNDLED_HASHES_PATH = orig_hashes
+            config.oscal_store_db_path = orig_cfg
+
+
+class TestNonStrDbPathTypeError:
+    """Unit tests for the `TypeError` raised on a truthy non-`str` `db_path` (issue #17).
+
+    **Validates: Requirements 2.1, 2.2, 3.1, 3.2**
+    """
+
+    @pytest.mark.parametrize(
+        ("value", "type_name"),
+        [
+            (MagicMock(), "MagicMock"),
+            (123, "int"),
+            (b"x.db", "bytes"),
+            (["a"], "list"),
+            (Path("x.db"), type(Path("x.db")).__name__),
+        ],
+        ids=["magicmock", "int", "bytes", "list", "path"],
+    )
+    def test_truthy_non_str_raises_type_error(self, value, type_name, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(TypeError) as excinfo:
+            OscalStore(db_path=value)
+
+        message = str(excinfo.value)
+        assert type_name in message
+        assert "x.db" not in message
+        assert "MagicMock/" not in message
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize("value", ["", None], ids=["empty-str", "none"])
+    def test_falsy_db_path_does_not_raise(self, value, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(config, "oscal_store_db_path", "")
+
+        store = OscalStore(db_path=value, cache_size=5)
+        try:
+            assert store.db_mode in {"bundled", "ephemeral"}
+        finally:
+            store.close()
+
+        assert list(tmp_path.iterdir()) == []

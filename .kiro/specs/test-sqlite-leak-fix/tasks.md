@@ -8,7 +8,7 @@ GitHub issue #17. Rules for every task:
 - Do not delete the stale `./MagicMock/` directory. It is gitignored and its removal is the user's decision.
 - Exploration and regression tests call `monkeypatch.chdir(tmp_path)` so a leak on unfixed code lands in `tmp_path`, not in the checkout.
 
-- [-] 1. Write bug condition exploration test
+- [x] 1. Write bug condition exploration test
   - **Property 1: Bug Condition** - Mock-derived database path reaches the filesystem
   - **Before starting**: confirm `git branch --show-current` is not `main`. If it is, create the feature branch from issue #17 with `gh issue develop 17 --checkout` (or ask the user), and make the first commit on that branch contain the spec files (`.kiro/specs/test-sqlite-leak-fix/`), staged by name. Do not commit to `main`. Do not push.
   - **CRITICAL**: This test MUST FAIL on unfixed code. Failure confirms the bug exists.
@@ -28,7 +28,7 @@ GitHub issue #17. Rules for every task:
   - Mark the task complete when the tests are written, run, and the failure is documented. Record the result with `update_pbt_status`.
   - _Requirements: 1.1, 1.2, 2.1_
 
-- [~] 2. Write preservation property tests (BEFORE implementing fix)
+- [x] 2. Write preservation property tests (BEFORE implementing fix)
   - **Property 2: Preservation** - Store resolution and `main()` behavior for real paths
   - **IMPORTANT**: Follow the observation-first methodology
   - Observe on UNFIXED code, for inputs where `isBugCondition` is false (`db_path` is a `str`, `""`, or `None`):
@@ -45,9 +45,9 @@ GitHub issue #17. Rules for every task:
   - Mark the task complete when the tests are written, run, and passing on unfixed code. Record the result with `update_pbt_status`.
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-- [ ] 3. Fix for test-suite SQLite leak into `./MagicMock/`
+- [x] 3. Fix for test-suite SQLite leak into `./MagicMock/`
 
-  - [~] 3.1 Reject non-`str` database paths in `OscalStore`
+  - [x] 3.1 Reject non-`str` database paths in `OscalStore`
     - In `src/mcp_server_for_oscal/tools/oscal_store.py`, `OscalStore._resolve_db_path`: after the `config.oscal_store_db_path` fallback and before `_resolve_persistent`, add `if effective_path and not isinstance(effective_path, str): raise TypeError(f"OscalStore db_path must be a str, got {type(effective_path).__name__}")`
     - Falsy values (`None`, `""`) keep their meaning "unset". Do not use `os.PathLike` as the test, because `MagicMock` is one. The message names the type and never the value, so no path text reaches a message.
     - Add `Raises: TypeError` to the `OscalStore.__init__` docstring and keep the existing `RuntimeError` entry
@@ -59,7 +59,7 @@ GitHub issue #17. Rules for every task:
     - _Preservation: str, "", and None paths resolve as before (3.1, 3.2); _init_oscal_store failure handling is unchanged (3.3)_
     - _Requirements: 2.1, 2.2, 3.1, 3.2, 3.3_
 
-  - [~] 3.2 Patch `_init_oscal_store` in the 13 affected tests
+  - [x] 3.2 Patch `_init_oscal_store` in the 13 affected tests
     - `tests/test_main.py`, class `TestMain`: add an autouse fixture `skip_store_init` next to `skip_integrity_check` that yields inside `patch("mcp_server_for_oscal.main._init_oscal_store")`. Docstring: these tests cover CLI, transport, and logging; store wiring is covered by `TestStartupStoreWiring`.
     - `tests/test_file_integrity_integration.py`, class `TestFileIntegrityIntegration`: add the same autouse fixture, independent of `setup_method` and `teardown_method`
     - Do not change any test body or assertion. The 13 tests are nine in `TestMain` (`test_main_default_arguments`, `test_main_with_arguments`, `test_main_mcp_server_error`, `test_main_logger_configuration`, `test_main_argument_parser_setup`, `test_main_with_invalid_log_level`, `test_main_with_streamable_http_transport`, `test_main_logs_transport_on_startup`, `test_main_logs_specific_transport_method`) and four in `TestFileIntegrityIntegration` (`test_successful_server_startup_with_valid_packages`, `test_verification_of_oscal_schemas_directory_only`, `test_integrity_check_path_resolution_for_oscal_schemas`, `test_server_continues_after_successful_integrity_checks`).
@@ -69,7 +69,7 @@ GitHub issue #17. Rules for every task:
     - _Preservation: the 13 tests keep their assertions (3.4); TestStartupStoreWiring, TestStartupWiring, and TestAboutUserDocumentsLoaded pass unedited (3.5)_
     - _Requirements: 2.1, 2.2, 3.4, 3.5_
 
-  - [~] 3.3 Add the Leak_Guard
+  - [x] 3.3 Add the Leak_Guard
     - Create `tests/leak_guard.py` in the style of `tests/fixture_store.py`, with pure functions: `LEAK_DIR_NAME = "MagicMock"`; `fingerprint(root: Path) -> tuple` returning `(False, None, ())` when `root / "MagicMock"` is absent, else `(True, mtime_ns, sorted((child_name, child_mtime_ns) ...))` for immediate subdirectories only, using `os.scandir` and `entry.stat()`; `describe_change(before, after) -> str | None` returning `None` when equal, else a message that names `MagicMock` (created or modified) and ends with the cleanup hint to remove the gitignored `./MagicMock/` and to patch `main._init_oscal_store` or set `config.oscal_store_db_path` to a `tmp_path` string
     - In `tests/conftest.py`, add an autouse function-scoped fixture `no_mock_path_leak(request)`: read `root = request.config.invocation_params.dir` once, take the fingerprint before, yield, take it after, and `pytest.fail(message, pytrace=False)` when `describe_change` returns a message. The guard never deletes anything.
     - Create `tests/test_leak_guard.py`, against `tmp_path` as root: absent directory gives equal fingerprints; creating `MagicMock/x/file` changes it and the message contains `MagicMock`; a pre-existing `MagicMock/x/` with 50 files is unchanged across a no-op; adding a file to a pre-existing subdirectory changes it; removing the directory changes it; `describe_change(a, a)` is `None`; the teardown logic raises `pytest.fail.Exception` with `MagicMock` in the message for a changed fingerprint
@@ -77,14 +77,14 @@ GitHub issue #17. Rules for every task:
     - Out of scope: a generic "no new file in the working directory" guard, deleting the existing `./MagicMock/`, and changes to `.gitignore`, `Config`, `main.py`, CI workflows, or the tool registry
     - _Requirements: 1.3, 2.3_
 
-  - [~] 3.4 Verify bug condition exploration test now passes
+  - [x] 3.4 Verify bug condition exploration test now passes
     - **Property 1: Expected Behavior** - No mock-derived database path reaches the filesystem
     - **IMPORTANT**: Re-run the SAME tests from task 1. Do NOT write new tests.
     - Run `hatch test -- tests/tools/test_oscal_store.py tests/test_main.py -k "NonStr or StoreInitWithMockedConfig"`
     - **EXPECTED OUTCOME**: Tests PASS (confirms the bug is fixed). Record the result with `update_pbt_status`.
     - _Requirements: 2.1, 2.2_
 
-  - [~] 3.5 Verify preservation tests still pass
+  - [x] 3.5 Verify preservation tests still pass
     - **Property 2: Preservation** - Store resolution and `main()` behavior for real paths
     - **IMPORTANT**: Re-run the SAME tests from task 2. Do NOT write new tests.
     - Run `hatch test -- tests/tools/test_oscal_store.py tests/test_build_oscal_db.py tests/test_main.py tests/test_file_integrity_integration.py tests/tools/test_local_doc_search.py`
@@ -92,13 +92,13 @@ GitHub issue #17. Rules for every task:
     - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions). Record the result with `update_pbt_status`.
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-  - [~] 3.6 Verify the guard and the production startup path
+  - [x] 3.6 Verify the guard and the production startup path
     - Guard check on the 13 tests: `find MagicMock -type f | wc -l` before and after `hatch test -- tests/test_main.py tests/test_file_integrity_integration.py`. The count must stay at its starting value (3,194 on this checkout unless the user has removed the directory). A stale directory must not fail the run.
     - Optional guard demonstration, only if the user agrees: temporarily remove the new autouse fixture from one class and confirm the guard reports an ERROR naming `MagicMock` on that test, then restore it. Do not leave the temporary change in place.
     - Run `hatch test -- tests/test_integration_stdio_smoke.py`. The real server still starts with the real `Config` (empty `OSCAL_STORE_DB_PATH`) and answers `tools/list`.
     - _Requirements: 2.2, 2.3, 3.3_
 
-- [~] 4. Checkpoint - Ensure all tests pass
+- [-] 4. Checkpoint - Ensure all tests pass
   - Run `hatch check fmt --fix` and `hatch check code --fix`, and review any changes they make
   - Run `hatch run tests` (mypy, `hatch test --exitfirst --all --cover` on 3.13 and 3.14, bandit). All must pass.
   - Re-check requirement 2.2: if `./MagicMock/` did not exist before the run, it must still be absent. Otherwise its file count must be unchanged. `git status --ignored --short` shows no new entries beyond `private/`, `.hypothesis/`, `.coverage*`, and caches.

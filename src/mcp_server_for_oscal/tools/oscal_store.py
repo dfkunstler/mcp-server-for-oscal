@@ -289,6 +289,8 @@ class OscalStore:
                      with an empty database.
 
         Raises:
+            TypeError: If the effective db_path (argument or config fallback) is
+                truthy and not a str.
             RuntimeError: If the database cannot be created or opened.
         """
         self._cache_size = cache_size
@@ -335,6 +337,14 @@ class OscalStore:
             cfg_path = getattr(config, "oscal_store_db_path", "")
             if cfg_path:
                 effective_path = cfg_path
+
+        # Reject before any filesystem access. `Path()` accepts any os.PathLike, and a
+        # MagicMock is one, so a mocked config would otherwise create files under the
+        # working directory (issue #17). Name the type only, never the value.
+        if effective_path and not isinstance(effective_path, str):
+            raise TypeError(
+                f"OscalStore db_path must be a str, got {type(effective_path).__name__}"
+            )
 
         if effective_path:
             return self._resolve_persistent(effective_path)

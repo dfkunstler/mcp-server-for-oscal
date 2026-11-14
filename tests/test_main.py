@@ -34,6 +34,16 @@ class TestMain:
         with patch("mcp_server_for_oscal.main.verify_bundled_content"):
             yield
 
+    @pytest.fixture(autouse=True)
+    def skip_store_init(self):
+        """These tests cover CLI, transport, and logging, not store initialization.
+
+        main() runs with a mocked config, whose oscal_store_db_path would be a
+        MagicMock. Store wiring is covered by TestStartupStoreWiring.
+        """
+        with patch("mcp_server_for_oscal.main._init_oscal_store"):
+            yield
+
     @pytest.fixture
     def mock_config(self):
         """Create a mock configuration object."""
@@ -813,3 +823,92 @@ class TestStartupStoreWiring:
         about = self._about()
         assert about["user-documents-loaded"] == 2
         self._assert_about_path_free(about, doc_dir, db_path, tmp_path)
+
+
+class TestStoreInitWithMockedConfig:
+    """Bug condition for issue #17: a bare mocked `config` must not reach the filesystem.
+
+    `config.oscal_store_db_path` on a bare MagicMock is a truthy MagicMock, which is an
+    `os.PathLike` whose path is `MagicMock/<mock-name>/<id>`. These tests chdir into
+    `tmp_path`, so a leak lands there and not in the checkout.
+
+    **Validates: Requirements 1.1, 2.1**
+    """
+
+    @pytest.fixture(autouse=True)
+    def restore_singletons(self):
+        """Restore every store singleton and `_user_documents_loaded`; close new stores."""
+        modules = [(importlib.import_module(m), attr) for m, attr in _STORE_SINGLETONS]
+        saved = [getattr(mod, attr) for mod, attr in modules]
+        saved_count = main_module._user_documents_loaded
+        yield
+        installed = [getattr(mod, attr) for mod, attr in modules]
+        for (mod, attr), value in zip(modules, saved, strict=True):
+            setattr(mod, attr, value)
+        main_module._user_documents_loaded = saved_count
+        closed: set[int] = set()
+        for store in installed:
+            if store is not None and all(store is not s for s in saved) and id(store) not in closed:
+                closed.add(id(store))
+                store.close()
+
+    def test_init_with_bare_mock_config_creates_nothing(self, tmp_path, monkeypatch, caplog):
+        monkeypatch.chdir(tmp_path)
+        before = _singletons()
+
+        with (
+            patch("mcp_server_for_oscal.main.config"),
+            caplog.at_level(logging.WARNING, logger=main_module.logger.name),
+        ):
+            main_module._init_oscal_store()
+
+        assert list(tmp_path.iterdir()) == []
+        assert _singletons() == before
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+
+    def test_init_with_empty_paths_builds_bundled_store_without_leaking(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """A mocked config with explicit empty paths initializes a real bundled-mode store."""
+        import mcp_server_for_oscal.tools.oscal_store as store_module
+
+        # A small stand-in for the bundled DB keeps the test fast and independent of build-db
+        bundled_dir = tmp_path / "bundled"
+        bundled_dir.mkdir()
+        bundled_db = bundled_dir / "oscal_store.db"
+        conn = sqlite3.connect(bundled_db)
+        conn.execute("CREATE TABLE test (id INTEGER)")
+        conn.close()
+        hashes = bundled_dir / "hashes.json"
+        hashes.write_text(
+            json.dumps(
+                {
+                    "file_hashes": {
+                        "oscal_store.db": hashlib.sha256(bundled_db.read_bytes()).hexdigest()
+                    }
+                }
+            )
+        )
+        monkeypatch.setattr(store_module, "BUNDLED_DB_PATH", bundled_db)
+        monkeypatch.setattr(store_module, "BUNDLED_HASHES_PATH", hashes)
+
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        monkeypatch.chdir(workdir)
+
+        with (
+            patch("mcp_server_for_oscal.main.config") as mock_config,
+            caplog.at_level(logging.WARNING, logger=main_module.logger.name),
+        ):
+            mock_config.oscal_store_db_path = ""
+            mock_config.oscal_documents_dir = ""
+            mock_config.oscal_store_cache_size = 10
+            main_module._init_oscal_store()
+
+        assert list(workdir.iterdir()) == []
+        assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+        store = _singletons()[0]
+        assert isinstance(store, OscalStore)
+        assert store.db_mode == "bundled"
+        assert main_module._user_documents_loaded == 0
