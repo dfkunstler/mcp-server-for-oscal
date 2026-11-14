@@ -98,7 +98,7 @@ GitHub issue #17. Rules for every task:
     - Run `hatch test -- tests/test_integration_stdio_smoke.py`. The real server still starts with the real `Config` (empty `OSCAL_STORE_DB_PATH`) and answers `tools/list`.
     - _Requirements: 2.2, 2.3, 3.3_
 
-- [-] 4. Checkpoint - Ensure all tests pass
+- [x] 4. Checkpoint - Ensure all tests pass
   - Run `hatch check fmt --fix` and `hatch check code --fix`, and review any changes they make
   - Run `hatch run tests` (mypy, `hatch test --exitfirst --all --cover` on 3.13 and 3.14, bandit). All must pass.
   - Re-check requirement 2.2: if `./MagicMock/` did not exist before the run, it must still be absent. Otherwise its file count must be unchanged. `git status --ignored --short` shows no new entries beyond `private/`, `.hypothesis/`, `.coverage*`, and caches.
