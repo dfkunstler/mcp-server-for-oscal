@@ -6,9 +6,12 @@ compare a cheap fingerprint of that directory before and after a test. They are 
 functions of a root directory so ``tests/test_leak_guard.py`` can exercise them on
 ``tmp_path``. Nothing here deletes anything.
 
-The fingerprint holds the modification times of ``MagicMock/`` and its immediate
-subdirectories. A directory's mtime changes when an entry is added or removed in it, so a
-leak is detected without listing the files inside (a stale checkout holds thousands).
+The fingerprint holds entry names: the names in ``MagicMock/`` and, for each immediate
+subdirectory, the names in that subdirectory. It deliberately does not use directory
+modification times. NTFS updates a directory's timestamp lazily, so on Windows a file added
+to an existing directory can leave its mtime unchanged. That is the case that matters: after
+a first leak, later leaks land as new files in an existing ``MagicMock/<name>/``. Comparing
+names also detects a removed file replaced by a different file (same entry count).
 """
 
 import os
@@ -23,31 +26,43 @@ CLEANUP_HINT = (
     "config.oscal_store_db_path to a tmp_path string."
 )
 
-# (exists, mtime_ns of MagicMock/, sorted (subdirectory name, mtime_ns) pairs)
-Fingerprint = tuple[bool, int | None, tuple[tuple[str, int], ...]]
+# (exists, sorted entry names of MagicMock/ or None,
+#  sorted (subdirectory name, sorted entry names of that subdirectory) pairs)
+Fingerprint = tuple[bool, tuple[str, ...] | None, tuple[tuple[str, tuple[str, ...]], ...]]
+
+
+def _scan(path: Path) -> tuple[list[str], list[str]]:
+    """Return (all entry names, subdirectory names) of ``path``. Symlinked directories are
+    not subdirectories."""
+    names: list[str] = []
+    subdirs: list[str] = []
+    with os.scandir(path) as entries:
+        for entry in entries:
+            names.append(entry.name)
+            if entry.is_dir(follow_symlinks=False):
+                subdirs.append(entry.name)
+    return sorted(names), sorted(subdirs)
 
 
 def fingerprint(root: Path) -> Fingerprint:
-    """Return the state of ``root / "MagicMock"``: existence, mtime, and subdirectory mtimes.
+    """Return the state of ``root / "MagicMock"``: existence and entry names.
 
-    Costs one ``stat`` and one ``scandir`` of the immediate children. It never lists the
-    files inside the subdirectories. A directory that disappears while it is scanned counts
-    as absent.
+    Costs one ``scandir`` of ``MagicMock/`` plus one per immediate subdirectory, and only
+    when ``MagicMock/`` exists. It is not recursive. A directory that disappears while it is
+    scanned counts as absent (a vanished subdirectory is skipped).
     """
     leak_dir = Path(root) / LEAK_DIR_NAME
     try:
-        mtime = leak_dir.stat().st_mtime_ns
-        with os.scandir(leak_dir) as entries:
-            children = tuple(
-                sorted(
-                    (entry.name, entry.stat().st_mtime_ns)
-                    for entry in entries
-                    if entry.is_dir(follow_symlinks=False)
-                )
-            )
+        names, subdirs = _scan(leak_dir)
     except (FileNotFoundError, NotADirectoryError):
         return (False, None, ())
-    return (True, mtime, children)
+    children: list[tuple[str, tuple[str, ...]]] = []
+    for sub in subdirs:
+        try:
+            children.append((sub, tuple(_scan(leak_dir / sub)[0])))
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+    return (True, tuple(names), tuple(children))
 
 
 def describe_change(before: Fingerprint, after: Fingerprint) -> str | None:

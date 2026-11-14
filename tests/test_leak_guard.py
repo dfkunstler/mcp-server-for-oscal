@@ -1,6 +1,5 @@
 """Tests for ``tests/leak_guard.py`` (issue #17), run against temporary roots."""
 
-import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -12,27 +11,13 @@ from hypothesis import strategies as st
 from . import leak_guard
 from .leak_guard import LEAK_DIR_NAME, describe_change, fail_on_change, fingerprint
 
-# A fixed past time (seconds). Directories are aged to it so a later change always produces a
-# different mtime, even on filesystems with coarse timestamp resolution.
-OLD_SECONDS = 1_000_000_000
-
-
-def _age(root: Path) -> None:
-    """Set the mtime of ``MagicMock/`` and its subdirectories to a fixed past time."""
-    leak_dir = root / LEAK_DIR_NAME
-    for sub in leak_dir.iterdir():
-        if sub.is_dir():
-            os.utime(sub, (OLD_SECONDS, OLD_SECONDS))
-    os.utime(leak_dir, (OLD_SECONDS, OLD_SECONDS))
-
 
 def _make_stale(root: Path, files: int = 50) -> Path:
-    """Create ``MagicMock/x/`` holding ``files`` files, with aged mtimes."""
+    """Create ``MagicMock/x/`` holding ``files`` files."""
     sub = root / LEAK_DIR_NAME / "x"
     sub.mkdir(parents=True)
     for i in range(files):
         (sub / f"{i}").write_bytes(b"")
-    _age(root)
     return sub
 
 
@@ -87,8 +72,17 @@ class TestFingerprint:
         """Only subdirectories are fingerprinted individually."""
         _make_stale(tmp_path)
         (tmp_path / LEAK_DIR_NAME / "loose-file").write_bytes(b"")
-        _age(tmp_path)
         assert [name for name, _ in fingerprint(tmp_path)[2]] == ["x"]
+
+    def test_replacing_file_in_subdirectory_with_same_count_is_detected(self, tmp_path):
+        sub = _make_stale(tmp_path, files=3)
+        before = fingerprint(tmp_path)
+        (sub / "0").unlink()
+        (sub / "other").write_bytes(b"")
+        message = describe_change(before, fingerprint(tmp_path))
+        assert message is not None
+        assert f"{LEAK_DIR_NAME}/x/" in message
+        assert "modified" in message
 
     def test_fingerprint_does_not_modify_or_delete(self, tmp_path):
         sub = _make_stale(tmp_path, files=3)
