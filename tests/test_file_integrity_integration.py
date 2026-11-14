@@ -20,6 +20,16 @@ from tests.test_file_integrity_utils import (
 class TestFileIntegrityIntegration:
     """Integration test cases for file integrity checking with server startup."""
 
+    @pytest.fixture(autouse=True)
+    def skip_store_init(self):
+        """These tests cover startup integrity handling, not store initialization.
+
+        main() runs with a mocked config, whose oscal_store_db_path would be a
+        MagicMock. Store wiring is covered by TestStartupStoreWiring in tests/test_main.py.
+        """
+        with patch("mcp_server_for_oscal.main._init_oscal_store"):
+            yield
+
     def setup_method(self):
         """Set up test fixtures for each test method."""
         self.test_manager = TestPackageManager()

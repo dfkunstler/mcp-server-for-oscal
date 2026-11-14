@@ -13,11 +13,27 @@ from mcp_server_for_oscal.tools import query_component_definition as _qcd_module
 from mcp_server_for_oscal.tools import query_oscal_models as _qom_module
 from mcp_server_for_oscal.tools.oscal_store import OscalStore
 
+from . import leak_guard
 from .fixture_store import (
     build_fixture_store,
     load_valid_fixture_cdefs,
     make_many_capabilities_cdef,
 )
+
+
+@pytest.fixture(autouse=True)
+def no_mock_path_leak(request):
+    """Fail a test that creates or modifies ``./MagicMock/`` under the invocation directory.
+
+    A mock object used as a filesystem path expands to ``MagicMock/<name>/<id>`` relative
+    to the working directory (issue #17). The root is read once, so a test that changes
+    directory cannot change what is measured. The comparison is per test, so a stale
+    ``./MagicMock/`` that no test touches does not fail the run. The guard never deletes.
+    """
+    root = request.config.invocation_params.dir
+    before = leak_guard.fingerprint(root)
+    yield
+    leak_guard.fail_on_change(before, leak_guard.fingerprint(root))
 
 
 @pytest.fixture(autouse=True)
