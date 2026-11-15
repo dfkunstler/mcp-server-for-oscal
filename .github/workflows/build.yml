@@ -120,17 +120,29 @@ jobs:
         shell: pwsh
         run: Set-MpPreference -DisableRealtimeMonitoring $true
 
+      # EXPERIMENT: the D: drive is faster than C: on Windows runners, and every
+      # test creates temp dirs and SQLite files. Point TEMP/TMP at it.
+      - name: Use D: drive for temp files (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path D:\tmp | Out-Null
+          "TEMP=D:\tmp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "TMP=D:\tmp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
       # hatch ships uv as a dependency, so the hatch-test env's
       # `installer = "uv"` needs no separate setup-uv step.
       - name: Run tests
         env:
+          # EXPERIMENT: `hatch test -p` runs pytest-xdist (-n logical) on Windows.
+          HATCH_PARALLEL: ${{ runner.os == 'Windows' && '-p' || '' }}
           # Cap Hypothesis examples on Windows only (see tests/conftest.py). The
           # Windows cells exist to catch portability bugs; Linux and macOS keep the
           # full example counts for edge-case search.
           OSCAL_TEST_MAX_EXAMPLES: ${{ runner.os == 'Windows' && '10' || '' }}
         run: |
           pip install -U hatch
-          hatch test -py ${{ matrix.python }}
+          hatch test -py ${{ matrix.python }} $HATCH_PARALLEL
 
   # Check the shipped MCP Bundle on the OSes Claude Desktop runs on. Tests the
   # exact .mcpb uploaded by `build` (the bytes `draft-release` attaches) rather
