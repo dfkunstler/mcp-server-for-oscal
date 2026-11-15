@@ -120,9 +120,10 @@ jobs:
         shell: pwsh
         run: Set-MpPreference -DisableRealtimeMonitoring $true
 
-      # The D: drive is faster than C: on Windows runners, and every test creates
-      # temp dirs and SQLite files. Point TEMP/TMP at it (measured: with xdist,
-      # Windows cells run in ~2-3 min; without this step they stay well above that).
+      # The D: drive is much faster than C: on Windows runners, and every test creates
+      # temp dirs and SQLite files. Point TEMP/TMP at it (measured: Windows cells went
+      # from 6-7.5 min to about 2-3 min; pytest-xdist was already on via
+      # `parallel = true` in the hatch-test env).
       - name: "Use D: drive for temp files (Windows)"
         if: runner.os == 'Windows'
         shell: pwsh
@@ -141,8 +142,7 @@ jobs:
           OSCAL_TEST_MAX_EXAMPLES: ${{ runner.os == 'Windows' && '10' || '' }}
         run: |
           pip install -U hatch
-          # -p runs pytest-xdist (-n logical)
-          hatch test -py ${{ matrix.python }} -p
+          hatch test -py ${{ matrix.python }}
 
   # Check the shipped MCP Bundle on the OSes Claude Desktop runs on. Tests the
   # exact .mcpb uploaded by `build` (the bytes `draft-release` attaches) rather
