@@ -39,19 +39,24 @@ jobs:
       - name: Detect awesome-oscal changes
         id: changes
         run: |
-          if git diff --quiet -- src/mcp_server_for_oscal/oscal_docs/awesome-oscal.md; then
+          if git diff --quiet -- data/oscal_docs/awesome-oscal.md; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Regenerate oscal_docs hash manifest
+        if: steps.changes.outputs.changed == 'true'
+        run: hatch run bin/update_hashes.py data/oscal_docs
       - name: Create or update pull request
         if: steps.changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
           branch: automation/update-awesome-oscal
           delete-branch: false
-          add-paths: src/mcp_server_for_oscal/oscal_docs/awesome-oscal.md
+          add-paths: |
+            data/oscal_docs/awesome-oscal.md
+            data/oscal_docs/hashes.json
           commit-message: "chore(oscal-docs): update awesome-oscal snapshot"
           title: "chore(oscal-docs): update awesome-oscal snapshot"
           body: |
@@ -59,4 +64,4 @@ jobs:
 
             - Source: https://github.com/oscal-club/awesome-oscal/blob/main/README.md
             - Command run: `hatch run update-awesome-oscal`
-            - Target file: `src/mcp_server_for_oscal/oscal_docs/awesome-oscal.md`
+            - Target files: `data/oscal_docs/awesome-oscal.md`, `data/oscal_docs/hashes.json`
