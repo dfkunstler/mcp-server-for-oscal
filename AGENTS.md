@@ -103,7 +103,8 @@ All of these are defined under `[tool.hatch.envs.default.scripts]` in `pyproject
 | `hatch run rehash` | After changing files in `oscal_schemas/`, `oscal_metaschema/`, or `data/*`; regenerates `hashes.json` (both metaschema manifests included) and runs `git add` on the manifests |
 | `hatch run update-oscal-schemas` | After bumping `CURRENT_RELEASE_VERSION` and `CURRENT_RELEASE_COMMIT` (full 40-hex SHA that tag `v<version>` points to) in `bin/update-oscal-schemas.sh`; then `rehash`. It first runs `bin/update_oscal_metaschema.py`, which downloads that commit's archive into `oscal_metaschema/`. That variable also drives the README OSCAL badge and `TestBundledOscalVersion`. Also requires a matching `oscal-bindings` release: `TestBundledOscalVersion` fails unless `oscal_bindings.__oscal_schema_version__` equals the bundled schema version |
 | `hatch run update` | Re-lock `requirements.txt` after editing dependencies (`UV_CONSTRAINT` pins every env to it) |
-| `hatch run release` | Full CI pipeline locally: tests, fetch NIST docs, build-db, build, build-mcpb (needs `uv` and `npx`) |
+| `hatch run package` | What CI's `build` job runs: fetch NIST docs, build-db, build, build-mcpb, no tests (needs `uv` and `npx`) |
+| `hatch run release` | `hatch run tests`, then `hatch run package`: the whole pipeline locally |
 | `hatch run http-server` / `hatch run oscal-agent` | Dev-only streamable-http server (no auth) / agent CLI (needs Bedrock) |
 
 ## Non-obvious conventions and gotchas
@@ -130,7 +131,7 @@ All of these are defined under `[tool.hatch.envs.default.scripts]` in `pyproject
 
 <!-- tags: ci, release, github-actions -->
 
-- `build.yml` runs on pushes to `main`, `v*` tags, and PRs to `main`. It validates `server.json` with `mcp-publisher`, then runs `hatch run release` on Python 3.14 (`build` job). The `test` job runs `hatch test` on Linux, macOS, and Windows × 3.13/3.14. The `mcpb` job checks the bundle on macOS and Windows: it downloads the build's `.mcpb`, validates/packs/unpacks it, runs `uv sync`, and runs the stdio smoke test. Tag builds create a draft GitHub release (`draft-release` needs `build`, `test`, and `mcpb`); the tag must be on `main`.
+- `build.yml` runs on pushes to `main`, `v*` tags, and PRs to `main`. It validates `server.json` with `mcp-publisher`, then runs `hatch run package` on Python 3.14 (`build` job: packaging only, no tests). The `static` job runs mypy and bandit (`hatch run typing`, `hatch run bandito`). The `test` job runs `hatch test` on Linux, macOS, and Windows × 3.13/3.14; the Ubuntu 3.14 cell also collects coverage and uploads the `coverage` artifact. pytest-xdist is already on everywhere (`parallel = true` in the `hatch-test` env). Windows cells point `TEMP`/`TMP` at `D:\tmp`, which cut them from 6-7.5 min to 2-3 min. The `mcpb` job checks the bundle on macOS and Windows: it downloads the build's `.mcpb`, validates/packs/unpacks it, runs `uv sync`, and runs the stdio smoke test. Tag builds create a draft GitHub release (`draft-release` needs `build`, `static`, `test`, and `mcpb`); the tag must be on `main`.
 - Publishing the draft triggers `release.yml`: PyPI trusted publishing, then the MCP Registry (version rewritten from the tag; `continue-on-error`).
 - Every build re-downloads OSCAL-Pages from unpinned `main`, so bundled docs can change between builds.
 - Dependabot (uv) runs weekly: minor and patch grouped, majors ignored.
