@@ -260,7 +260,7 @@ Formats and lints your code using ruff (replaces the deprecated `hatch fmt`). Om
 Regenerates SHA-256 hash manifests for all bundled content directories, including `oscal_metaschema/` and `oscal_metaschema/shared-constraints/`. Manifests must match this generated format byte for byte, so don't edit them by hand.
 
 `hatch run update-oscal-schemas`
-Downloads and updates the bundled OSCAL schemas and Metaschema modules from NIST. Set `CURRENT_RELEASE_VERSION` and `CURRENT_RELEASE_COMMIT` (the full commit SHA that tag `v<version>` points to) in `bin/update-oscal-schemas.sh` first, then run `hatch run rehash`.
+Downloads and updates the bundled OSCAL schemas and Metaschema modules from NIST. Set `CURRENT_RELEASE_VERSION`, `CURRENT_RELEASE_COMMIT` (the full commit SHA that tag `v<version>` points to), and `CURRENT_RELEASE_SHA256` (SHA-256 of the release asset `oscal-<version>.zip`; the script fails on a mismatch) in `bin/update-oscal-schemas.sh` first, then run `hatch run rehash`.
 
 `hatch run update`
 Re-locks `requirements.txt` and syncs the default env. It compiles with `--upgrade`, so it bumps every dependency to the latest version `pyproject.toml` allows, not only the one you changed. After raising a pin in `pyproject.toml`, the first run fails: the default env syncs against the old `requirements.txt` under `UV_CONSTRAINT` before the script runs. Hand-edit that pin in `requirements.txt` to the new version first, then run `hatch run update`.

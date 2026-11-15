@@ -39,6 +39,7 @@ METASCHEMA_NS = "http://csrc.nist.gov/ns/oscal/metaschema/1.0"
 # Expat names with namespace_separator=" "; also accept a module without the namespace.
 METASCHEMA_IMPORT_NAMES = frozenset({f"{METASCHEMA_NS} import", "import"})
 SHA_RE = re.compile(r"[0-9a-f]{40}")
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +295,19 @@ class TestBundleVersion:
         commit = match.group(1)
         assert SHA_RE.fullmatch(commit), f"not 40 lowercase hex characters: {commit!r}"
         assert readme_field("Commit") == commit
+
+    def test_release_sha256_pin_is_well_formed(self):
+        text = UPDATE_SCRIPT.read_text()
+        match = re.search(r'^CURRENT_RELEASE_SHA256="([^"]*)"', text, re.MULTILINE)
+        assert match, "CURRENT_RELEASE_SHA256 not found in update script"
+        digest = match.group(1)
+        assert SHA256_RE.fullmatch(digest), f"not 64 lowercase hex characters: {digest!r}"
+
+    def test_release_download_is_verified_and_https_only(self):
+        text = UPDATE_SCRIPT.read_text()
+        assert "--fail" in text
+        assert "--proto '=https'" in text
+        assert '"$ACTUAL_SHA256" != "$CURRENT_RELEASE_SHA256"' in text
 
     def test_every_module_declares_bundled_version(self):
         assert schema_version_problems(BUNDLE, get_bundled_oscal_version()) == []
