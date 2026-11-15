@@ -221,7 +221,11 @@ update-awesome-oscal = [
   https://raw.githubusercontent.com/oscal-club/awesome-oscal/refs/heads/main/README.md''',
 ]
 
-release = ["hatch run tests", "git status", "./bin/refresh-nist-docs.sh", "build-db", "hatch build", "build-mcpb"]
+# Packaging steps only (no tests). CI's `build` job runs this; the tests, mypy,
+# and bandit run in their own jobs.
+package = ["./bin/refresh-nist-docs.sh", "build-db", "hatch build", "build-mcpb"]
+
+release = ["hatch run tests", "git status", "hatch run package"]
 
 typing = [
   # Type checking using mypy

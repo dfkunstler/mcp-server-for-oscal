@@ -62,13 +62,14 @@ sequenceDiagram
     participant Rel as release.yml (release published)
     Dev->>CI: push / PR
     CI->>CI: mcp-publisher validate (server.json)
-    CI->>CI: build job (Linux, Python 3.14): hatch run release
-    Note over CI: tests -> git status -> refresh-nist-docs.sh -> build-db -> hatch build -> build-mcpb
-    CI->>CI: upload private/docs, wheel+sdist, .mcpb artifacts
-    CI->>CI: test job: hatch test on Linux, macOS, Windows x 3.13/3.14
+    CI->>CI: build job (Linux, Python 3.14): hatch run package
+    Note over CI: refresh-nist-docs.sh -> build-db -> hatch build -> build-mcpb (no tests)
+    CI->>CI: upload wheel+sdist, .mcpb artifacts
+    CI->>CI: static job (Linux): mypy (hatch run typing), bandit (hatch run bandito)
+    CI->>CI: test job: hatch test on Linux, macOS, Windows x 3.13/3.14; Ubuntu 3.14 also uploads the coverage artifact
     CI->>CI: mcpb job (macOS, Windows): download .mcpb, validate/pack/unpack, uv sync, stdio smoke test
     Dev->>CI: push tag vX.Y.Z (on main)
-    CI->>CI: draft-release (needs build, test, mcpb): verify tag on main, gh release create --draft with artifacts
+    CI->>CI: draft-release (needs build, static, test, mcpb): verify tag on main, gh release create --draft with artifacts
     Dev->>Rel: publish the draft release (manual)
     Rel->>Rel: download wheel/sdist from release -> PyPI (trusted publishing)
     Rel->>Rel: rewrite server.json versions from tag -> mcp-publisher publish (continue-on-error)
