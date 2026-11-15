@@ -19,6 +19,7 @@ import sqlite3
 import tempfile
 import threading
 import unicodedata
+import weakref
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -260,6 +261,26 @@ def _token(value: object) -> object:
     return getattr(value, "value", value)
 
 
+def _release_resources(
+    conns: list[sqlite3.Connection],
+    lock: threading.Lock,
+    temp_dir: tempfile.TemporaryDirectory | None,
+) -> None:
+    """Close every connection in ``conns`` (in place), then delete ``temp_dir``.
+
+    Module level so a ``weakref.finalize`` can call it without keeping the store alive.
+    Safe to call more than once.
+    """
+    with lock:
+        pending = conns[:]
+        conns.clear()
+    for conn in pending:
+        with contextlib.suppress(sqlite3.Error):
+            conn.close()
+    if temp_dir is not None:
+        temp_dir.cleanup()
+
+
 class OscalStore:
     """SQLite-backed store for all OSCAL model types."""
 
@@ -299,6 +320,8 @@ class OscalStore:
         self._temp_dir: tempfile.TemporaryDirectory | None = None
         self._cached_parse = self._build_cached_parse()
 
+        self._conns: list[sqlite3.Connection] = []
+        self._conns_lock = threading.Lock()
         resolved_path = self._resolve_db_path(db_path)
         self._db_path: str = resolved_path
 
@@ -306,9 +329,16 @@ class OscalStore:
         # them, and MCP servers run sync tools on worker threads, so each
         # thread gets its own connection to the same database file.
         self._local = threading.local()
-        self._conns: list[sqlite3.Connection] = []
-        self._conns_lock = threading.Lock()
         self._closed = False
+        # A store that is never closed must still release its connections before its
+        # temp dir is deleted: Windows cannot delete an open file. The finalizer is
+        # registered after the TemporaryDirectory's own, so at interpreter exit it
+        # runs first, and it never references ``self``.
+        self._finalizer: weakref.finalize | None = None
+        if self._temp_dir is not None:
+            self._finalizer = weakref.finalize(
+                self, _release_resources, self._conns, self._conns_lock, self._temp_dir
+            )
 
         try:
             self._conn.execute("PRAGMA journal_mode=WAL")
@@ -809,13 +839,12 @@ class OscalStore:
         """Close all database connections and clean up temp resources."""
         with self._conns_lock:
             self._closed = True
-            conns, self._conns = self._conns, []
-        for conn in conns:
-            conn.close()
+        _release_resources(self._conns, self._conns_lock, self._temp_dir)
+        if self._finalizer is not None:
+            self._finalizer.detach()
+            self._finalizer = None
         self._local = threading.local()
-        if self._temp_dir:
-            self._temp_dir.cleanup()
-            self._temp_dir = None
+        self._temp_dir = None
 
     # ------------------------------------------------------------------
     # LRU-cached model parsing
