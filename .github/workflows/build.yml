@@ -120,6 +120,17 @@ jobs:
         shell: pwsh
         run: Set-MpPreference -DisableRealtimeMonitoring $true
 
+      # The D: drive is faster than C: on Windows runners, and every test creates
+      # temp dirs and SQLite files. Point TEMP/TMP at it (measured: with xdist,
+      # Windows cells run in ~2-3 min; without this step they stay well above that).
+      - name: "Use D: drive for temp files (Windows)"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path D:\tmp | Out-Null
+          "TEMP=D:\tmp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "TMP=D:\tmp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
       # hatch ships uv as a dependency, so the hatch-test env's
       # `installer = "uv"` needs no separate setup-uv step.
       - name: Run tests
