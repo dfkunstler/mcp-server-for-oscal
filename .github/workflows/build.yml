@@ -122,7 +122,7 @@ jobs:
 
       # EXPERIMENT: the D: drive is faster than C: on Windows runners, and every
       # test creates temp dirs and SQLite files. Point TEMP/TMP at it.
-      - name: Use D: drive for temp files (Windows)
+      - name: "Use D: drive for temp files (Windows)"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
