@@ -47,7 +47,7 @@ from mcp_server_for_oscal.tools.query_documentation import (
 _MODULE = "mcp_server_for_oscal.tools.query_documentation"
 
 # Uppercase markers of values that must not appear in any Doc_Result_Item.
-LEAK_MARKERS = ("META", "REQ", "TOK", "HOST", "DIR", "QRY", "ARN")
+LEAK_MARKERS = ("META", "REQ", "TOK", "HOST", "DIR", "QRY", "ARN", "OPQ")
 KB_ITEM_KEYS = frozenset({"title", "snippet"})
 LOCAL_ITEM_KEYS = frozenset({"docId", "title", "snippet"})
 LOCAL_SNIPPET_MAX = 200
@@ -133,8 +133,8 @@ arn = st.one_of(
 custom_id = st.one_of(
     arn,
     key_path,
-    st.builds(lambda n, w: f"STEM{n}_{w}", marker_id, words),
-    st.builds(lambda n: f"STEM{n}", marker_id),
+    st.builds(lambda n, w: f"OPQ{n}_{w}", marker_id, words),
+    st.builds(lambda n: f"OPQ{n}", marker_id),
 )
 
 location = st.one_of(
@@ -330,7 +330,7 @@ class TestDocResultItemShape:
             "retrievalResults": [
                 {
                     "content": {"text": "", "type": "TEXT"},
-                    "location": {"type": "CUSTOM", "customDocumentLocation": {"id": "STEM0"}},
+                    "location": {"type": "CUSTOM", "customDocumentLocation": {"id": "OPQ0"}},
                 }
             ]
         }

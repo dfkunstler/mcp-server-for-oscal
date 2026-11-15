@@ -4527,3 +4527,48 @@ class TestNonStrDbPathTypeError:
             store.close()
 
         assert list(tmp_path.iterdir()) == []
+
+
+class TestUnclosedStoreCleanup:
+    """An unclosed store releases its connections and deletes its temp dir (#37).
+
+    Windows cannot delete an open SQLite file, so a leaked connection made the
+    TemporaryDirectory finalizer print WinError 32 at interpreter exit.
+    """
+
+    @staticmethod
+    def _leak_store() -> tuple[str, list[sqlite3.Connection]]:
+        store = OscalStore()  # no db_path and no bundled DB: ephemeral temp dir
+        store.db_mode  # noqa: B018 - touch the property; connection opens in __init__
+        conn = store._conn
+        return str(Path(store._db_path).parent), [conn]
+
+    def test_garbage_collected_store_closes_connections_and_removes_dir(self, monkeypatch):
+        import gc
+
+        monkeypatch.setattr(
+            "mcp_server_for_oscal.tools.oscal_store.BUNDLED_DB_PATH", Path("/nonexistent/x.db")
+        )
+        temp_dir, conns = self._leak_store()
+        gc.collect()
+        assert not Path(temp_dir).exists()
+        with pytest.raises(sqlite3.ProgrammingError):
+            conns[0].execute("SELECT 1")
+
+    def test_unclosed_store_is_cleaned_at_interpreter_exit(self, tmp_path):
+        import subprocess
+        import sys
+
+        script = (
+            "import tempfile, sys\n"
+            f"tempfile.tempdir = {str(tmp_path)!r}\n"
+            "from mcp_server_for_oscal.tools.oscal_store import OscalStore\n"
+            "store = OscalStore()\n"
+            "store._conn.execute('SELECT 1')\n"
+        )
+        result = subprocess.run(  # noqa: S603 - fixed argv, no user input
+            [sys.executable, "-c", script], capture_output=True, text=True, check=False
+        )
+        assert result.returncode == 0, result.stderr
+        assert "Error" not in result.stderr
+        assert not list(tmp_path.glob("oscal_store_*"))
