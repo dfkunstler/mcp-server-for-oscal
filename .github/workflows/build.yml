@@ -134,15 +134,14 @@ jobs:
       # `installer = "uv"` needs no separate setup-uv step.
       - name: Run tests
         env:
-          # EXPERIMENT: `hatch test -p` runs pytest-xdist (-n logical) on Windows.
-          HATCH_PARALLEL: ${{ runner.os == 'Windows' && '-p' || '' }}
           # Cap Hypothesis examples on Windows only (see tests/conftest.py). The
           # Windows cells exist to catch portability bugs; Linux and macOS keep the
           # full example counts for edge-case search.
           OSCAL_TEST_MAX_EXAMPLES: ${{ runner.os == 'Windows' && '10' || '' }}
         run: |
           pip install -U hatch
-          hatch test -py ${{ matrix.python }} $HATCH_PARALLEL
+          # -p runs pytest-xdist (-n logical) on every runner
+          hatch test -py ${{ matrix.python }} -p
 
   # Check the shipped MCP Bundle on the OSes Claude Desktop runs on. Tests the
   # exact .mcpb uploaded by `build` (the bytes `draft-release` attaches) rather
