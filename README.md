@@ -32,7 +32,7 @@ A Model Context Protocol (MCP) server that provides AI assistants (Claude, Cline
 
 - [Features](#features): what the tools cover, local-only operation, and integrity checks
 - [What is OSCAL?](#what-is-oscal) and [What is MCP?](#what-is-mcp): background
-- [How to use / examples](#how-to-use--examples): sample sessions covering models, templates, catalogs, and AWS component definitions
+- [How to use / examples](#how-to-use--examples): what to ask, plus walkthroughs of control tracing, validation and repair, Metaschema constraints, and cross-references
 - [Installation](#installation): one-click MCP Bundle (`.mcpb`) for Claude Desktop, or the PyPI package with configuration for Kiro, Claude Desktop, and VS Code
 - [Using your own OSCAL Content](#using-your-own-oscal-content): `OSCAL_DOCUMENTS_DIR` and store settings
 - [OSCAL Agent](#oscal-agent): the standalone Strands/Bedrock agent, sessions, and conversation management
@@ -59,316 +59,123 @@ OSCAL (Open Security Controls Assessment Language) is a set of framework-agnosti
 MCP (Model Context Protocol) is an [open-source standard][mcp-spec-url] for connecting AI applications to external systems. Think of MCP like a USB-C port for AI applications. Just as USB-C provides a standardized way to connect electronic devices, MCP provides a standardized way to connect AI applications to external systems. 
 
 ## How to use / examples
-Examples below were created with kiro-cli, but should work with any AI assistant that supports MCP servers.
+You don't call the tools yourself. Ask your AI assistant a question in plain language and it picks the tools. The table shows the kinds of questions the server answers well; the walkthroughs after it show real tool calls and results (abridged) from the bundled content.
 
-### Example 1: Learn about available OSCAL models
+| You want to... | Ask something like | Tools the assistant uses |
+|---|---|---|
+| Learn OSCAL | "What's the difference between a component definition and an SSP?" "Which OSCAL models are GA?" | `query_oscal_documentation`, `get_oscal_documentation`, `list_oscal_models` |
+| Author a document | "Generate a minimal valid assessment plan that tests AC-2 with one interview and one examine activity, then validate it." | `get_oscal_schema`, `get_definition`, `validate_oscal_content` |
+| Fix a document | "Why won't `ssp.json` validate? Fix it." | `validate_oscal_file`, `get_allowed_values`, `get_constraints` |
+| Know what's legal where the schema is silent | "What values can `prop/@name` take on an SSP component?" "What `link/@rel` values are allowed?" | `get_allowed_values`, `get_constraints` |
+| Keep references intact | "What in an SSP has to point at a party UUID?" "If I delete this component, what breaks?" | `find_references_to` |
+| Go to the source | "Show me the Metaschema lines that define `implemented-requirement`." | `get_definition`, `get_metaschema_source` |
+| Map cloud services to controls | "Which AWS Config rules implement Security Hub control S3.17?" "What does RDS.10 check?" | `text_search_oscal`, `get_child_element`, `query_component_definition` |
+| Explore your own content | "List the findings in my latest assessment results that aren't satisfied." "Which controls in my SSP mention MFA?" | `list_documents`, `list_child_elements`, `text_search_oscal` (with [`OSCAL_DOCUMENTS_DIR`](#using-your-own-oscal-content)) |
+| Find community content | "Are there OSCAL catalogs for CIS or the Australian ISM?" | `list_oscal_resources` |
+
+### Example 1: Trace an AWS Config rule to the control it implements
+The bundled content includes AWS service component definitions and the AWS Security Hub controls catalog. The assistant searches both, then follows the link from a component's `control-implementations` to the catalog control.
+
 ```markdown
- % kiro-cli
+> Which AWS Config rule checks that S3 buckets use KMS encryption, and which Security Hub control does it satisfy?
 
-> /tools trust get_oscal_schema list_oscal_models list_oscal_resources
+Running tool text_search_oscal
+ ⋮  { "query_text": "S3 bucket encryption" }
+    → 133 hits; top hit: component "s3-default-encryption-kms" in "Amazon Simple Storage Service"
 
+Running tool get_child_element
+ ⋮  { "element_id": "bb20a1e2-7a95-4925-8425-663c99f5594b",
+ ⋮    "parent_doc_uuid": "2241b1e6-e268-4190-a6c5-0eaa5a9d961a" }
 
-Tools '@oscal/get_oscal_schema', '@oscal/list_oscal_models', '@oscal/list_oscal_resources' are now trusted. I will not ask for confirmation before running these tools.
+> The rule is S3_DEFAULT_ENCRYPTION_KMS. Its component in the Amazon S3 component definition:
+  - Evaluates AWS::S3::Bucket, AWS::KMS::Key, and AWS::KMS::Alias resources
+  - asset-type: automated-inspection
+  - control-implementations → implemented-requirement control-id "S3.17"
+    ("Implemented via AWS Config Rule")
 
-
-> How many GA OSCAL models are there? 
-
-
-> I'll check the available OSCAL models to find out how many are in GA (Generally Available) status.
-Running tool list_oscal_models with the param (from mcp server: oscal)
- ⋮  {}
- - Completed in 0.1s
-
-> There are 8 GA OSCAL models:
-
-Control Layer (3):
-- Catalog
-- Profile  
-- Mapping Collection
-
-Implementation Layer (2):
-- Component Definition
-- System Security Plan (SSP)
-
-Assessment Layer (3):
-- Assessment Plan (SAP)
-- Assessment Results (SAR)
-- Plan of Action and Milestones (POA&M)
-
-All of these models have "GA" (Generally Available) status, meaning they are stable and ready for production use.
- ▸ Time: 8s
+  So a NON_COMPLIANT result from this rule is evidence against Security Hub control S3.17.
 ```
 
-### Example 2: OSCAL template generation
+Follow-ups that work well: "What does RDS.10 check and how severe is it?" (`get_child_element` returns the control's overview, `SeverityLabel` MEDIUM, its assessment-method Config rule, and the remediation link), or "List every Config rule that implements an S3 control."
+
+### Example 2: Validate and repair an SSP
+`validate_oscal_content` and `validate_oscal_file` check four levels: JSON syntax, JSON Schema, the OSCAL model (via [oscal-bindings](https://pypi.org/project/oscal-bindings/)), and `oscal-cli` if it's installed. The assistant gets every error at once, so it can fix them in one pass.
+
 ```markdown
-> generate a minimum, valid, OSCAL mapping in JSON for use as a template.
+> Validate my draft SSP and fix whatever's wrong.
 
-> I'll help you create a minimal, valid OSCAL mapping in JSON. Let me first check what OSCAL models are available to understand the structure.
-Running tool list_oscal_models with the param (from mcp server: oscal)
- ⋮  {}
- - Completed in 0.1s
+Running tool validate_oscal_content
+ ⋮  { "content": "{\"system-security-plan\": {\"uuid\": \"not-a-uuid\", ...}}" }
 
-> Now let me get the schema for the mapping-collection model to understand its structure:
-Running tool get_oscal_schema with the param (from mcp server: oscal)
- ⋮  {
- ⋮    "model_name": "mapping-collection",
- ⋮    "schema_type": "json"
- ⋮  }
- - Completed in 0.14s
+ well_formedness  ✓
+ json_schema      ✗ 6 errors
+ model            ✗ 6 errors for SystemSecurityPlan:
+   uuid                                          String should match the UUID v4/v5 pattern
+   metadata.last-modified                        Input should have timezone info
+   system-characteristics.status.state           'live' is not one of operational, under-development, ...
+   system-characteristics.system-information.information-types   List should have at least 1 item
+   system-implementation.users                   List should have at least 1 item
+   control-implementation.implemented-requirements  List should have at least 1 item
+ oscal_cli        skipped (not installed)
 
-> Based on the schema, I'll create a minimal, valid OSCAL mapping collection template. Here's the absolute minimum required structure:
-I'll create the following file: ./oscal-mapping-template.json (using tool: write)
-Purpose: Create minimal OSCAL mapping collection template
-
-+     1: {
-+     2:   "mapping-collection": {
-+     3:     "uuid": "12345678-1234-4567-8901-123456789012",
-+     4:     "metadata": {
-+     5:       "title": "Sample Mapping Collection",
-+     6:       "last-modified": "2026-01-06T20:46:28.034Z",
-+     7:       "version": "1.0",
-+     8:       "oscal-version": "1.2.0"
-+     9:     },
-+    10:     "provenance": {
-+    11:       "method": "human",
-+    12:       "matching-rationale": "semantic",
-+    13:       "status": "draft",
-+    14:       "mapping-description": "Sample mapping between two control frameworks"
-+    15:     },
-+    16:     "mappings": [
-+    17:       {
-+    18:         "uuid": "87654321-4321-7654-1098-210987654321",
-+    19:         "source-resource": {
-+    20:           "type": "catalog",
-+    21:           "href": "https://example.com/source-catalog.json"
-+    22:         },
-+    23:         "target-resource": {
-+    24:           "type": "catalog", 
-+    25:           "href": "https://example.com/target-catalog.json"
-+    26:         },
-+    27:         "maps": [
-+    28:           {
-+    29:             "uuid": "11111111-2222-3333-4444-555555555555",
-+    30:             "relationship": "equivalent",
-+    31:             "sources": [
-+    32:               {
-+    33:                 "type": "control",
-+    34:                 "id-ref": "ac-1"
-+    35:               }
-+    36:             ],
-+    37:             "targets": [
-+    38:               {
-+    39:                 "type": "control",
-+    40:                 "id-ref": "access-control-policy"
-+    41:               }
-+    42:             ]
-+    43:           }
-+    44:         ]
-+    45:       }
-+    46:     ]
-+    47:   }
-+    48: }
-
-Creating: ./oscal-mapping-template.json
- - Completed in 0.8s
-
-> I've created a minimal, valid OSCAL mapping collection template at ./oscal-mapping-template.json. This template includes:
-
-Required elements:
-- uuid: Unique identifier for the mapping collection
-- metadata: Document metadata with title, last-modified timestamp, version, and OSCAL version
-- provenance: Mapping methodology information including method, matching rationale, status, and description
-- mappings: Array containing at least one mapping with:
-  - uuid: Mapping identifier
-  - source-resource and target-resource: References to the catalogs being mapped
-  - maps: Array with mapping entries showing relationships between controls
-
-Key features:
-- Uses placeholder UUIDs (replace with actual UUIDs in production)
-- Maps a source control "ac-1" to target control "access-control-policy" with "equivalent" relationship
-- Includes minimal required fields only
-- Valid JSON structure conforming to OSCAL 1.2.0 schema
-
-You can customize this template by:
-- Replacing placeholder UUIDs with real ones
-- Updating the resource URLs to point to actual catalogs
-- Adding more mapping entries in the maps array
-- Modifying control IDs and relationships as needed
- ▸ Time: 21s
-
+> Six problems. I'll generate a v4 UUID, set last-modified to "2026-11-15T00:00:00Z",
+  change status to "operational", and add one information type, one user, and one
+  implemented requirement as placeholders. Re-validating... all levels pass
+  (oscal-cli skipped).
 ```
 
-### Example 3: Discover open source OSCAL catalogs
+### Example 3: Answer "what's allowed here?" when the JSON Schema doesn't say
+Many OSCAL rules live only in the NIST Metaschema constraints, not the generated JSON Schema. The Metaschema tools read the bundled Metaschema modules directly and cite the source file and line for every answer.
+
 ```markdown
-> What are some open source OSCAL catalogs?
+> What values can I use for a component's type in an SSP? Can I make up my own?
 
-Running tool list_oscal_resources with the param (from mcp server: oscal)
- ⋮  {}
- - Completed in 0.51s
+Running tool get_allowed_values
+ ⋮  { "model": "system-security-plan", "target": "system-component/@type" }
+    → 17 values, constraint "oscal-component-type-values", allow-other: true
 
-> Based on the OSCAL community resources, here are some notable open source OSCAL catalogs:
-
-## Government/Official Catalogs
-
-Australian Cyber Security Centre (ACSC)
-- Information Security Manual (ISM) controls in OSCAL format
-- Essential Eight Maturity Levels (ML1, ML2, ML3)
-- Available at: https://www.cyber.gov.au/ism/oscal
-
-CMS Acceptable Risk Safeguards (ARS)
-- Tailored NIST SP 800-53 controls for Centers for Medicare and Medicaid Services
-- Available at: https://github.com/CMSgov/ars-machine-readable
-
-GovTech Singapore
-- ICT&SS Policy catalog and profile for low-risk systems
-- Available at: https://github.com/GovtechSG/tech-standards
-
-## Industry/Standards Organizations
-
-Center for Internet Security (CIS)
-- CIS Critical Security Controls (formerly Top 18/20)
-- Available at: https://github.com/CISecurity/CISControls_OSCAL/
-
-Cloud Security Alliance (CSA)
-- Cloud Controls Matrix v4 in OSCAL format
-- Available at: https://cloudsecurityalliance.org/artifacts/ccm-machine-readable-bundle-json-yaml-oscal/
-
-NIST SP 800-171 (Community)
-- Maintained by Fathom5
-- Available at: https://github.com/FATHOM5/oscal/tree/main/content/SP800-171/oscal-content
-
-## Community Collections
-
-CivicActions Component Definitions
-- Cloud services, software, security and privacy controls
-- Available at: https://github.com/CivicActions/oscal-component-definitions
-
-RedHat OSCAL Content
-- Component definitions: https://github.com/RedHatProductSecurity/oscal-component-definitions
-- Custom profiles: https://github.com/RedHatProductSecurity/oscal-profiles
-
-Brad Hards ISM Catalog
-- Australian Government ISM controls (community version)
-- Available at: https://github.com/bradh/ism-oscal
-
-These catalogs provide ready-to-use OSCAL content for various compliance frameworks and can serve as templates or starting points for your own OSCAL implementations.
- ▸ Time: 15s
- ```
-
-### Example 4: Query component definitions for information about AWS services
-```markdown
-[OSCAL] > what components are available for Cognito?
-
-Running tool list_child_elements with the param (from mcp server: oscal-dev)
- ⋮  {
- ⋮    "element_type": "component"
- ⋮  }
- - Completed in 0.49s
-
-> There are 3 Cognito-related components available:
-
-1. Cognito Identity - from "Cognito Identity Pools" component definition
-2. Cognito Sync - from "Amazon Cognito Sync" component definition  
-3. Cognito Identity Provider - from "Amazon Cognito Identity User Pools" component definition
-
- ▸ Time: 7s
-
-[OSCAL] > show me the names and IDs from all 3 components
-
-Running tool query_component_definition with the param (from mcp server: oscal-dev)
- ⋮  {
- ⋮    "query_type": "by_uuid",
- ⋮    "query_value": "7fd5d354-6ec4-4f8e-8c5f-2904086bb597"
- ⋮  }
-Running tool query_component_definition with the param (from mcp server: oscal-dev)
- ⋮  {
- ⋮    "query_type": "by_uuid",
- ⋮    "query_value": "a1d82e1d-3733-41f4-bc09-90ab47b9e82f"
- ⋮  }
-Running tool query_component_definition with the param (from mcp server: oscal-dev)
- ⋮  {
- ⋮    "query_type": "by_uuid",
- ⋮    "query_value": "2519deaf-4612-4c70-aba2-d9080ae3c816"
- ⋮  }
- - Completed in 0.13s
-
- - Completed in 0.6s
-
- - Completed in 0.6s
-
-> 1. Cognito Sync
-- Service ID: Cognito Sync
-- API Endpoint Prefix: cognito-sync
-- ARN Namespace: cognito-sync
-
-2. Cognito Identity Provider
-- Service ID: Cognito Identity Provider
-- API Endpoint Prefix: cognito-idp
-- ARN Namespace: cognito-idp
-
-3. Cognito Identity
-- Service ID: Cognito Identity
-- API Endpoint Prefix: cognito-identity
-- ARN Namespace: cognito-identity
-
- ▸ Time: 12s
-
-[OSCAL] > show me everything in the EC2 component definition
-
-Running tool query_component_definition with the param (from mcp server: oscal-dev)
- ⋮  {
- ⋮    "component_definition_filter": "Elastic Compute Cloud (EC2)",
- ⋮    "query_type": "all"
- ⋮  }
- - Completed in 0.14s
-
-> The EC2 component definition contains 1 component:
-
-Component: EC2
-- UUID: 66345eb9-7c0d-435c-b2b5-675fd977de80
-- Type: service
-- Description: Empty
-
-Properties:
-- Service ID: EC2
-- Version: 2016-11-15
-- Availability: REGIONAL and ZONAL
-- Full Name: Elastic Compute Cloud (EC2)
-- API Endpoint Prefix: ec2
-- ARN Namespace: ec2
-
-Regional Availability (34 regions):
-Africa (Cape Town), Asia Pacific (Hong Kong, Tokyo, Seoul, Osaka, Mumbai, Hyderabad, Singapore, Sydney, Jakarta, Melbourne, Malaysia), Canada (Central, Calgary), China (Beijing, Ningxia), 
-Europe (Frankfurt, Zurich, Stockholm, Milan, Spain, Ireland, London, Paris), Israel (Tel Aviv), Middle East (UAE, Bahrain), South America (Sao Paulo), US East (N. Virginia, Ohio), AWS 
-GovCloud (US-East, US-West), US West (N. California, Oregon)
-
- ▸ Time: 10s
-
-[OSCAL] > what's the ID of the Jakarta region?
-
-> Based on the EC2 component data I just retrieved, the Jakarta region's resource fragment ID is:
-
-8041109b-0a0b-46cc-bddb-91d703667637
-
-This is the UUID for the "Asia Pacific (Jakarta)" region component.
-
- ▸ Time: 3s
-
-[OSCAL] > get the region ID from that component
-
-Running tool query_component_definition with the param (from mcp server: oscal-dev)
- ⋮  {
- ⋮    "query_type": "by_uuid",
- ⋮    "query_value": "8041109b-0a0b-46cc-bddb-91d703667637"
- ⋮  }
- - Completed in 0.13s
-
-> The region ID for Jakarta is: ap-southeast-3
-
- ▸ Time: 7s
-
-[OSCAL] > /quit
+> 17 values are defined, including:
+  - this-system      The system as a whole.
+  - system           An external system (leveraged, or the other side of an interconnection).
+  - interconnection  A connection to something outside this system.
+  - software         Any software, operating system, or firmware.
+  - hardware         A physical device.
+  ...
+  allow-other is true, so a custom value is legal, but tools that consume your SSP
+  won't know what it means. (Source: oscal_implementation-common_metaschema.xml:242
+  and shared-constraints/allowed-values-component-type.ent.)
 ```
+
+Tip: rules for every `prop` and `link` are declared on the generic definitions, so ask about `property/@name` and `link/@rel` too.
+
+### Example 4: Keep cross-references intact
+`find_references_to` lists everything that Metaschema `index-has-key` constraints require to point at an assembly, including props and links that a search for `*-uuid` fields would miss.
+
+```markdown
+> I'm removing a party from my SSP's metadata. What else might reference it?
+
+Running tool find_references_to
+ ⋮  { "assembly": "party", "model": "system-security-plan" }
+
+> Five places must resolve to a party UUID in metadata/party:
+  - implemented-requirement → responsible-role[party-uuid], including inside
+    statements and by-component          (oscal_ssp_metaschema.xml:736)
+  - inventory-item → responsible-party/party-uuid
+                                         (oscal_implementation-common_metaschema.xml:589)
+  - action → responsible-party/party-uuid  (oscal_metadata_metaschema.xml:886)
+  - party-uuid fields in general           (oscal_metadata_metaschema.xml:471)
+  - party → member-of-organization, which must reference a party of type "organization"
+                                         (oscal_metadata_metaschema.xml:331)
+  Search your SSP for the party's UUID in each of these before deleting it.
+```
+
+### More things to try
+- "Generate a minimal valid mapping collection that maps two controls, and validate it before you show me."
+- "Show me the Metaschema definition of `by-component`, including the remarks the JSON Schema drops."
+- "Which Security Hub controls are HIGH severity for EC2?"
+- "Which AWS regions is EC2 available in, according to its component definition?"
+- "Read the OSCAL docs page on profile resolution and summarize the merge options."
+- With your own content loaded: "Which tasks in my assessment plan have no activities?" "Which controls in my assessment results have findings with no linked observations?" "Compare the components in my two component definitions."
 
 ## Installation
 Follow these instructions to setup the MCP server for use with your preferred IDE, AI agent, chatbot, etc. The server is distributed two ways:
